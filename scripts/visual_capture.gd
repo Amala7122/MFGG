@@ -32,6 +32,9 @@ const CAPTURE_ARG := "--vis-capture"
 const DISPLAY_SETTINGS_ARG := "--vis-display-settings"
 const SHOW_UI_ARG := "--vis-show-ui"
 const PLAY_ARG := "--vis-play"
+const ROSTER_ARG := "--vis-roster"
+const ROSTER_STRIP_ARG := "--vis-roster-strip"
+const HIDE_PREFIX := "--vis-hide="
 const ROUND_PREFIX := "--vis-round="
 const ARENA_PREFIX := "--vis-arena="
 const SLOPE_SAMPLES := 60
@@ -45,9 +48,12 @@ const SAMPLE_ROWS := 9
 
 
 func _ready() -> void:
-	if not _wanted():
+	if not _wanted() and not _roster_wanted():
 		return
 	_pin_arena()
+	if _roster_wanted():
+		call_deferred("_run_roster")
+		return
 	call_deferred("_run")
 
 
@@ -57,6 +63,18 @@ func _ready() -> void:
 func _wanted() -> bool:
 	return OS.get_cmdline_user_args().has(CAPTURE_ARG) \
 		or OS.get_cmdline_args().has(CAPTURE_ARG)
+
+
+## 图鉴陈列：不拍场景，拍【敌人队列】。见 _run_roster。
+func _roster_wanted() -> bool:
+	return OS.get_cmdline_user_args().has(ROSTER_ARG) \
+		or OS.get_cmdline_args().has(ROSTER_ARG)
+
+
+## 剥离测试：护甲色统一成中性灰 + 隐藏头顶名字，只留形状。
+func _roster_strip_requested() -> bool:
+	return OS.get_cmdline_user_args().has(ROSTER_STRIP_ARG) \
+		or OS.get_cmdline_args().has(ROSTER_STRIP_ARG)
 
 
 func _show_ui_requested() -> bool:
@@ -116,6 +134,7 @@ func _run() -> void:
 	if ConfigUtil.get_bool("visual.hide_ui", true) and not _show_ui_requested():
 		_hide_ui(get_tree().root)
 
+	_hide_requested_nodes(scene)
 	_set_window_size()
 	var shots := await _capture_all(scene)
 	var report := _build_report(shots)
@@ -288,6 +307,295 @@ func _ensure_output_dir() -> String:
 			return candidate
 	push_error("[拍摄] 输出目录创建失败，仍尝试写入 %s" % wanted)
 	return wanted
+
+
+# ---------------------------------------------------------------- 图鉴陈列
+
+## 【为什么要有这个模式】
+## "敌人的辨识度"是一个必须在【同一条件】下横向比较的东西：同一排站位、
+## 同一批机位、同一段距离。否则"这一轮改完是不是更好"只能靠记忆和感觉，
+## 而记忆恰恰会被先后顺序骗过去（先看到的那个总是显得更对）。
+##
+## 它拍的不是场景，是队列：把所有图鉴条目按体型从小到大摆成一排，用远/中/近
+## 三档机位拍下来。中距离那张是主验收图 —— 在那个像素高度上还能不能区分剪影，
+## 就是"30 米外能不能认出它"的答案。
+##
+## --vis-roster-strip 会额外把护甲色统一成中性灰、隐藏头顶名字：
+## 去掉颜色与文字之后剩下的形状，才是真正属于"这个兵种"的信息量。
+func _run_roster() -> void:
+	while get_tree().current_scene == null:
+		await get_tree().process_frame
+	var settle := maxi(ConfigUtil.get_int("visual.settle_frames", 150), 1)
+	for _frame in range(settle):
+		await get_tree().process_frame
+	_hide_ui(get_tree().root)
+	await _set_window_size()
+	var cfg := ConfigUtil.get_dictionary("visual.roster")
+	_hide_roster_clutter(cfg)
+	var strip := _roster_strip_requested()
+	var order := await _spawn_roster_lineup(cfg, strip)
+	if order.is_empty():
+		push_error("[陈列] 队列为空：检查 visual.roster.lineup 与 enemy_roster.entries")
+		get_tree().quit()
+		return
+	var shots := await _capture_roster_shots(cfg, order)
+	var text := _render_roster_report(order, shots, strip)
+	print(text)
+	_write_roster_report(text)
+	get_tree().quit()
+
+
+## --vis-hide=<节点名>：在拍摄前隐藏指定节点（可重复）。
+##
+## 【为什么需要它】对照实验是排查"这个红色的东西是谁画的"最省事的办法：
+## 把候选来源逐个关掉再拍同一机位，哪一次它消失了，答案就是那个。
+## 它比读代码猜快得多 —— 尤其是当同一个画面里有一堆半透明加色叠加物的时候。
+func _hide_requested_nodes(scene: Node) -> void:
+	var wanted: Array[String] = []
+	for arg in OS.get_cmdline_user_args() + OS.get_cmdline_args():
+		if arg.begins_with(HIDE_PREFIX):
+			var name := arg.substr(HIDE_PREFIX.length()).strip_edges()
+			if not name.is_empty():
+				wanted.append(name)
+	for node_name in wanted:
+		var node := scene.find_child(node_name, true, false) as Node3D
+		if node == null:
+			print("[拍摄] --vis-hide=%s：场景里没有这个节点" % node_name)
+			continue
+		node.visible = false
+		print("[拍摄] 已隐藏节点 %s（路径 %s）" % [node_name, str(scene.get_path_to(node))])
+
+
+## 陈列图的主体是敌人，不是关卡。掩体与陈设会挡人，也会让两轮之间的背景变来变去，
+## 所以这个模式下把它们收起来（只留地面 / 道路 / 远景），保证"同一条件"这条前提。
+func _hide_roster_clutter(cfg: Dictionary) -> void:
+	var names: Array = cfg.get("hide_nodes", ["Cover", "MapContent"])
+	var scene := get_tree().current_scene
+	for item in names:
+		var node := scene.find_child(String(item), true, false) as Node3D
+		if node != null:
+			node.visible = false
+
+
+## 队列顺序：默认"先近战、再远程，各自体型从小到大" —— 陈列图要能一眼扫完，
+## 而不是被解锁顺序打散。也可以在 visual.roster.lineup 里显式指定。
+func _roster_entries(cfg: Dictionary) -> Array:
+	var roster := ConfigUtil.get_dictionary("enemy_roster")
+	var all: Array = roster.get("entries", []) as Array
+	var wanted: Array = cfg.get("lineup", []) as Array
+	var out: Array = []
+	if not wanted.is_empty():
+		for id in wanted:
+			var found := _find_entry(all, String(id))
+			if not found.is_empty():
+				out.append(found)
+		return out
+	var melee: Array = []
+	var ranged: Array = []
+	for item in all:
+		if not (item is Dictionary):
+			continue
+		var entry := item as Dictionary
+		if String(entry.get("kind", "melee")) == "melee":
+			melee.append(entry)
+		else:
+			ranged.append(entry)
+	melee.sort_custom(_sort_by_scale)
+	ranged.sort_custom(_sort_by_scale)
+	out.append_array(melee)
+	out.append_array(ranged)
+	return out
+
+
+func _sort_by_scale(a: Dictionary, b: Dictionary) -> bool:
+	return float(a.get("scale", 1.0)) < float(b.get("scale", 1.0))
+
+
+func _find_entry(entries: Array, id: String) -> Dictionary:
+	for item in entries:
+		if item is Dictionary and String((item as Dictionary).get("id", "")) == id:
+			return item as Dictionary
+	return {}
+
+
+## 摆队列并冻结。冻结是为了让画面可重复：敌人一走动，两轮之间的画面就不可比。
+## 注意 y 是【直接摆到位】而不是让它落地 —— 菜单状态下场景是暂停的（重力不跑），
+## 靠物理落位会永远浮在空中。
+func _spawn_roster_lineup(cfg: Dictionary, strip: bool) -> Array:
+	var scene := get_tree().current_scene
+	var spawner := scene.find_child("EnemySpawner", true, false)
+	if spawner == null or not spawner.has_method("spawn_enemy"):
+		push_error("[陈列] 场景里找不到 EnemySpawner")
+		return []
+	var entries := _roster_entries(cfg)
+	var spacing := maxf(float(cfg.get("spacing", 2.7)), 0.5)
+	var base_z := float(cfg.get("z", -14.0))
+	var origin_x := float(cfg.get("origin_x", 0.0))
+	var yaw := deg_to_rad(float(cfg.get("yaw_degrees", 180.0)))
+	var stand := maxf(ConfigUtil.get_float("spawn.enemy_stand_clearance", 1.2), 0.5)
+	var count := entries.size()
+	var spawned: Array = []
+	# 报告要的是"左 → 右分别是哪一条"，所以返回的是条目表而不是节点表。
+	var placed: Array = []
+	for index in range(count):
+		var entry := entries[index] as Dictionary
+		var x := origin_x + (float(index) - float(count - 1) * 0.5) * spacing
+		var enemy := spawner.call("spawn_enemy", entry, Vector3(x, 0.0, base_z), 1.0) as Node3D
+		if enemy == null:
+			continue
+		spawned.append(enemy)
+		placed.append(entry)
+	# 等 3 帧：configure / apply_body_profile 是 call_deferred 的，要等它们跑完。
+	for _frame in range(3):
+		await get_tree().process_frame
+	for index in range(spawned.size()):
+		var enemy := spawned[index] as Node3D
+		var x := origin_x + (float(index) - float(spawned.size() - 1) * 0.5) * spacing
+		# 站高 = 胶囊半高（1.0）。用 stand_clearance 会让脚离地 20 公分。
+		var foot := TerrainUtil.height_at(x, base_z)
+		enemy.set_physics_process(false)
+		enemy.global_position = Vector3(x, foot + 1.0, base_z)
+		enemy.rotation = Vector3(0.0, yaw, 0.0)
+		if strip:
+			_strip_enemy(enemy)
+	return placed
+
+
+## 剥离测试：把护甲色与自发光统一压成中性灰，并隐藏头顶血条/名字。
+## 改的是材质实例（场景材质是 resource_local_to_scene），不会串到别的敌人。
+func _strip_enemy(enemy: Node3D) -> void:
+	var label := enemy.find_child("HealthLabel", true, false) as Label3D
+	if label != null:
+		label.visible = false
+	var neutral := Color(0.62, 0.63, 0.66, 1.0)
+	for child in enemy.find_children("*", "MeshInstance3D", true, false):
+		var mesh := child as MeshInstance3D
+		if mesh == null or not (mesh.material_override is StandardMaterial3D):
+			continue
+		var material := mesh.material_override as StandardMaterial3D
+		material.albedo_color = neutral
+		if material.emission_enabled:
+			material.emission = Color(0.86, 0.88, 0.92, 1.0)
+	# 自发光部件往往还带一盏点光（枪口 / 能量核）。形状测试里它会在敌人周围
+	# 染出一圈颜色，"剥离"就不彻底了 —— 一并关掉。
+	for child in enemy.find_children("*", "OmniLight3D", true, false):
+		(child as OmniLight3D).light_energy = 0.0
+
+
+## 三档机位：远（整排 / 剪影检查）、中（两段 / 主验收）、近（四段 / 细节）。
+## 距离由"要覆盖多宽"反推，所以条数变了也不用改机位。
+func _capture_roster_shots(cfg: Dictionary, order: Array) -> Array:
+	var scene := get_tree().current_scene
+	var camera := Camera3D.new()
+	camera.name = "RosterCamera"
+	scene.add_child(camera)
+	camera.make_current()
+
+	var spacing := maxf(float(cfg.get("spacing", 2.7)), 0.5)
+	var base_z := float(cfg.get("z", -14.0))
+	var origin_x := float(cfg.get("origin_x", 0.0))
+	var row_width := maxf(float(order.size() - 1) * spacing, 4.0)
+	var aspect := _viewport_aspect()
+	var round_name := _round_name()
+	var output_dir := _ensure_output_dir()
+	var shots: Array = []
+	for item in _roster_shot_specs(cfg):
+		var spec := item as Dictionary
+		var panels := maxi(int(spec.get("panels", 1)), 1)
+		var fov := float(spec.get("fov", 34.0))
+		var height := float(spec.get("height", 2.4))
+		var focus_y := float(spec.get("focus_y", 1.6))
+		var covered := maxf(row_width / float(panels) * 1.14, 6.0)
+		var distance := _distance_for_width(covered, fov, aspect)
+		for panel in range(panels):
+			var center_x := origin_x - row_width * 0.5 \
+				+ row_width * (float(panel) + 0.5) / float(panels)
+			camera.global_position = Vector3(center_x, height, base_z + distance)
+			camera.look_at(Vector3(center_x, focus_y, base_z), Vector3.UP)
+			camera.fov = fov
+			await RenderingServer.frame_post_draw
+			await RenderingServer.frame_post_draw
+			var image := get_viewport().get_texture().get_image()
+			var shot_name := "%s_%s" % [String(spec.get("name", "shot")), panel]
+			var path := "%s/%s_%s.png" % [output_dir, round_name, shot_name]
+			var error := image.save_png(path)
+			shots.append({
+				"name": shot_name,
+				"path": path,
+				"error": error,
+				"width": image.get_width(),
+				"height": image.get_height(),
+				"distance": distance,
+			})
+	return shots
+
+
+func _roster_shot_specs(cfg: Dictionary) -> Array:
+	var raw: Variant = cfg.get("shots", null)
+	if raw is Array and not (raw as Array).is_empty():
+		return raw as Array
+	return [
+		{"name": "far", "panels": 1, "fov": 30.0, "height": 3.4, "focus_y": 1.8},
+		{"name": "mid", "panels": 2, "fov": 34.0, "height": 2.4, "focus_y": 1.6},
+		{"name": "near", "panels": 4, "fov": 40.0, "height": 1.9, "focus_y": 1.5},
+	]
+
+
+## 让 width 米的东西正好填满画面【横向】。Camera3D.fov 是纵向视场角，
+## 所以横向半角要先按宽高比换算。
+func _distance_for_width(width_m: float, fov_deg: float, aspect: float) -> float:
+	var half_v := deg_to_rad(fov_deg) * 0.5
+	var half_h := atan(tan(half_v) * maxf(aspect, 0.1))
+	return (width_m * 0.5) / maxf(tan(half_h), 0.0001)
+
+
+func _viewport_aspect() -> float:
+	var size := get_viewport().get_visible_rect().size
+	if size.y <= 1.0:
+		return 16.0 / 9.0
+	return size.x / size.y
+
+
+func _render_roster_report(order: Array, shots: Array, strip: bool) -> String:
+	var lines := PackedStringArray()
+	lines.append("──────── 图鉴陈列报告 ────────")
+	lines.append("轮次 = %s" % _round_name())
+	lines.append("竞技场 = %s" % ArenaUtil.resolve_id())
+	lines.append("剥离模式 = %s" % ("开（中性灰 + 隐藏名字）" if strip else "关（护甲色 + 头顶名字）"))
+	lines.append("")
+	lines.append("【队列（左 → 右）】")
+	for index in range(order.size()):
+		var entry := order[index] as Dictionary
+		lines.append("  %2d. %-18s %-10s scale=%.2f profile=%s" % [
+			index + 1,
+			String(entry.get("id", "?")),
+			String(entry.get("title", "?")),
+			float(entry.get("scale", 1.0)),
+			String(entry.get("profile", "-")),
+		])
+	lines.append("")
+	lines.append("【截图】")
+	for item in shots:
+		var shot := item as Dictionary
+		lines.append("  %-8s %sx%s 距离 %.1fm  %s" % [
+			String(shot.get("name", "?")),
+			int(shot.get("width", 0)),
+			int(shot.get("height", 0)),
+			float(shot.get("distance", 0.0)),
+			String(shot.get("path", "?")),
+		])
+	lines.append("─────────────────────────────")
+	return "\n".join(lines)
+
+
+func _write_roster_report(text: String) -> void:
+	var path := "%s/%s_roster.txt" % [_ensure_output_dir(), _round_name()]
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		push_error("[陈列] 报告写入失败：%s" % path)
+		return
+	file.store_string(text + "\n")
+	file.close()
 
 
 # ---------------------------------------------------------------- 契约自检

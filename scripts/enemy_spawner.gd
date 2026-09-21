@@ -106,6 +106,10 @@ func _apply_enemy_config(enemy: Node3D, info: Dictionary) -> void:
 		)
 	else:
 		enemy.call("configure_melee_variant", String(entry.get("title", "战士")), armor)
+	# 形体剖面：按图鉴条目把共用骨架改成该兵种的剪影（见 enemy_profile.gd）。
+	# 必须晚于上面的 configure —— 剖面新增的部件要参与染色与受击闪白。
+	if enemy.has_method("apply_body_profile"):
+		enemy.call("apply_body_profile", String(entry.get("profile", "")))
 
 	var health := _health_for(entry, kind, level)
 	var speed := float(entry.get("move_speed", 5.0)) * minf(

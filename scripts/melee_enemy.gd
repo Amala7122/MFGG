@@ -4,6 +4,7 @@ const PICKUP_SCENE: PackedScene = preload("res://scenes/pickup.tscn")
 ## 用 preload 而不是裸类名：全局类名依赖 .godot 的 class 缓存，
 ## 新建脚本在编辑器扫描之前无法被其他脚本按名字引用。
 const EnemyVisualsUtil := preload("res://scripts/enemy_visuals.gd")
+const EnemyProfileUtil := preload("res://scripts/enemy_profile.gd")
 const EnemyRigUtil := preload("res://scripts/enemy_rig.gd")
 const NavSteeringUtil := preload("res://scripts/nav_steering.gd")
 const ConfigUtil := preload("res://scripts/game_config.gd")
@@ -73,6 +74,9 @@ var _contact_timer := 0.0
 var _fall_kill_depth := 18.0
 
 var _visuals := EnemyVisualsUtil.new()
+## 最近一次下发的护甲色。形体剖面是在 configure 之后才挂部件的，挂完必须
+## 重新 register + 重染一次，否则新部件不参与受击闪白、也不是护甲色。
+var _armor_color := Color.WHITE
 var _rig := EnemyRigUtil.new()
 var _steering := NavSteeringUtil.new()
 ## 是否挨过打。坠亡归属用：自己走出边界的敌人不该白送一笔击杀。
@@ -128,7 +132,21 @@ func _ready() -> void:
 func configure_melee_variant(new_title: String, armor_color: Color) -> void:
 	if not new_title.is_empty():
 		enemy_title = new_title
+	_armor_color = armor_color
 	_visuals.apply_tint(armor_color)
+
+
+## 套用形体剖面（由 enemy_spawner 在读完图鉴条目之后调用）。
+##
+## 顺序上它必须晚于 configure_melee_variant：剖面会【新增】部件，而染色与
+## 受击闪白是 register() 时一次性收集的，所以挂完要重扫一遍再补一次染色。
+## 未配置 profile 的条目（空字符串）走原型骑士，与改动前逐帧一致。
+func apply_body_profile(profile_id: String) -> void:
+	if profile_id.is_empty():
+		return
+	EnemyProfileUtil.apply(enemy_model, profile_id)
+	_visuals.register(enemy_model)
+	_visuals.apply_tint(_armor_color)
 
 
 func configure_stats(
