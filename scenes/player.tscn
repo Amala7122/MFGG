@@ -1,0 +1,657 @@
+[gd_scene format=3 uid="uid://lvxpbpgln3x1"]
+
+[ext_resource type="Script" uid="uid://cgachp1vvj4eg" path="res://scripts/player.gd" id="1_player"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_cloth"]
+albedo_color = Color(0.15, 0.17, 0.21, 1)
+roughness = 0.9
+
+[sub_resource type="BoxMesh" id="BoxMesh_unit"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_leather"]
+albedo_color = Color(0.3, 0.19, 0.1, 1)
+roughness = 0.88
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_gold"]
+albedo_color = Color(0.96, 0.76, 0.24, 1)
+metallic = 0.65
+roughness = 0.32
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_tunic"]
+albedo_color = Color(0.09, 0.31, 0.24, 1)
+roughness = 0.82
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_tunic_light"]
+albedo_color = Color(0.16, 0.46, 0.35, 1)
+roughness = 0.76
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_taper"]
+top_radius = 0.4
+height = 1.0
+radial_segments = 12
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_steel_dark"]
+albedo_color = Color(0.27, 0.3, 0.35, 1)
+metallic = 0.7
+roughness = 0.35
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_leather_dark"]
+albedo_color = Color(0.17, 0.11, 0.06, 1)
+roughness = 0.9
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_undershirt"]
+albedo_color = Color(0.85, 0.8, 0.68, 1)
+roughness = 0.85
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_skin"]
+albedo_color = Color(0.91, 0.75, 0.59, 1)
+roughness = 0.72
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_unit"]
+height = 1.0
+radial_segments = 14
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_energy"]
+shading_mode = 0
+albedo_color = Color(0.35, 0.95, 1, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_hair"]
+albedo_color = Color(0.4, 0.23, 0.09, 1)
+roughness = 0.85
+
+[sub_resource type="SphereMesh" id="SphereMesh_unit"]
+radial_segments = 16
+rings = 8
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_steel"]
+albedo_color = Color(0.63, 0.67, 0.72, 1)
+metallic = 0.85
+roughness = 0.28
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_gun"]
+albedo_color = Color(0.065, 0.072, 0.088, 1)
+metallic = 0.86
+roughness = 0.24
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_gun_accent"]
+albedo_color = Color(0.34, 0.37, 0.43, 1)
+metallic = 0.9
+roughness = 0.18
+
+[node name="Player" type="CharacterBody3D" unique_id=473483475 groups=["player"]]
+collision_layer = 2
+collision_mask = 5
+script = ExtResource("1_player")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1643693792]
+shape = SubResource("CapsuleShape3D_player")
+
+[node name="PlayerModel" type="Node3D" parent="." unique_id=1271576548]
+
+[node name="Hips" type="Node3D" parent="PlayerModel" unique_id=1572454922]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.08, 0)
+
+[node name="Pelvis" type="MeshInstance3D" parent="PlayerModel/Hips" unique_id=441035474]
+transform = Transform3D(0.34, 0, 0, 0, 0.22, 0, 0, 0, 0.24, 0, -0.02, 0)
+material_override = SubResource("StandardMaterial3D_cloth")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Belt" type="MeshInstance3D" parent="PlayerModel/Hips" unique_id=1261450908]
+transform = Transform3D(0.37, 0, 0, 0, 0.07, 0, 0, 0, 0.27, 0, 0.1, 0)
+material_override = SubResource("StandardMaterial3D_leather")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="BeltBuckle" type="MeshInstance3D" parent="PlayerModel/Hips" unique_id=873815446]
+transform = Transform3D(0.09, 0, 0, 0, 0.08, 0, 0, 0, 0.03, 0, 0.1, 0.14)
+material_override = SubResource("StandardMaterial3D_gold")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="PouchLeft" type="MeshInstance3D" parent="PlayerModel/Hips" unique_id=1059256980]
+transform = Transform3D(0.1, 0, 0, 0, 0.12, 0, 0, 0, 0.09, -0.17, 0.04, 0.09)
+material_override = SubResource("StandardMaterial3D_leather")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="PouchRight" type="MeshInstance3D" parent="PlayerModel/Hips" unique_id=646887163]
+transform = Transform3D(0.1, 0, 0, 0, 0.12, 0, 0, 0, 0.09, 0.17, 0.04, 0.09)
+material_override = SubResource("StandardMaterial3D_leather")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="CoatFront" type="MeshInstance3D" parent="PlayerModel/Hips" unique_id=1571467947]
+transform = Transform3D(0.32, 0, 0, 0, 0.29926533, 0.0024479995, 0, -0.020982854, 0.034914285, 0, -0.12, 0.13)
+material_override = SubResource("StandardMaterial3D_tunic")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="CoatBack" type="MeshInstance3D" parent="PlayerModel/Hips" unique_id=910209812]
+transform = Transform3D(0.32, 0, 0, 0, 0.32919186, -0.0024479995, 0, 0.02308114, 0.034914285, 0, -0.12, -0.13)
+material_override = SubResource("StandardMaterial3D_tunic")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="CoatSideLeft" type="MeshInstance3D" parent="PlayerModel/Hips" unique_id=654898295]
+transform = Transform3D(0.035, 0, 0, 0, 0.28, 0, 0, 0, 0.24, -0.165, -0.1, 0)
+material_override = SubResource("StandardMaterial3D_tunic_light")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="CoatSideRight" type="MeshInstance3D" parent="PlayerModel/Hips" unique_id=904845518]
+transform = Transform3D(0.035, 0, 0, 0, 0.28, 0, 0, 0, 0.24, 0.165, -0.1, 0)
+material_override = SubResource("StandardMaterial3D_tunic_light")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="LeftHip" type="Node3D" parent="PlayerModel/Hips" unique_id=1190058656]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.115, -0.02, 0)
+
+[node name="Thigh" type="MeshInstance3D" parent="PlayerModel/Hips/LeftHip" unique_id=480908188]
+transform = Transform3D(0.17, 0, 0, 0, 0.42, 0, 0, 0, 0.17, 0, -0.21, 0)
+material_override = SubResource("StandardMaterial3D_cloth")
+mesh = SubResource("CylinderMesh_taper")
+
+[node name="ThighGuard" type="MeshInstance3D" parent="PlayerModel/Hips/LeftHip" unique_id=991512074]
+transform = Transform3D(0.15, 0, 0, 0, 0.2, 0, 0, 0, 0.05, 0, -0.17, 0.08)
+material_override = SubResource("StandardMaterial3D_leather")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="KneePad" type="MeshInstance3D" parent="PlayerModel/Hips/LeftHip" unique_id=1670289342]
+transform = Transform3D(0.15, 0, 0, 0, 0.11, 0, 0, 0, 0.15, 0, -0.42, 0.035)
+material_override = SubResource("StandardMaterial3D_steel_dark")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Knee" type="Node3D" parent="PlayerModel/Hips/LeftHip" unique_id=108389522]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.42, 0)
+
+[node name="Shin" type="MeshInstance3D" parent="PlayerModel/Hips/LeftHip/Knee" unique_id=1157347633]
+transform = Transform3D(0.14, 0, 0, 0, 0.38, 0, 0, 0, 0.14, 0, -0.19, 0)
+material_override = SubResource("StandardMaterial3D_cloth")
+mesh = SubResource("CylinderMesh_taper")
+
+[node name="ShinPlate" type="MeshInstance3D" parent="PlayerModel/Hips/LeftHip/Knee" unique_id=1469408211]
+transform = Transform3D(0.13, 0, 0, 0, 0.24, 0, 0, 0, 0.045, 0, -0.15, 0.072)
+material_override = SubResource("StandardMaterial3D_leather")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Ankle" type="Node3D" parent="PlayerModel/Hips/LeftHip/Knee" unique_id=1995634866]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.38, 0)
+
+[node name="BootUpper" type="MeshInstance3D" parent="PlayerModel/Hips/LeftHip/Knee/Ankle" unique_id=41951135]
+transform = Transform3D(0.17, 0, 0, 0, 0.15, 0, 0, 0, 0.19, 0, -0.045, -0.01)
+material_override = SubResource("StandardMaterial3D_leather")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="BootSole" type="MeshInstance3D" parent="PlayerModel/Hips/LeftHip/Knee/Ankle" unique_id=1147146134]
+transform = Transform3D(0.185, 0, 0, 0, 0.05, 0, 0, 0, 0.3, 0, -0.075, 0.015)
+material_override = SubResource("StandardMaterial3D_leather_dark")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="BootToe" type="MeshInstance3D" parent="PlayerModel/Hips/LeftHip/Knee/Ankle" unique_id=1717427052]
+transform = Transform3D(0.165, 0, 0, 0, 0.1, 0, 0, 0, 0.1, 0, -0.055, 0.12)
+material_override = SubResource("StandardMaterial3D_leather")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="BootCuff" type="MeshInstance3D" parent="PlayerModel/Hips/LeftHip/Knee/Ankle" unique_id=490611883]
+transform = Transform3D(0.185, 0, 0, 0, 0.06, 0, 0, 0, 0.2, 0, 0.055, -0.01)
+material_override = SubResource("StandardMaterial3D_leather_dark")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="RightHip" type="Node3D" parent="PlayerModel/Hips" unique_id=1870346688]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.115, -0.02, 0)
+
+[node name="Thigh" type="MeshInstance3D" parent="PlayerModel/Hips/RightHip" unique_id=1084015438]
+transform = Transform3D(0.17, 0, 0, 0, 0.42, 0, 0, 0, 0.17, 0, -0.21, 0)
+material_override = SubResource("StandardMaterial3D_cloth")
+mesh = SubResource("CylinderMesh_taper")
+
+[node name="ThighGuard" type="MeshInstance3D" parent="PlayerModel/Hips/RightHip" unique_id=136334696]
+transform = Transform3D(0.15, 0, 0, 0, 0.2, 0, 0, 0, 0.05, 0, -0.17, 0.08)
+material_override = SubResource("StandardMaterial3D_leather")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="KneePad" type="MeshInstance3D" parent="PlayerModel/Hips/RightHip" unique_id=1147409389]
+transform = Transform3D(0.15, 0, 0, 0, 0.11, 0, 0, 0, 0.15, 0, -0.42, 0.035)
+material_override = SubResource("StandardMaterial3D_steel_dark")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Knee" type="Node3D" parent="PlayerModel/Hips/RightHip" unique_id=1169384332]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.42, 0)
+
+[node name="Shin" type="MeshInstance3D" parent="PlayerModel/Hips/RightHip/Knee" unique_id=1810449412]
+transform = Transform3D(0.14, 0, 0, 0, 0.38, 0, 0, 0, 0.14, 0, -0.19, 0)
+material_override = SubResource("StandardMaterial3D_cloth")
+mesh = SubResource("CylinderMesh_taper")
+
+[node name="ShinPlate" type="MeshInstance3D" parent="PlayerModel/Hips/RightHip/Knee" unique_id=1770044600]
+transform = Transform3D(0.13, 0, 0, 0, 0.24, 0, 0, 0, 0.045, 0, -0.15, 0.072)
+material_override = SubResource("StandardMaterial3D_leather")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Ankle" type="Node3D" parent="PlayerModel/Hips/RightHip/Knee" unique_id=143019092]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.38, 0)
+
+[node name="BootUpper" type="MeshInstance3D" parent="PlayerModel/Hips/RightHip/Knee/Ankle" unique_id=1782400654]
+transform = Transform3D(0.17, 0, 0, 0, 0.15, 0, 0, 0, 0.19, 0, -0.045, -0.01)
+material_override = SubResource("StandardMaterial3D_leather")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="BootSole" type="MeshInstance3D" parent="PlayerModel/Hips/RightHip/Knee/Ankle" unique_id=769319085]
+transform = Transform3D(0.185, 0, 0, 0, 0.05, 0, 0, 0, 0.3, 0, -0.075, 0.015)
+material_override = SubResource("StandardMaterial3D_leather_dark")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="BootToe" type="MeshInstance3D" parent="PlayerModel/Hips/RightHip/Knee/Ankle" unique_id=1639088492]
+transform = Transform3D(0.165, 0, 0, 0, 0.1, 0, 0, 0, 0.1, 0, -0.055, 0.12)
+material_override = SubResource("StandardMaterial3D_leather")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="BootCuff" type="MeshInstance3D" parent="PlayerModel/Hips/RightHip/Knee/Ankle" unique_id=15216328]
+transform = Transform3D(0.185, 0, 0, 0, 0.06, 0, 0, 0, 0.2, 0, 0.055, -0.01)
+material_override = SubResource("StandardMaterial3D_leather_dark")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Chest" type="Node3D" parent="PlayerModel" unique_id=1722257427]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.08, 0)
+
+[node name="Abdomen" type="MeshInstance3D" parent="PlayerModel/Chest" unique_id=477759529]
+transform = Transform3D(0.35, 0, 0, 0, 0.19, 0, 0, 0, 0.235, 0, -0.02, 0)
+material_override = SubResource("StandardMaterial3D_undershirt")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Torso" type="MeshInstance3D" parent="PlayerModel/Chest" unique_id=1592240559]
+transform = Transform3D(0.4, 0, 0, 0, 0.3, 0, 0, 0, 0.26, 0, 0.14, 0)
+material_override = SubResource("StandardMaterial3D_tunic")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="ChestPlate" type="MeshInstance3D" parent="PlayerModel/Chest" unique_id=1681287292]
+transform = Transform3D(0.3, 0, 0, 0, 0.24, 0, 0, 0, 0.035, 0, 0.15, 0.135)
+material_override = SubResource("StandardMaterial3D_tunic_light")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="ChestBadge" type="MeshInstance3D" parent="PlayerModel/Chest" unique_id=283541336]
+transform = Transform3D(0.07071069, -0.07071067, 0, 0.07071067, 0.07071069, 0, 0, 0, 0.02, 0, 0.21, 0.155)
+material_override = SubResource("StandardMaterial3D_gold")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Collar" type="MeshInstance3D" parent="PlayerModel/Chest" unique_id=933998092]
+transform = Transform3D(0.27, 0, 0, 0, 0.07, 0, 0, 0, 0.23, 0, 0.295, 0)
+material_override = SubResource("StandardMaterial3D_tunic_light")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="StrapLeft" type="MeshInstance3D" parent="PlayerModel/Chest" unique_id=1539045784]
+transform = Transform3D(0.052543506, -0.08865607, 0, 0.016253611, 0.28660098, 0, 0, 0, 0.035, -0.1, 0.17, 0.14)
+material_override = SubResource("StandardMaterial3D_leather_dark")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="StrapRight" type="MeshInstance3D" parent="PlayerModel/Chest" unique_id=1392203858]
+transform = Transform3D(0.052543506, 0.08865607, 0, -0.016253611, 0.28660098, 0, 0, 0, 0.035, 0.1, 0.17, 0.14)
+material_override = SubResource("StandardMaterial3D_leather_dark")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Backpack" type="MeshInstance3D" parent="PlayerModel/Chest" unique_id=1435425356]
+transform = Transform3D(0.28, 0, 0, 0, 0.32, 0, 0, 0, 0.15, 0, 0.09, -0.2)
+material_override = SubResource("StandardMaterial3D_leather")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="BackpackLid" type="MeshInstance3D" parent="PlayerModel/Chest" unique_id=240962559]
+transform = Transform3D(0.3, 0, 0, 0, 0.06, 0, 0, 0, 0.16, 0, 0.24, -0.2)
+material_override = SubResource("StandardMaterial3D_leather_dark")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="PackStrapLeft" type="MeshInstance3D" parent="PlayerModel/Chest" unique_id=1603891657]
+transform = Transform3D(0.05, 0, 0, 0, 0.3, 0, 0, 0, 0.05, -0.09, 0.09, -0.12)
+material_override = SubResource("StandardMaterial3D_leather_dark")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="PackStrapRight" type="MeshInstance3D" parent="PlayerModel/Chest" unique_id=1468756844]
+transform = Transform3D(0.05, 0, 0, 0, 0.3, 0, 0, 0, 0.05, 0.09, 0.09, -0.12)
+material_override = SubResource("StandardMaterial3D_leather_dark")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Neck" type="MeshInstance3D" parent="PlayerModel/Chest" unique_id=870488824]
+transform = Transform3D(0.13, 0, 0, 0, 0.13, 0, 0, 0, 0.13, 0, 0.345, 0)
+material_override = SubResource("StandardMaterial3D_skin")
+mesh = SubResource("CylinderMesh_unit")
+
+[node name="Head" type="Node3D" parent="PlayerModel/Chest" unique_id=1514121907]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, 0)
+
+[node name="Skull" type="MeshInstance3D" parent="PlayerModel/Chest/Head" unique_id=1132135658]
+transform = Transform3D(0.235, 0, 0, 0, 0.245, 0, 0, 0, 0.235, 0, 0.055, 0)
+material_override = SubResource("StandardMaterial3D_skin")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Jaw" type="MeshInstance3D" parent="PlayerModel/Chest/Head" unique_id=1607962707]
+transform = Transform3D(0.19, 0, 0, 0, 0.1, 0, 0, 0, 0.19, 0, -0.055, 0.02)
+material_override = SubResource("StandardMaterial3D_skin")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Face" type="MeshInstance3D" parent="PlayerModel/Chest/Head" unique_id=1353751120]
+transform = Transform3D(0.195, 0, 0, 0, 0.17, 0, 0, 0, 0.02, 0, 0.05, 0.125)
+material_override = SubResource("StandardMaterial3D_skin")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Visor" type="MeshInstance3D" parent="PlayerModel/Chest/Head" unique_id=680926298]
+transform = Transform3D(0.175, 0, 0, 0, 0.055, 0, 0, 0, 0.025, 0, 0.065, 0.138)
+material_override = SubResource("StandardMaterial3D_energy")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="EarLeft" type="MeshInstance3D" parent="PlayerModel/Chest/Head" unique_id=1057663263]
+transform = Transform3D(0.03, 0, 0, 0, 0.08, 0, 0, 0, 0.06, -0.13, 0.05, -0.01)
+material_override = SubResource("StandardMaterial3D_skin")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="EarRight" type="MeshInstance3D" parent="PlayerModel/Chest/Head" unique_id=2079924600]
+transform = Transform3D(0.03, 0, 0, 0, 0.08, 0, 0, 0, 0.06, 0.13, 0.05, -0.01)
+material_override = SubResource("StandardMaterial3D_skin")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="HairTop" type="MeshInstance3D" parent="PlayerModel/Chest/Head" unique_id=464031061]
+transform = Transform3D(0.245, 0, 0, 0, 0.1, 0, 0, 0, 0.245, 0, 0.155, -0.01)
+material_override = SubResource("StandardMaterial3D_hair")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="HairBack" type="MeshInstance3D" parent="PlayerModel/Chest/Head" unique_id=1723457867]
+transform = Transform3D(0.235, 0, 0, 0, 0.24, 0, 0, 0, 0.06, 0, 0.05, -0.125)
+material_override = SubResource("StandardMaterial3D_hair")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="HairFringe" type="MeshInstance3D" parent="PlayerModel/Chest/Head" unique_id=43019072]
+transform = Transform3D(0.22, 0, 0, 0, 0.09, 0, 0, 0, 0.05, 0, 0.12, 0.118)
+material_override = SubResource("StandardMaterial3D_hair")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="HairTuft" type="MeshInstance3D" parent="PlayerModel/Chest/Head" unique_id=308026969]
+transform = Transform3D(0.09, 0, 0, 0, 0.12211845, 0.044576712, 0, -0.044576712, 0.12211845, 0, 0.225, 0.03)
+material_override = SubResource("StandardMaterial3D_hair")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Cap" type="MeshInstance3D" parent="PlayerModel/Chest/Head" unique_id=2139593468]
+transform = Transform3D(0.25, 0, 0, 0, 0.075, 0, 0, 0, 0.25, 0, 0.2, -0.01)
+material_override = SubResource("StandardMaterial3D_tunic")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="CapBrim" type="MeshInstance3D" parent="PlayerModel/Chest/Head" unique_id=618798923]
+transform = Transform3D(0.235, 0, 0, 0, 0.029784258, -0.01197122, 0, 0.003591366, 0.099280864, 0, 0.185, 0.135)
+material_override = SubResource("StandardMaterial3D_tunic_light")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="LeftShoulder" type="Node3D" parent="PlayerModel/Chest" unique_id=312832614]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.215, 0.3, 0)
+
+[node name="ShoulderPad" type="MeshInstance3D" parent="PlayerModel/Chest/LeftShoulder" unique_id=570886412]
+transform = Transform3D(0.22, 0, 0, 0, 0.17, 0, 0, 0, 0.22, 0, 0.025, 0)
+material_override = SubResource("StandardMaterial3D_tunic_light")
+mesh = SubResource("SphereMesh_unit")
+
+[node name="UpperArm" type="MeshInstance3D" parent="PlayerModel/Chest/LeftShoulder" unique_id=681188639]
+transform = Transform3D(0.12, 0, 0, 0, 0.32, 0, 0, 0, 0.12, 0, -0.16, 0)
+material_override = SubResource("StandardMaterial3D_undershirt")
+mesh = SubResource("CylinderMesh_taper")
+
+[node name="Elbow" type="Node3D" parent="PlayerModel/Chest/LeftShoulder" unique_id=925811036]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.32, 0)
+
+[node name="ElbowPad" type="MeshInstance3D" parent="PlayerModel/Chest/LeftShoulder/Elbow" unique_id=1286754444]
+transform = Transform3D(0.12, 0, 0, 0, 0.11, 0, 0, 0, 0.12, 0, 0.005, 0.02)
+material_override = SubResource("StandardMaterial3D_steel_dark")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Forearm" type="MeshInstance3D" parent="PlayerModel/Chest/LeftShoulder/Elbow" unique_id=316746353]
+transform = Transform3D(0.108, 0, 0, 0, 0.3, 0, 0, 0, 0.108, 0, -0.15, 0)
+material_override = SubResource("StandardMaterial3D_tunic")
+mesh = SubResource("CylinderMesh_taper")
+
+[node name="Bracer" type="MeshInstance3D" parent="PlayerModel/Chest/LeftShoulder/Elbow" unique_id=525271850]
+transform = Transform3D(0.135, 0, 0, 0, 0.15, 0, 0, 0, 0.135, 0, -0.19, 0)
+material_override = SubResource("StandardMaterial3D_leather")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="BracerStud" type="MeshInstance3D" parent="PlayerModel/Chest/LeftShoulder/Elbow" unique_id=964686157]
+transform = Transform3D(0.05, 0, 0, 0, 0.05, 0, 0, 0, 0.02, 0, -0.19, 0.072)
+material_override = SubResource("StandardMaterial3D_steel")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Hand" type="Node3D" parent="PlayerModel/Chest/LeftShoulder/Elbow" unique_id=1901168638]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.3, 0)
+
+[node name="HandMesh" type="MeshInstance3D" parent="PlayerModel/Chest/LeftShoulder/Elbow/Hand" unique_id=124169922]
+transform = Transform3D(0.11, 0, 0, 0, 0.12, 0, 0, 0, 0.13, 0, -0.035, 0.005)
+material_override = SubResource("StandardMaterial3D_leather_dark")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Thumb" type="MeshInstance3D" parent="PlayerModel/Chest/LeftShoulder/Elbow/Hand" unique_id=1414202154]
+transform = Transform3D(0.035, 0, 0, 0, 0.05, 0, 0, 0, 0.055, 0, -0.02, 0.06)
+material_override = SubResource("StandardMaterial3D_leather_dark")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="RightShoulder" type="Node3D" parent="PlayerModel/Chest" unique_id=862037620]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.215, 0.3, 0)
+
+[node name="ShoulderPad" type="MeshInstance3D" parent="PlayerModel/Chest/RightShoulder" unique_id=1235741614]
+transform = Transform3D(0.22, 0, 0, 0, 0.17, 0, 0, 0, 0.22, 0, 0.025, 0)
+material_override = SubResource("StandardMaterial3D_tunic_light")
+mesh = SubResource("SphereMesh_unit")
+
+[node name="UpperArm" type="MeshInstance3D" parent="PlayerModel/Chest/RightShoulder" unique_id=645332603]
+transform = Transform3D(0.12, 0, 0, 0, 0.32, 0, 0, 0, 0.12, 0, -0.16, 0)
+material_override = SubResource("StandardMaterial3D_undershirt")
+mesh = SubResource("CylinderMesh_taper")
+
+[node name="Elbow" type="Node3D" parent="PlayerModel/Chest/RightShoulder" unique_id=991270025]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.32, 0)
+
+[node name="ElbowPad" type="MeshInstance3D" parent="PlayerModel/Chest/RightShoulder/Elbow" unique_id=509120063]
+transform = Transform3D(0.12, 0, 0, 0, 0.11, 0, 0, 0, 0.12, 0, 0.005, 0.02)
+material_override = SubResource("StandardMaterial3D_steel_dark")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Forearm" type="MeshInstance3D" parent="PlayerModel/Chest/RightShoulder/Elbow" unique_id=1894462827]
+transform = Transform3D(0.108, 0, 0, 0, 0.3, 0, 0, 0, 0.108, 0, -0.15, 0)
+material_override = SubResource("StandardMaterial3D_tunic")
+mesh = SubResource("CylinderMesh_taper")
+
+[node name="Bracer" type="MeshInstance3D" parent="PlayerModel/Chest/RightShoulder/Elbow" unique_id=1732656457]
+transform = Transform3D(0.135, 0, 0, 0, 0.15, 0, 0, 0, 0.135, 0, -0.19, 0)
+material_override = SubResource("StandardMaterial3D_leather")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="BracerStud" type="MeshInstance3D" parent="PlayerModel/Chest/RightShoulder/Elbow" unique_id=2146997046]
+transform = Transform3D(0.05, 0, 0, 0, 0.05, 0, 0, 0, 0.02, 0, -0.19, 0.072)
+material_override = SubResource("StandardMaterial3D_steel")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Hand" type="Node3D" parent="PlayerModel/Chest/RightShoulder/Elbow" unique_id=1877826666]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.3, 0)
+
+[node name="HandMesh" type="MeshInstance3D" parent="PlayerModel/Chest/RightShoulder/Elbow/Hand" unique_id=629388652]
+transform = Transform3D(0.11, 0, 0, 0, 0.12, 0, 0, 0, 0.13, 0, -0.035, 0.005)
+material_override = SubResource("StandardMaterial3D_leather_dark")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Thumb" type="MeshInstance3D" parent="PlayerModel/Chest/RightShoulder/Elbow/Hand" unique_id=940964557]
+transform = Transform3D(0.035, 0, 0, 0, 0.05, 0, 0, 0, 0.055, 0, -0.02, 0.06)
+material_override = SubResource("StandardMaterial3D_leather_dark")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="WeaponRig" type="Node3D" parent="PlayerModel" unique_id=245814772]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.05, 0.3, 0.2)
+
+[node name="RecoilPivot" type="Node3D" parent="PlayerModel/WeaponRig" unique_id=514461300]
+
+[node name="GunBody" type="MeshInstance3D" parent="PlayerModel/WeaponRig/RecoilPivot" unique_id=1110351291]
+transform = Transform3D(0.085, 0, 0, 0, 0.105, 0, 0, 0, 0.3, 0, 0, 0.02)
+material_override = SubResource("StandardMaterial3D_gun")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="UpperRail" type="MeshInstance3D" parent="PlayerModel/WeaponRig/RecoilPivot" unique_id=11672686]
+transform = Transform3D(0.055, 0, 0, 0, 0.03, 0, 0, 0, 0.34, 0, 0.072, 0)
+material_override = SubResource("StandardMaterial3D_gun_accent")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Handguard" type="MeshInstance3D" parent="PlayerModel/WeaponRig/RecoilPivot" unique_id=1889307675]
+transform = Transform3D(0.075, 0, 0, 0, 0.08, 0, 0, 0, 0.22, 0, -0.015, 0.26)
+material_override = SubResource("StandardMaterial3D_gun_accent")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Barrel" type="MeshInstance3D" parent="PlayerModel/WeaponRig/RecoilPivot" unique_id=751526983]
+transform = Transform3D(0.042, 0, 0, 0, -1.085997e-06, -0.042, 0, 0.3, -1.5203959e-07, 0, 0, 0.46)
+material_override = SubResource("StandardMaterial3D_gun")
+mesh = SubResource("CylinderMesh_unit")
+
+[node name="MuzzleBrake" type="MeshInstance3D" parent="PlayerModel/WeaponRig/RecoilPivot" unique_id=823643914]
+transform = Transform3D(0.058, 0, 0, 0, -2.7149926e-07, -0.058, 0, 0.075, -2.0995942e-07, 0, 0, 0.585)
+material_override = SubResource("StandardMaterial3D_gun_accent")
+mesh = SubResource("CylinderMesh_unit")
+
+[node name="Foregrip" type="MeshInstance3D" parent="PlayerModel/WeaponRig/RecoilPivot" unique_id=928995561]
+transform = Transform3D(0.05, 0, 0, 0, 0.11, 0, 0, 0, 0.055, 0, -0.085, 0.26)
+material_override = SubResource("StandardMaterial3D_gun")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Magazine" type="MeshInstance3D" parent="PlayerModel/WeaponRig/RecoilPivot" unique_id=1361323329]
+transform = Transform3D(0.06, 0, 0, 0, 0.21784753, 0.013954312, 0, -0.030699486, 0.099021606, 0, -0.155, 0.06)
+material_override = SubResource("StandardMaterial3D_gun")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Grip" type="MeshInstance3D" parent="PlayerModel/WeaponRig/RecoilPivot" unique_id=945353776]
+transform = Transform3D(0.065, 0, 0, 0, 0.16137002, 0.026738157, 0, -0.053476315, 0.08068501, 0, -0.135, -0.075)
+material_override = SubResource("StandardMaterial3D_gun")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="TriggerGuard" type="MeshInstance3D" parent="PlayerModel/WeaponRig/RecoilPivot" unique_id=113680485]
+transform = Transform3D(0.045, 0, 0, 0, 0.02, 0, 0, 0, 0.08, 0, -0.075, -0.01)
+material_override = SubResource("StandardMaterial3D_gun_accent")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Stock" type="MeshInstance3D" parent="PlayerModel/WeaponRig/RecoilPivot" unique_id=294094955]
+transform = Transform3D(0.06, 0, 0, 0, 0.1, 0, 0, 0, 0.18, 0, 0.005, -0.2)
+material_override = SubResource("StandardMaterial3D_gun_accent")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="StockPad" type="MeshInstance3D" parent="PlayerModel/WeaponRig/RecoilPivot" unique_id=1885576736]
+transform = Transform3D(0.07, 0, 0, 0, 0.13, 0, 0, 0, 0.04, 0, 0.005, -0.3)
+material_override = SubResource("StandardMaterial3D_leather_dark")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Sight" type="MeshInstance3D" parent="PlayerModel/WeaponRig/RecoilPivot" unique_id=355170901]
+transform = Transform3D(0.028, 0, 0, 0, 0.045, 0, 0, 0, 0.14, 0, 0.098, 0.1)
+material_override = SubResource("StandardMaterial3D_energy")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="SightRear" type="MeshInstance3D" parent="PlayerModel/WeaponRig/RecoilPivot" unique_id=258731302]
+transform = Transform3D(0.04, 0, 0, 0, 0.045, 0, 0, 0, 0.035, 0, 0.098, -0.07)
+material_override = SubResource("StandardMaterial3D_energy")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Muzzle" type="Node3D" parent="PlayerModel/WeaponRig/RecoilPivot" unique_id=1635366404]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.625)
+
+[node name="MuzzleFlash" type="MeshInstance3D" parent="PlayerModel/WeaponRig/RecoilPivot/Muzzle" unique_id=1430916883]
+transform = Transform3D(0.14, 0, 0, 0, 0.14, 0, 0, 0, 0.22, 0, 0, 0.03)
+visible = false
+material_override = SubResource("StandardMaterial3D_energy")
+mesh = SubResource("SphereMesh_unit")
+
+[node name="MuzzleLight" type="OmniLight3D" parent="PlayerModel/WeaponRig/RecoilPivot/Muzzle" unique_id=230656318]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.06)
+visible = false
+light_color = Color(0.4, 0.9, 1, 1)
+light_energy = 4.0
+omni_range = 3.0
+
+[node name="CameraPivot" type="Node3D" parent="." unique_id=2032602998]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+
+[node name="SpringArm3D" type="SpringArm3D" parent="CameraPivot" unique_id=1412550222]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.05, 0.12, 0)
+spring_length = 5.0
+margin = 0.15
+
+[node name="Camera3D" type="Camera3D" parent="CameraPivot/SpringArm3D" unique_id=1048992789]
+current = true
+fov = 70.0
+
+[node name="AimUI" type="CanvasLayer" parent="." unique_id=1925189641]
+
+[node name="DamageOverlay" type="ColorRect" parent="AimUI" unique_id=1641902458]
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.75, 0.02, 0.02, 0.22)
+
+[node name="Crosshair" type="Label" parent="AimUI" unique_id=1037451128]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -14.0
+offset_top = -20.0
+offset_right = 14.0
+offset_bottom = 20.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(1, 0.82, 0.18, 0.95)
+theme_override_font_sizes/font_size = 28
+text = "+"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="HealthLabel" type="Label" parent="AimUI" unique_id=833221020]
+offset_left = 28.0
+offset_top = 24.0
+offset_right = 200.0
+offset_bottom = 50.0
+theme_override_colors/font_color = Color(1, 1, 1, 0.95)
+theme_override_font_sizes/font_size = 18
+text = "生命"
+
+[node name="HealthBar" type="ProgressBar" parent="AimUI" unique_id=2136819065]
+offset_left = 28.0
+offset_top = 52.0
+offset_right = 268.0
+offset_bottom = 74.0
+value = 100.0
+show_percentage = false
+
+[node name="KillLabel" type="Label" parent="AimUI" unique_id=1830205700]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -230.0
+offset_top = 24.0
+offset_right = -28.0
+offset_bottom = 56.0
+theme_override_colors/font_color = Color(1, 0.86, 0.25, 1)
+theme_override_font_sizes/font_size = 22
+text = "击杀：0"
+horizontal_alignment = 2
+
+[node name="SurvivalLabel" type="Label" parent="AimUI" unique_id=56082330]
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -230.0
+offset_top = 22.0
+offset_right = 230.0
+offset_bottom = 56.0
+theme_override_colors/font_color = Color(0.65, 0.94, 1, 1)
+theme_override_font_sizes/font_size = 22
+text = "生存 00:00.00   最佳 00:00.00"
+horizontal_alignment = 1
+
+[node name="WeaponLevelLabel" type="Label" parent="AimUI" unique_id=1655067214]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -210.0
+offset_top = -86.0
+offset_right = 210.0
+offset_bottom = -48.0
+theme_override_colors/font_color = Color(1, 0.75, 0.12, 1)
+theme_override_font_sizes/font_size = 24
+text = "玩家武器  Lv.1"
+horizontal_alignment = 1

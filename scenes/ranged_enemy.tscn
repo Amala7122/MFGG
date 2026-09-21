@@ -1,0 +1,477 @@
+[gd_scene load_steps=14 format=3]
+
+[ext_resource type="Script" path="res://scripts/ranged_enemy.gd" id="1_enemy"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_enemy"]
+radius = 0.48
+height = 1.9
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_armor"]
+resource_local_to_scene = true
+albedo_color = Color(0.58, 0.08, 0.12, 1)
+metallic = 0.25
+roughness = 0.55
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_cloth"]
+resource_local_to_scene = true
+albedo_color = Color(0.1, 0.09, 0.12, 1)
+roughness = 0.9
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_leather"]
+resource_local_to_scene = true
+albedo_color = Color(0.2, 0.13, 0.075, 1)
+roughness = 0.88
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_leather_dark"]
+resource_local_to_scene = true
+albedo_color = Color(0.11, 0.07, 0.04, 1)
+roughness = 0.92
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_metal"]
+resource_local_to_scene = true
+albedo_color = Color(0.34, 0.36, 0.4, 1)
+metallic = 0.75
+roughness = 0.3
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_skin"]
+resource_local_to_scene = true
+albedo_color = Color(0.44, 0.28, 0.2, 1)
+roughness = 0.82
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_energon"]
+resource_local_to_scene = true
+shading_mode = 0
+albedo_color = Color(0.15, 0.9, 1, 1)
+emission_enabled = true
+emission = Color(0.05, 0.7, 1, 1)
+emission_energy_multiplier = 3.2
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_gun"]
+resource_local_to_scene = true
+albedo_color = Color(0.055, 0.06, 0.075, 1)
+metallic = 0.72
+roughness = 0.3
+
+[sub_resource type="BoxMesh" id="BoxMesh_unit"]
+size = Vector3(1, 1, 1)
+
+[sub_resource type="SphereMesh" id="SphereMesh_head"]
+radius = 0.25
+height = 0.45
+radial_segments = 16
+rings = 8
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_limb"]
+top_radius = 0.5
+bottom_radius = 0.5
+height = 1.0
+radial_segments = 12
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_barrel"]
+top_radius = 0.04
+bottom_radius = 0.05
+height = 0.45
+radial_segments = 12
+
+[node name="RangedEnemy" type="CharacterBody3D" groups=["enemies"]]
+collision_layer = 4
+collision_mask = 3
+script = ExtResource("1_enemy")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("CapsuleShape3D_enemy")
+
+[node name="EnemyModel" type="Node3D" parent="."]
+
+[node name="Hips" type="Node3D" parent="EnemyModel"]
+position = Vector3(0, -0.02, 0)
+
+[node name="Pelvis" type="MeshInstance3D" parent="EnemyModel/Hips"]
+position = Vector3(0, -0.03, 0)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.4, 0.22, 0.3)
+material_override = SubResource("StandardMaterial3D_cloth")
+
+[node name="Belt" type="MeshInstance3D" parent="EnemyModel/Hips"]
+cast_shadow = 0
+position = Vector3(0, 0.09, 0)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.44, 0.08, 0.32)
+material_override = SubResource("StandardMaterial3D_leather")
+
+[node name="BeltBuckle" type="MeshInstance3D" parent="EnemyModel/Hips"]
+cast_shadow = 0
+position = Vector3(0, 0.09, -0.17)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.13, 0.1, 0.04)
+material_override = SubResource("StandardMaterial3D_metal")
+
+[node name="ThighPouchLeft" type="MeshInstance3D" parent="EnemyModel/Hips"]
+cast_shadow = 0
+position = Vector3(-0.21, -0.12, -0.06)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.11, 0.18, 0.11)
+material_override = SubResource("StandardMaterial3D_leather_dark")
+
+[node name="ThighPouchRight" type="MeshInstance3D" parent="EnemyModel/Hips"]
+cast_shadow = 0
+position = Vector3(0.21, -0.12, -0.06)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.11, 0.18, 0.11)
+material_override = SubResource("StandardMaterial3D_leather_dark")
+
+[node name="LeftHip" type="Node3D" parent="EnemyModel/Hips"]
+position = Vector3(-0.15, -0.04, 0)
+
+[node name="Thigh" type="MeshInstance3D" parent="EnemyModel/Hips/LeftHip"]
+position = Vector3(0, -0.19, 0)
+mesh = SubResource("CylinderMesh_limb")
+scale = Vector3(0.19, 0.38, 0.19)
+material_override = SubResource("StandardMaterial3D_cloth")
+
+[node name="Knee" type="Node3D" parent="EnemyModel/Hips/LeftHip"]
+position = Vector3(0, -0.38, 0)
+
+[node name="Shin" type="MeshInstance3D" parent="EnemyModel/Hips/LeftHip/Knee"]
+position = Vector3(0, -0.17, 0)
+mesh = SubResource("CylinderMesh_limb")
+scale = Vector3(0.17, 0.34, 0.17)
+material_override = SubResource("StandardMaterial3D_cloth")
+
+[node name="Greave" type="MeshInstance3D" parent="EnemyModel/Hips/LeftHip/Knee" groups=["tint"]]
+cast_shadow = 0
+position = Vector3(0, -0.14, -0.1)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.17, 0.24, 0.07)
+material_override = SubResource("StandardMaterial3D_armor")
+
+[node name="Foot" type="Node3D" parent="EnemyModel/Hips/LeftHip/Knee"]
+position = Vector3(0, -0.34, 0)
+
+[node name="BootUpper" type="MeshInstance3D" parent="EnemyModel/Hips/LeftHip/Knee/Foot"]
+position = Vector3(0, -0.05, 0)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.2, 0.16, 0.24)
+material_override = SubResource("StandardMaterial3D_leather")
+
+[node name="BootSole" type="MeshInstance3D" parent="EnemyModel/Hips/LeftHip/Knee/Foot"]
+cast_shadow = 0
+position = Vector3(0, -0.115, -0.02)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.22, 0.06, 0.36)
+material_override = SubResource("StandardMaterial3D_leather_dark")
+
+[node name="BootToe" type="MeshInstance3D" parent="EnemyModel/Hips/LeftHip/Knee/Foot"]
+cast_shadow = 0
+position = Vector3(0, -0.075, -0.15)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.19, 0.11, 0.11)
+material_override = SubResource("StandardMaterial3D_leather")
+
+[node name="RightHip" type="Node3D" parent="EnemyModel/Hips"]
+position = Vector3(0.15, -0.04, 0)
+
+[node name="Thigh" type="MeshInstance3D" parent="EnemyModel/Hips/RightHip"]
+position = Vector3(0, -0.19, 0)
+mesh = SubResource("CylinderMesh_limb")
+scale = Vector3(0.19, 0.38, 0.19)
+material_override = SubResource("StandardMaterial3D_cloth")
+
+[node name="Knee" type="Node3D" parent="EnemyModel/Hips/RightHip"]
+position = Vector3(0, -0.38, 0)
+
+[node name="Shin" type="MeshInstance3D" parent="EnemyModel/Hips/RightHip/Knee"]
+position = Vector3(0, -0.17, 0)
+mesh = SubResource("CylinderMesh_limb")
+scale = Vector3(0.17, 0.34, 0.17)
+material_override = SubResource("StandardMaterial3D_cloth")
+
+[node name="Greave" type="MeshInstance3D" parent="EnemyModel/Hips/RightHip/Knee" groups=["tint"]]
+cast_shadow = 0
+position = Vector3(0, -0.14, -0.1)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.17, 0.24, 0.07)
+material_override = SubResource("StandardMaterial3D_armor")
+
+[node name="Foot" type="Node3D" parent="EnemyModel/Hips/RightHip/Knee"]
+position = Vector3(0, -0.34, 0)
+
+[node name="BootUpper" type="MeshInstance3D" parent="EnemyModel/Hips/RightHip/Knee/Foot"]
+position = Vector3(0, -0.05, 0)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.2, 0.16, 0.24)
+material_override = SubResource("StandardMaterial3D_leather")
+
+[node name="BootSole" type="MeshInstance3D" parent="EnemyModel/Hips/RightHip/Knee/Foot"]
+cast_shadow = 0
+position = Vector3(0, -0.115, -0.02)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.22, 0.06, 0.36)
+material_override = SubResource("StandardMaterial3D_leather_dark")
+
+[node name="BootToe" type="MeshInstance3D" parent="EnemyModel/Hips/RightHip/Knee/Foot"]
+cast_shadow = 0
+position = Vector3(0, -0.075, -0.15)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.19, 0.11, 0.11)
+material_override = SubResource("StandardMaterial3D_leather")
+
+[node name="Chest" type="Node3D" parent="EnemyModel"]
+position = Vector3(0, 0.05, 0)
+
+[node name="Body" type="MeshInstance3D" parent="EnemyModel/Chest" groups=["tint"]]
+position = Vector3(0, 0.14, 0)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.5, 0.4, 0.32)
+material_override = SubResource("StandardMaterial3D_armor")
+
+[node name="ChestRig" type="MeshInstance3D" parent="EnemyModel/Chest"]
+cast_shadow = 0
+position = Vector3(0, 0.13, -0.175)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.42, 0.32, 0.06)
+material_override = SubResource("StandardMaterial3D_leather_dark")
+
+[node name="MagPouchLeft" type="MeshInstance3D" parent="EnemyModel/Chest"]
+cast_shadow = 0
+position = Vector3(-0.13, -0.02, -0.19)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.11, 0.15, 0.08)
+material_override = SubResource("StandardMaterial3D_leather")
+
+[node name="MagPouchRight" type="MeshInstance3D" parent="EnemyModel/Chest"]
+cast_shadow = 0
+position = Vector3(0.13, -0.02, -0.19)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.11, 0.15, 0.08)
+material_override = SubResource("StandardMaterial3D_leather")
+
+[node name="BackPack" type="MeshInstance3D" parent="EnemyModel/Chest" groups=["tint"]]
+position = Vector3(0, 0.13, 0.19)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.34, 0.34, 0.12)
+material_override = SubResource("StandardMaterial3D_armor")
+
+[node name="PowerCell" type="MeshInstance3D" parent="EnemyModel/Chest"]
+cast_shadow = 0
+position = Vector3(0, 0.3, 0.26)
+mesh = SubResource("SphereMesh_head")
+scale = Vector3(0.36, 0.36, 0.36)
+material_override = SubResource("StandardMaterial3D_energon")
+
+[node name="PowerCellRing" type="MeshInstance3D" parent="EnemyModel/Chest"]
+cast_shadow = 0
+position = Vector3(0, 0.3, 0.26)
+rotation = Vector3(1.5708, 0, 0)
+mesh = SubResource("CylinderMesh_limb")
+scale = Vector3(0.16, 0.035, 0.16)
+material_override = SubResource("StandardMaterial3D_metal")
+
+[node name="Collar" type="MeshInstance3D" parent="EnemyModel/Chest" groups=["tint"]]
+position = Vector3(0, 0.38, 0)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.3, 0.1, 0.28)
+material_override = SubResource("StandardMaterial3D_armor")
+
+[node name="Neck" type="MeshInstance3D" parent="EnemyModel/Chest"]
+position = Vector3(0, 0.43, 0)
+mesh = SubResource("CylinderMesh_limb")
+scale = Vector3(0.16, 0.14, 0.16)
+material_override = SubResource("StandardMaterial3D_skin")
+
+[node name="Head" type="Node3D" parent="EnemyModel/Chest"]
+position = Vector3(0, 0.45, 0)
+
+[node name="Skull" type="MeshInstance3D" parent="EnemyModel/Chest/Head" groups=["tint"]]
+position = Vector3(0, 0.08, 0)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.28, 0.28, 0.28)
+material_override = SubResource("StandardMaterial3D_armor")
+
+[node name="Jaw" type="MeshInstance3D" parent="EnemyModel/Chest/Head"]
+position = Vector3(0, -0.07, -0.02)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.24, 0.11, 0.24)
+material_override = SubResource("StandardMaterial3D_skin")
+
+[node name="Visor" type="MeshInstance3D" parent="EnemyModel/Chest/Head"]
+cast_shadow = 0
+position = Vector3(0, 0.09, -0.15)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.26, 0.085, 0.06)
+material_override = SubResource("StandardMaterial3D_energon")
+
+[node name="HelmCrest" type="MeshInstance3D" parent="EnemyModel/Chest/Head"]
+cast_shadow = 0
+position = Vector3(0, 0.24, 0.01)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.1, 0.09, 0.3)
+material_override = SubResource("StandardMaterial3D_metal")
+
+[node name="AntennaLeft" type="MeshInstance3D" parent="EnemyModel/Chest/Head"]
+cast_shadow = 0
+position = Vector3(-0.15, 0.26, 0.06)
+rotation = Vector3(-0.25, 0, 0.2)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.028, 0.2, 0.028)
+material_override = SubResource("StandardMaterial3D_metal")
+
+[node name="AntennaRight" type="MeshInstance3D" parent="EnemyModel/Chest/Head"]
+cast_shadow = 0
+position = Vector3(0.15, 0.26, 0.06)
+rotation = Vector3(-0.25, 0, -0.2)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.028, 0.2, 0.028)
+material_override = SubResource("StandardMaterial3D_metal")
+
+[node name="EarPodLeft" type="MeshInstance3D" parent="EnemyModel/Chest/Head"]
+cast_shadow = 0
+position = Vector3(-0.16, 0.08, 0)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.05, 0.11, 0.11)
+material_override = SubResource("StandardMaterial3D_metal")
+
+[node name="EarPodRight" type="MeshInstance3D" parent="EnemyModel/Chest/Head"]
+cast_shadow = 0
+position = Vector3(0.16, 0.08, 0)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.05, 0.11, 0.11)
+material_override = SubResource("StandardMaterial3D_metal")
+
+[node name="LeftShoulder" type="Node3D" parent="EnemyModel/Chest"]
+position = Vector3(-0.34, 0.3, 0)
+
+[node name="Pauldron" type="MeshInstance3D" parent="EnemyModel/Chest/LeftShoulder" groups=["tint"]]
+position = Vector3(0, 0.04, 0)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.25, 0.2, 0.3)
+material_override = SubResource("StandardMaterial3D_armor")
+
+[node name="UpperArm" type="MeshInstance3D" parent="EnemyModel/Chest/LeftShoulder"]
+position = Vector3(0, -0.17, 0)
+mesh = SubResource("CylinderMesh_limb")
+scale = Vector3(0.15, 0.3, 0.15)
+material_override = SubResource("StandardMaterial3D_cloth")
+
+[node name="Elbow" type="Node3D" parent="EnemyModel/Chest/LeftShoulder"]
+position = Vector3(0, -0.32, 0)
+
+[node name="ElbowPad" type="MeshInstance3D" parent="EnemyModel/Chest/LeftShoulder/Elbow"]
+cast_shadow = 0
+position = Vector3(0, -0.005, 0.02)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.15, 0.13, 0.15)
+material_override = SubResource("StandardMaterial3D_metal")
+
+[node name="Forearm" type="MeshInstance3D" parent="EnemyModel/Chest/LeftShoulder/Elbow"]
+position = Vector3(0, -0.15, 0)
+mesh = SubResource("CylinderMesh_limb")
+scale = Vector3(0.14, 0.28, 0.14)
+material_override = SubResource("StandardMaterial3D_cloth")
+
+[node name="Glove" type="MeshInstance3D" parent="EnemyModel/Chest/LeftShoulder/Elbow"]
+position = Vector3(0, -0.34, -0.01)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.16, 0.17, 0.18)
+material_override = SubResource("StandardMaterial3D_leather_dark")
+
+[node name="RightShoulder" type="Node3D" parent="EnemyModel/Chest"]
+position = Vector3(0.34, 0.3, 0)
+
+[node name="Pauldron" type="MeshInstance3D" parent="EnemyModel/Chest/RightShoulder" groups=["tint"]]
+position = Vector3(0, 0.04, 0)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.25, 0.2, 0.3)
+material_override = SubResource("StandardMaterial3D_armor")
+
+[node name="UpperArm" type="MeshInstance3D" parent="EnemyModel/Chest/RightShoulder"]
+position = Vector3(0, -0.17, 0)
+mesh = SubResource("CylinderMesh_limb")
+scale = Vector3(0.15, 0.3, 0.15)
+material_override = SubResource("StandardMaterial3D_cloth")
+
+[node name="Elbow" type="Node3D" parent="EnemyModel/Chest/RightShoulder"]
+position = Vector3(0, -0.32, 0)
+
+[node name="ElbowPad" type="MeshInstance3D" parent="EnemyModel/Chest/RightShoulder/Elbow"]
+cast_shadow = 0
+position = Vector3(0, -0.005, 0.02)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.15, 0.13, 0.15)
+material_override = SubResource("StandardMaterial3D_metal")
+
+[node name="Forearm" type="MeshInstance3D" parent="EnemyModel/Chest/RightShoulder/Elbow"]
+position = Vector3(0, -0.15, 0)
+mesh = SubResource("CylinderMesh_limb")
+scale = Vector3(0.14, 0.28, 0.14)
+material_override = SubResource("StandardMaterial3D_cloth")
+
+[node name="Glove" type="MeshInstance3D" parent="EnemyModel/Chest/RightShoulder/Elbow"]
+position = Vector3(0, -0.34, -0.01)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.16, 0.17, 0.18)
+material_override = SubResource("StandardMaterial3D_leather_dark")
+
+[node name="GunPivot" type="Node3D" parent="EnemyModel"]
+position = Vector3(0.22, 0.28, -0.25)
+
+[node name="GunBody" type="MeshInstance3D" parent="EnemyModel/GunPivot"]
+position = Vector3(0, 0, -0.3)
+mesh = SubResource("BoxMesh_unit")
+scale = Vector3(0.13, 0.11, 0.34)
+material_override = SubResource("StandardMaterial3D_gun")
+
+[node name="Barrel" type="MeshInstance3D" parent="EnemyModel/GunPivot"]
+position = Vector3(0, 0, -0.58)
+rotation = Vector3(1.5708, 0, 0)
+mesh = SubResource("CylinderMesh_barrel")
+material_override = SubResource("StandardMaterial3D_gun")
+
+[node name="SideBarrelLeft" type="MeshInstance3D" parent="EnemyModel/GunPivot"]
+cast_shadow = 0
+visible = false
+position = Vector3(-0.11, 0, -0.56)
+rotation = Vector3(1.5708, 0, 0)
+mesh = SubResource("CylinderMesh_barrel")
+scale = Vector3(0.72, 1, 0.72)
+material_override = SubResource("StandardMaterial3D_gun")
+
+[node name="SideBarrelRight" type="MeshInstance3D" parent="EnemyModel/GunPivot"]
+cast_shadow = 0
+visible = false
+position = Vector3(0.11, 0, -0.56)
+rotation = Vector3(1.5708, 0, 0)
+mesh = SubResource("CylinderMesh_barrel")
+scale = Vector3(0.72, 1, 0.72)
+material_override = SubResource("StandardMaterial3D_gun")
+
+[node name="WeaponOrb" type="MeshInstance3D" parent="EnemyModel/GunPivot"]
+cast_shadow = 0
+visible = false
+position = Vector3(0, 0, -0.4)
+mesh = SubResource("SphereMesh_head")
+scale = Vector3(0.7, 0.7, 0.7)
+material_override = SubResource("StandardMaterial3D_energon")
+
+[node name="Muzzle" type="Node3D" parent="EnemyModel/GunPivot"]
+position = Vector3(0, 0, -0.82)
+
+[node name="ChargeOrb" type="MeshInstance3D" parent="EnemyModel/GunPivot/Muzzle"]
+cast_shadow = 0
+visible = false
+mesh = SubResource("SphereMesh_head")
+scale = Vector3(0.5, 0.5, 0.5)
+material_override = SubResource("StandardMaterial3D_energon")
+
+[node name="MuzzleGlow" type="OmniLight3D" parent="EnemyModel/GunPivot/Muzzle"]
+light_color = Color(0.1, 0.75, 1, 1)
+light_energy = 0.65
+omni_range = 3.2
+
+[node name="HealthLabel" type="Label3D" parent="."]
+position = Vector3(0, 1.15, 0)
+billboard = 1
+text = "远程"
+font_size = 32
+outline_size = 6
+modulate = Color(0.4, 0.9, 1, 1)

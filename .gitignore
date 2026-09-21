@@ -1,0 +1,13 @@
+# Godot cache / build output
+.godot/
+build/
+export_templates/
+*.log
+
+# Iteration artifacts (screenshots, perf CSVs)
+visual_captures/
+performance_logs/
+
+# AI tool caches
+.codebuddy/
+.godot-mcp/

@@ -1,0 +1,1234 @@
+{
+  "version": 1,
+  "_doc": [
+    "本项目所有【可调数值】的唯一编辑入口。代码只读它，不反向写入。",
+    "路径用点号访问，例如 weapon.bullet_damage.late_base → {\"bullet_damage\":{\"late_base\":9.0}}。",
+    "每个读取点都带兜底默认值：本文件损坏、丢失或删掉某个键，游戏都仍以相同数值正常运行，",
+    "并在输出里给出明确报错。所以这里可以放心大胆地改，改坏了不会让游戏打不开。",
+    "生效时机：重新启动游戏（编辑器里按 F5；导出版本重开 exe）—— GameConfig 在启动时读一次，",
+    "之后各模块在场景加载时从内存取，所以『再来一局』不会重新读盘。不需要重启编辑器。",
+    "",
+    "【项目约定】新增玩法要素时，凡是能做成数值 / 开关 / 掉落权重的，一律加到这里，",
+    "不要写死在代码里。代码只保留结构性逻辑与调用点附近的兜底默认值。",
+    "这样调平衡、改数值、开关功能都不需要碰代码。",
+    "",
+    "边界说明：几何与布局（地形山丘、掩体布点、刷怪点坐标、颜色常量）不在本文件里 ——",
+    "它们属于关卡设计而非数值平衡，而且与代码里的平坦遮罩、导航烘焙存在耦合关系，",
+    "拆出來反而更容易改错。"
+  ],
+
+  "weapon": {
+    "_doc": "武器成长曲线。per_level 是前几级的显式档位，late_* 描述之后的线性段。",
+
+    "_classes_doc": "武器分类（弹道范式）。weapon.list 里每把枪引用其中一个 class，代码只读 class 的字段来决定弹道，不再把某种行为焊在某一把枪上 —— 『加一把枪 = 加一条配置』的支点就是这里。pellet_curve / pattern_spread_curve 填的是本段里的曲线键名；空字符串表示该类【不用】这条曲线（即单发、无扇形图案）。fire_mode：auto = 按住连发，single = 每按一次打一发。",
+    "classes": {
+      "smg": {
+        "label": "冲锋枪",
+        "fire_mode": "auto",
+        "pellet_curve": "",
+        "pattern_spread_curve": ""
+      },
+      "shotgun": {
+        "label": "散弹枪",
+        "fire_mode": "single",
+        "pellet_curve": "pellet_count",
+        "pattern_spread_curve": "pattern_spread"
+      },
+      "sniper": {
+        "label": "狙击枪",
+        "fire_mode": "single",
+        "pellet_curve": "",
+        "pattern_spread_curve": ""
+      }
+    },
+    "_list_doc": "已实装武器清单：id → { class, label? }。label 省略时直接用 class 的 label。",
+    "list": {
+      "smg": {"class": "smg"},
+      "sniper": {"class": "sniper"}
+    },
+    "_cancel_shotgun_doc": "【本轮：取消散弹】原型那把『主武器』把弹丸扇形（pellet_count × pattern_spread）焊在了自己身上，等于冲锋枪自带一把散弹枪。现在拆开：冲锋枪归 smg 类 → 单发、无扇形；散弹行为整体归 shotgun 类。『取消散弹』删的是【引用】而不是曲线 —— pellet_count / pattern_spread 两条曲线原样留在本段，只是不再有武器引用它们；以后要做散弹枪，在 list 里加一条 class=shotgun 就活了，不必改代码。",
+    "_cancel_shotgun_balance_doc": "【配套重推已完成，本条留档】拆分当时没有动数值，单发 DPS 塌到 L12 ≈ 137（原 7 弹丸 ≈ 955），所以本条里『后期手感明显变软』的推断是对的。现已按单发重推 bullet_damage（见 _damage_balance_doc），敌人血量与射速未改，纸面 DPS 回到 140 → 955.5。另外 bullet_damage 的单位已随之从『每颗弹丸』改为『每发』，复活 shotgun 前请先读 _damage_scope_warning。",
+    "_installed_doc": "当前装备的主武器（左键那把）在 list 里的 id。右键狙击是 list 里的另一条，触发方式不变、不进槽位。",
+    "installed": "smg",
+    "_magazine_ammo_max_doc": "弹匣【内子弹数】的硬上限。子弹包仍然直接压进弹匣、不用停下来换弹，但最多压到这里 —— 这是原先唯一失控的地方：它没有上限（旧注释还写着『捡得越多打得越久』），实测能堆到 1000+ 发，换弹这一环直接消失，游戏从『管理弹药』变成『无脑横扫』。到顶后再捡不消耗掉落物（add_ammo 返回 0），玩家可以留在原地、打空了再回来补。压满之后溢出的那部分会进【备用弹夹】（见 reserve 段），所以本项是『弹匣里最多装多少』，不是『总共能存多少』。注意它和 magazine_capacity（30 + 5×模块层数）是两件事：容量决定【一次换弹至少给多少】，本项只负责【兜住子弹包的溢出】。",
+    "magazine_ammo_max": 300,
+
+    "_pellet_scope_doc": "下面三条曲线里，pellet_count / pattern_spread 现在只由 classes.shotgun 引用（当前无武器使用，属于留档）；bullet_damage 是所有 class 共享的。注意 bullet_damage 的单位在取消散弹后已从『每颗弹丸』变成『每发』——详见 _damage_doc。",
+
+    "_pellet_doc": "弹丸数：L1..L3 走 per_level；L4 起每 late_step_levels 级 +late_step_pellets，封顶 late_max。",
+    "_pellet_balance_doc": "封顶 11→7、步进 2→1。弹丸是这条曲线上最大的乘数（×11），也是『越玩越无脑』的主因：射速 ×1.99、弹丸 ×11、单发 ×0.99，三者相乘得到 L1→L12 的 21.7 倍，而同期敌人血量只涨约 3 倍。砍弹丸的乘数比砍单发更有效 —— 单发砍狠了会先毁掉低等级手感（L1 只有 1 颗弹丸，单发是它唯一的火力来源）。改后实际档位：L4→5, L6→6, L8→7（封顶）。",
+    "pellet_count": {
+      "per_level": [1, 2, 3],
+      "late_base": 5,
+      "late_step_levels": 2,
+      "late_step_pellets": 1,
+      "late_max": 7
+    },
+
+    "_spread_doc": "腰射散布图案宽度（度）：per_level 是 L1..L3 的显式档位，之后线性增长到 late_max。注意 L1 的值（7.25）不会被用到 —— 1 级只有 1 颗弹丸，图案散布不参与计算；写 7.25 只是让它与线性段公式在 L1 的取值一致。",
+    "pattern_spread": {
+      "per_level": [7.25, 2.5, 6.0],
+      "late_base": 11.0,
+      "late_per_level": 1.25,
+      "late_max": 24.0
+    },
+
+    "_damage_doc": "单发伤害：L1..L3 显式，L4 起 late_base + (L-4)×late_per_level 线性增长。【单位是『每发』，不是『每颗弹丸』】取消散弹（classes.smg.pellet_curve 置空）之前它是『每颗弹丸』的伤害，必须再乘 pellet_count 才是实际伤害 —— 那个世界里它写作 [20,14,12] / 9.0 / 0.5。",
+    "_damage_balance_doc": "【本轮：按单发重推】取消散弹删掉了 pellet_count 这个乘数，却留下了按『每颗弹丸』标定的除数 —— 纸面 DPS 变成 L1 140 → L4 80 → L12 136.5，L1→L4 掉 43%、L12 仍低于开局，而敌人血量照 0.35 涨到 5.2 倍，净杀伤效率从目标 1.77 反转成 0.19。修法不是加斜率补偿，而是把被删掉的弹丸乘数【原样折回单发本身】：per_level 逐格乘回当时的弹丸数（L2 14×2=28、L3 12×3=36，L1 本来就是 1 颗所以不动），late_base = 9.0×5 = 45，late_per_level 取 5.75 使 L4=45 线性走到 L12=91（= 原 13.0×7 颗）。结果 L1→L12 的纸面 DPS 恰好回到阶段 1 签字的 140 → 955.5（6.83×），且全程单调递增。敌人血量 / 射速 / 狙击三项一个字未动，所以 docs/数值验收基线.md 的 TTK 表与狙击契约继续成立。",
+    "_damage_scope_warning": "⚠️ 这条曲线【所有 class 共享】。classes.shotgun 仍引用 pellet_count，一旦在 weapon.list 里加一条 class=shotgun，它会拿到 7 颗 × 91/发 = 637/发。要真正同时持有两类武器，必须照 pellet_curve 的先例给 class 加一个 damage_curve 引用（约 8 行代码），让两类武器各读各的伤害曲线；在那之前不要复活 shotgun。",
+    "_damage_tuning_note": "调参入口（按优先级）：① 实机偏强 → 收 late_per_level（5.75 → 5.0 即 L12 892 DPS），【不要】回头加 late_step_pellets，那是刚拆掉的多弹丸乘数；② 中期偏软 → 抬 late_base；③ 觉得『打不中』而不是『打得不够』 → 那是散布问题，动 weapon.spread.max_bloom_degrees。注意单发与多弹丸的命中形态不同：以前 ±21° 扇形里只有一部分弹丸落到目标身上，955 是达不到的上限；现在是全中或全空，同样的纸面数单体会更快、群怪更慢。",
+    "bullet_damage": {
+      "per_level": [20.0, 28.0, 36.0],
+      "late_base": 45.0,
+      "late_per_level": 5.75
+    },
+
+    "_base_doc": "主武器的基础手感（等级成长是乘在这些基础值之上的）。",
+    "shots_per_second": 7.0,
+    "magazine_capacity": 30,
+    "reload_duration": 1.35,
+    "spread": {
+      "_doc": "散布（度）。base_degrees 是腰射底噪，bloom 是连射时的累积与回复，ads_multiplier 是开镜收束，movement_penalty 是移动中的惩罚。",
+      "base_degrees": 0.55,
+      "bloom_per_shot": 0.85,
+      "bloom_decay": 5.5,
+      "max_bloom_degrees": 6.5,
+      "ads_multiplier": 0.35,
+      "movement_penalty": 1.8
+    },
+    "recoil": {
+      "_doc": "后坐力（度）。pitch 是抬头，yaw 是随机左右，max_view_kick 是累积上限，recovery 是回收速率，visual_strength 是枪身模型的回弹幅度。",
+      "pitch_degrees": 0.62,
+      "yaw_degrees": 0.24,
+      "recovery": 9.0,
+      "max_view_kick_degrees": 6.5,
+      "visual_strength": 0.12
+    },
+    "_range_doc": "射击射线的最远距离（米）。",
+    "shot_range": 120.0,
+    "_sniper_feel_doc": "狙击的基础手感。爆头倍率与爆头线高度比例（headshot_height_ratio）对全体敌人生效 —— Boss 的弱点区与它同源。",
+    "_pierce_doc": "pierce_max_targets = 一发狙击最多贯穿几个敌人（1 = 不穿透）。命中敌人后排除它继续打射线，直到打中地形或吃满上限；每个目标独立判爆头、独立吃满伤害。穿过三个杂兵 = 三次完整结算，所以它同时也是『狙击清群』的强度旋钮。只在狙击模式下生效。",
+    "_headshot_balance_doc": "headshot_multiplier 3.0→4.0。基础 60 × 4.0 = 240。上限受『档位 3 一发爆头崩坏』约束：档 3 血量 = 5×60×0.92 = 276，倍率必须 < 4.6，所以 4.0 安全地保留『档 0/1/2 一发爆头、档 3 两发』的契约；再往上调就会让档 3 塌成一发。",
+    "sniper": {
+      "shots_per_second": 1.15,
+      "magazine_capacity": 5,
+      "reload_duration": 5.0,
+      "headshot_multiplier": 4.0,
+      "recoil_multiplier": 3.4,
+      "pierce_max_targets": 3,
+      "_magazine_ammo_max_doc": "与主武器同一个道理：子弹包会把狙击弹直接压进狙击弹匣，不封顶就会堆出远超 5 发的弹匣。取 15 = 3 个弹匣的溢出空间，而主武器那边是 10 个弹匣（300 / 30）—— 两者刻意不同：狙击弹更贵，不该靠捡包囤成一条打不完的弹链。",
+      "magazine_ammo_max": 15
+    },
+    "headshot_height_ratio": 0.75,
+    "_fire_rate_balance_doc": "fire_rate_bonus_max 2.4→1.5。注意它是乘在 (1.0 + ...) 上的【封顶值】，不是『加成上限』：2.4 这个数要到 L27 才咬合，等于后期根本不设限，所以只调它本身是不会生效的。取 1.5 后，射速从 L7 起打满 7.0×1.5 = 10.5 发/秒，此后射速这一项不再参与成长 —— 曲线剩下的斜率全部交给单发。",
+    "fire_rate_bonus_per_level": 0.09,
+    "fire_rate_bonus_max": 1.5,
+    "bloom_growth_per_level": 0.05,
+    "_recoil_doc": "两个不同系数：view_kick 是真实抬枪偏移，visual_recoil 只是枪身模型回弹。",
+    "view_kick_per_level": 0.07,
+    "visual_recoil_per_level": 0.08,
+
+    "_sniper_doc": "狙击基础伤害 × (1 + (等级-1) × 成长系数)。远程敌人血量按同一系数成长，因此『几发打死』不随等级漂移。",
+    "_sniper_growth_balance_doc": "0.11→0.20。这个系数【同时】乘在狙击伤害和远程敌人血量上，所以它本身不破坏『几发打死』的契约 —— 改它只改变『两者一起涨多快』。之所以必须跟着动：近战血量成长从 0.22 提到 0.35 后，若狙击成长原地不动，狙击打近战的所需发数会从 L10 的 7 发涨到 10 发（等于偷偷削狙击 43%）。取 0.20 恰好让狙击对近战的击杀发数在各等级基本不变（L10 仍是 7 发），也就是在修敌人的同时真正做到『不动狙击』。若想按报告把远程血量拉齐到近战量级，可上调到 0.30，代价是狙击对近战变强约 29%。",
+    "sniper_base_damage": 60.0,
+    "sniper_growth_per_level": 0.2,
+
+    "_tier_doc": "远程敌人血量档位，含义是『狙击躯干几发打死』：档0=1发, 档1=2发, 档2=3发, 档3=5发。血量 = 发数 × 基础伤害 × margin。",
+    "ranged_shot_tiers": [1, 2, 3, 5],
+    "ranged_health_margin": 0.92,
+
+    "_upgrades_doc": "三种武器升级模块，可叠加。per_stack = 每层效果，max_stacks = 上限（0 表示不限）。",
+    "_upgrades_scope_doc": "两个 apply_to_sniper 必须留意：狙击伤害一旦被加成，与远程敌人血量档位的对应关系（『几发打死』）就会失效 —— 那是刻意保持稳定的契约，所以伤害模块默认不影响狙击。射速模块不影响契约，默认两边都吃。",
+    "upgrades": {
+      "fire_rate": {
+        "per_stack": 0.08,
+        "max_stacks": 8,
+        "apply_to_sniper": true
+      },
+      "damage": {
+        "per_stack": 0.1,
+        "max_stacks": 8,
+        "apply_to_sniper": false
+      },
+      "magazine": {
+        "capacity_per_stack": 5,
+        "reload_per_stack": 0.0,
+        "max_stacks": 8,
+        "apply_to_sniper": false
+      }
+    },
+
+    "_reserve_doc": "备用弹夹（旧名『备弹池』，语义已改）。主武器【子弹无限】：换弹永远成立，本仓为空时直接给一个新的满弹匣（容量 = magazine_capacity + 5×弹匣模块层数）。本仓不再决定『能不能换弹』，只决定『能不能一口气补回几百发』—— 它是子弹包的溢出仓：子弹包先压进弹匣，弹匣压满之后剩下的进这里，换弹时优先从这里取。enabled=false = 没有备用仓，主武器照样无限，只是攒不下存货。狙击不受这条影响，仍按自己的备用弹夹换弹。",
+    "reserve": {
+      "enabled": true,
+      "primary_start": 180,
+      "primary_max": 300,
+      "sniper_start": 20,
+      "sniper_max": 40
+    }
+  },
+
+  "enemy": {
+    "_doc": "动态刷怪的四张档位表（下标 = 体型档 0..3：轻 → 巨）。",
+    "size_scale": [0.7, 1.0, 1.35, 1.72],
+    "size_health": [62.0, 128.0, 295.0, 610.0],
+    "_speed_doc": "速度必须压过玩家步行(5.0)才会追人，但乘以 speed_growth_max 后仍须低于冲刺(8.5)，否则变成跑不掉的必死局。",
+    "size_speed": [7.0, 5.9, 4.3, 3.1],
+    "size_damage": [13.0, 21.0, 32.0, 44.0],
+
+    "_weight_doc": "大体型占比 = 基础 + 等级×系数 + 生存阶段×系数，封顶 big_weight_max。",
+    "big_weight_base": 0.08,
+    "big_weight_per_level": 0.014,
+    "big_weight_per_stage": 0.035,
+    "big_weight_max": 0.42,
+    "_roll_doc": "随机数落点分档：< heavy 为档3，< light 为档2，< 0.64（代码内）为档1，其余档0。",
+    "roll_threshold_heavy": 0.34,
+    "roll_threshold_light": 0.64,
+
+    "_growth_doc": "【休眠段的成长表】只有 survival_director 会读它，波次模式下整体不生效（真正生效的是 enemy_roster 段那一组）。两处的差别不只是数值，连算起口径都不同：这一段从 Lv4 起算（代码里的 maxi(level-4,0)），enemy_roster 那一段从 Lv1 起算（代码里的 level）。所以 speed_growth_max 在这里是 1.12、在那里是 1.25，两个数不能互相参照。",
+    "health_growth_per_level": 0.3,
+    "speed_growth_per_level": 0.02,
+    "speed_growth_max": 1.12,
+    "damage_growth_per_level": 0.07,
+
+    "_damage_doc": "敌人伤害调参入口。两个倍率是最直接的难度旋钮（1.0 = 各刷怪点用自己的数值）；攻击间隔是全局的，因为刷怪点并不覆盖它。近战默认压到 0.7 —— 原先它一击 24 点，配合『背后看不见』是主要死因。",
+    "melee_damage_scale": 0.7,
+    "ranged_damage_scale": 1.0,
+    "melee_attack_interval": 0.72,
+    "ranged_fire_interval": 2.3,
+    "melee_base_damage": 24.0,
+    "ranged_base_damage": 13.0,
+
+    "_small_fast_doc": "小型快速近战的判定与护盾折扣。当前主要威胁是这类目标 —— 图鉴里体型 ≤0.85 且速度 ≥5.0 的四种近战（追猎者 0.72/5.4、迅捷刀手 0.82/5.1、疾行刺客 0.68/6.0、猎杀幼体 0.65/6.2）。它们打在【护盾】上的伤害乘 small_fast_shield_damage_scale，打在【生命】上的伤害不打折；其余所有敌人两项倍率恒为 1.0，方便单独隔离测试这组改动。判定只用体型与速度：其余近战体型都 ≥1.0，所以速度随等级成长也不会把重装兵误判进来。",
+    "small_fast_max_scale": 0.85,
+    "small_fast_min_speed": 5.0,
+    "small_fast_shield_damage_scale": 0.7,
+
+    "_detection_doc": "察觉距离：玩家进入这个半径内敌人才主动交战。【它必须大于所有竞技场 spawn_anchors.radius_max 的最大值】（当前 dunes 为 44），否则远处刷出的近战敌人会因为「还没察觉到玩家」而原地站定。这个坑实测踩过：近战默认 34 米 < 湖畔锚点半径 40 米，结果一波里约 2/3 的近战兵生成即冻结，波次也因此清不掉（只能靠看门狗强推）。",
+    "melee_detection_range": 75.0,
+    "ranged_detection_range": 75.0,
+
+    "_melee_feel_doc": "近战基础手感。attack_distance 是进入挥砍的距离；stagger_duration 是被手雷/脉冲击退后的硬直；idle_wander_speed_ratio 是未察觉玩家时的低速游荡比例（保留它是为了防止再次出现『远处刷出的敌人站着不动』）。",
+    "melee_attack_distance": 1.85,
+    "stagger_duration": 0.42,
+    "melee_idle_wander_speed_ratio": 0.35,
+    "_ranged_feel_doc": "远程基础手感。charge_time 是齐射前的蓄力（玩家的躲避窗口）；global_fire_cooldown_ms 是全体远程兵共用的开火节流（决定弹幕整体密度）；fire_range_ratio 表示『比察觉距离更近才开火』。",
+    "ranged_charge_time": 0.65,
+    "ranged_global_fire_cooldown_ms": 900,
+    "ranged_fire_range_ratio": 0.9,
+    "_nav_doc": "导航重算间隔（秒）。越小追踪越准、开销越大。",
+    "nav_repath_interval": 0.22,
+    "_bullet_doc": "敌弹生命周期（秒），决定弹幕在场的压迫时长。",
+    "bullet_lifetime": 6.0,
+    "_patterns_doc": "五种弹幕的成形参数。发数 × 张角决定躲避难度，速度决定反应时间，lane_offsets 里刻意留出的中间缺口是给玩家的生路。",
+    "patterns": {
+      "fan": {"count": 3, "spread_degrees": 18.0, "speed": 7.0},
+      "aimed_burst": {"count": 3, "interval": 0.26},
+      "spiral": {"count": 5, "spread_degrees": 30.0, "speed": 6.6, "curve": 0.1},
+      "bullet_wall": {"lane_offsets": [-2.7, -0.9, 0.9, 2.7], "speed": 6.8},
+      "mortar": {"lead_time": 0.55, "damage_scale": 1.7, "warning_delay": 1.4}
+    },
+
+    "ranged_distance_base": 15.0,
+    "ranged_distance_per_scale": 3.0,
+
+    "_titles_doc": "刷出来的敌人头顶称号，下标与体型档 / 弹幕图案一致。",
+    "ranged_pattern_titles": ["无尽散射兵", "无尽点射兵", "无尽旋流兵", "无尽弹墙兵", "无尽迫击炮"],
+    "melee_titles": ["无尽猎手", "无尽战士", "无尽重卫", "无尽巨兽"],
+
+    "_fall_kill_doc": "掉出场地即判定死亡：低于脚下程序化地面 fall_kill_depth 米就地结算（melee_enemy / ranged_enemy 的 _kill_if_below_world）。玩家掉出去是被送回最近落脚点（player.fall_rescue_depth），敌人反过来 —— 它在谁也看不见的底下，拉回来等于凭空多一个兵。这一条不是可有可无的收尾：波次推进器靠 tree_exited 减存活数，掉下去的敌人永不退场，于是把「最后一个敌人」永久挂在名单里，表现就是剩 1 卡住、只能等看门狗强推。",
+    "fall_kill_depth": 18.0
+  },
+
+  "navigation": {
+    "_doc": "运行时烘焙的导航网格参数。agent_radius 会被吸附成 cell_size 的整数倍、agent_height 与 agent_max_climb 会被吸附成 cell_height 的整数倍 —— 所以直接写对齐后的值（见 navigation_region.gd 注释）。",
+    "agent_radius": 0.9,
+    "agent_height": 2.0,
+    "agent_max_climb": 0.5,
+    "agent_max_slope": 45.0,
+    "cell_size": 0.3,
+    "cell_height": 0.25,
+    "_delay_doc": "等地形/掩体/树木把网格建完再烘焙的延迟帧数。太小会烘出空网格（表现为敌人完全不动）。",
+    "bake_delay_frames": 2
+  },
+
+  "terrain": {
+    "_doc": "地形网格与起伏。振幅直接决定坡度 —— 它与 navigation.agent_max_slope / agent_max_climb 强耦合，调大之前先确认敌人还走得上去。频率与相位是地形的『纹理签名』，刻意留在代码里：改它等于换一张地形，而不是调难度。",
+    "cell_size": 1.0,
+    "_cell_size_doc": "cell_size 是【碰撞与高度采样】的格距，必须保持细（1 米），玩法契约全建立在它上面。visual_cell_size 是【画面网格】的格距，刻意粗得多 —— 它只影响观感。",
+    "_visual_cell_note": "视觉格距 2 米：探索阶段优先给足轮廓精度。视觉网格使用共享顶点与连续法线，避免俯视时出现碎玻璃式三角面；碰撞仍保持 1 米采样。",
+    "visual_cell_size": 2.0,
+    "rolling_amplitudes": [0.85, 0.38, 0.32]
+  },
+
+  "decor": {
+    "_doc": "草地与花。种子决定摆放是否可复现（同种子同布局）。花 / 碎石 / 岩块 / 远景松见 world_decor.gd；草已拆到 grass_field.gd，下面的 grass_* 全部由它读取。",
+    "_grass_doc": "density 是【每平方米株数】而不是总数，所以换一张不同大小的图不用改数字。lod_distances = [近→全量 3 叶, 中→2 叶] 的切换距离；cull_distance 之外整块不画；fade_start 到 cull_distance 之间逐顶点抖动淡出。trample_* 决定被角色踩开的幅度与回弹摆动，wind 默认 0 —— 没人在附近时草地是静的。",
+    "grass_density": 1.0,
+    "grass_max_instances": 30000,
+    "grass_scale_min": 0.65,
+    "grass_scale_max": 1.35,
+    "grass_seed": 18473,
+    "grass_chunk_target": 25,
+    "grass_lod_distances": [14.0, 34.0],
+    "grass_cull_distance": 72.0,
+    "grass_fade_start": 46.0,
+    "grass_lod_ratios": [1.0, 0.62, 0.3],
+    "grass_trample_radius": 1.7,
+    "grass_trample_bend": 0.42,
+    "grass_sway_amplitude": 0.13,
+    "grass_sway_frequency": 6.5,
+    "grass_idle_strength": 0.55,
+    "grass_trample_ref_speed": 4.6,
+    "grass_wind": 0.0,
+    "grass_lod_interval": 0.12,
+    "flower_seed": 93211
+  },
+
+  "performance": {
+    "_doc": "性能相关。max_idle_per_key 是每个对象池键常驻的空闲节点上限（内存 vs 复用率的取舍）。",
+    "max_idle_per_key": 64
+  },
+
+  "spawn": {
+    "_doc": "动态刷怪节拍。",
+    "stage_seconds": 45.0,
+    "extra_enemies_per_level": 7,
+    "extra_enemies_per_survival_stage": 4,
+    "ranged_ratio": 0.44,
+    "_interval_doc": "刷怪间隔 = 下限与 (基准 - (威胁等级-offset)×每级) 取大。",
+    "interval_base": 1.45,
+    "interval_min": 0.26,
+    "interval_per_threat": 0.09,
+    "threat_level_offset": 4,
+    "radius_min": 15.0,
+    "radius_max": 34.0,
+    "attempts": 24,
+    "world_bound": 48.0,
+    "_lake_doc": "【已废弃，保留占位】原先的湖面排除盒 [x0, x1, z0, z1]。它是一张图（湖畔）的坐标被当成了全局常量，换图后会静默屏蔽别的图上一块本该刷怪的合法地面。职责已由 arena 的遮罩接管（ArenaUtil.is_masked_out），代码不再读它。",
+    "lake_exclusion": [8.0, 42.0, 7.0, 32.0],
+
+    "_mode_doc": "刷怪模式。waves = 波次制（Boss 波与阶段推进由 wave_director 驱动）；endless = 原来的纯无尽 DDA（survival_director 驱动，15 个固定刷怪点同时生效）。两者互斥 —— 切回 endless 即可完整还原改动前的行为，方便对照。",
+    "mode": "waves",
+    "_dormant_doc": "waves 模式下 survival_director 与 15 个固定刷怪点都会休眠（只读配置、不生成敌人），出怪完全交给 wave_director。",
+    "_anchors_doc": "刷怪锚点由竞技场提供（arenas.definitions.<id>.spawn_anchors），因此同一份图鉴能在四张不同地形上出怪 —— 这也是为什么波次系统不再依赖场景里那 15 个固定坐标。",
+    "_max_alive_doc": "同时存活上限。波次是一波里陆续放人，而不是一次性倒出来：既保留原来『持续压力』的节奏，也避免一次生成几十个节点造成尖峰。",
+    "max_alive": 14,
+    "_prepare_doc": "第一波开始前的准备时间（秒），给玩家环顾四周的余地。",
+    "prepare_seconds": 4.0,
+    "_spawn_interval_doc": "同一波内两个敌人的生成间隔（秒）。",
+    "spawn_interval": 0.85,
+    "_stuck_doc": "波次状态机的看门狗：超过这么久【没有任何可识别进展】（生成敌人、敌人死亡、状态切换都会清零）才强制推进。它的语义是『彻底卡死』的保护，不是『一波最多打多久』 —— 早先写成 20 秒的无脑超时，结果在一波正常进行中就把波次判成清空了。",
+    "wave_stuck_guard": 120.0,
+    "_clearance_doc": "敌人落地时相对地形高度的抬升量。敌人的碰撞胶囊以根节点为圆心，所以这个值必须约等于胶囊半高 —— 偏高只是落一点点，**偏低会穿透地形并无限下坠**。",
+    "enemy_stand_clearance": 1.2
+  },
+
+  "enemy_roster": {
+    "_doc": "敌人图鉴。原先是场景 hyrule_field.tscn 里 15 个固定刷怪点上的 @export 值 —— 那其实是一套按武器等级解锁的手工调校阵容（侦察射手 → 点射游骑兵 → 旋流术士 → 重型迫击炮 → 巨型破坏者）。波次系统直接从这份图鉴出怪，不再用随机档位掷骰：掷骰能把『大体型占比』拉高，但永远出不了『重型迫击炮』这种有明确身份与弹道图案的敌人。迁到配置后，加一种敌人不再需要改场景。",
+    "_fields_doc": "kind: ranged / melee；min_weapon_level: 解锁等级（与原 required_weapon_level 一致）；weight: 被抽中的相对权重（相同即可，调它来控制某种敌人出现频率）；health = -1 表示改由 health_tier 按『狙击几发打死』决定（远程专属）；scale/move_speed/damage 与原 @export 逐值相同。",
+    "_dropped_doc": "原刷怪点上的 respawn_delay / random_spawn_radius / minimum_player_distance 没有迁移 —— 它们在波次制下没有意义（波次不再单点重生，站位由竞技场锚点决定）。",
+    "_growth_doc": "这四个值来自原刷怪点脚本的 @export 默认值（15 个节点都没有覆盖它们，所以对全部 15 种敌人生效）。规则与原脚本一致：近战血量 ×(1+等级×health_growth)，伤害 ×(1+等级×damage_growth)，速度 ×(1+等级×speed_growth) 且封顶 max_speed_growth（必须永远跑不过玩家冲刺）。",
+    "_ranged_health_doc": "远程血量【刻意不走 health_growth】—— 它由 health_tier 的『狙击几发打死』决定，否则档位契约会随等级漂移。这条契约能成立，是因为狙击伤害与远程血量共用 weapon.sniper_growth_per_level 同一个系数；反过来说，想改远程血量的成长速度就必须同时改那个系数（等于同时改狙击威力），两者是焊死的。",
+    "_growth_balance_doc": "health_growth_per_level 0.22→0.35，这是配合普攻曲线压缩的对侧改动。玩家纸面 DPS 从 L1→L12 的 21.7 倍压到 6.8 倍后，敌人血量若还按 0.22 涨，后期会从『无脑碾压』直接翻成『越来越轻松』—— 因为玩家的成长本来是它的 7.3 倍。0.35 把 L1→L12 的血量倍率从 2.98 倍抬到 3.85 倍，与 6.83 倍的 DPS 相乘后，净杀伤效率提升从 7.3 倍收敛到 1.8 倍。",
+    "health_growth_per_level": 0.35,
+    "damage_growth_per_level": 0.14,
+    "speed_growth_per_level": 0.05,
+    "max_speed_growth": 1.25,
+    "_speed_cap_note": "max_speed_growth = 1.25 才是【实际生效】的那个。enemy 段里另有一个 speed_growth_max = 1.12，但那张表只有 survival_director 会读、波次模式下整体休眠。以本段为准：最快的是猎杀幼体 6.2×1.25 = 7.75，仍低于玩家冲刺 8.5。",
+    "_anchor_doc": "锚点站位保护：生成点与玩家的最小距离，避免贴着玩家脸上刷出来。",
+    "anchor_min_player_distance": 14.0,
+    "_attrs_doc": "敌人『重量』属性（阶段 2）。attrs_default 里每条默认值都等于阶段 2 之前的现有行为 —— 所以整块不动时游戏与改动前逐帧一致。entries 里每条只写【与默认表不同】的字段，按体型/身份逐条启用，方便单条回滚。全部在生成时由同一份 entry 推导。",
+    "_attrs_fields_doc": "turn_speed: 转向速度(度/秒)，0 = 瞬时（旧 look_at 行为）；accel_ratio: 起步加速度 ÷ move_speed（旧值恒为 7；收脚速度恒为它的 9/7 倍）；knockback_resistance: 0~1 霸体，1 = 手雷/脉冲完全推不动；stagger_duration: 被击退的硬直秒数（旧值 0.42）；attack_distance_scale: 0 = 攻击距离不随体型缩放（旧值），1 = 完全随体型缩放（base × scale）；contact_damage: 贴身时每秒伤害，0 = 关（旧值）；armor: 0~1 减伤，对【所有伤害来源】生效（含手雷 / 脉冲）。",
+    "attrs_default": {
+      "turn_speed": 0.0,
+      "accel_ratio": 7.0,
+      "knockback_resistance": 0.0,
+      "stagger_duration": 0.42,
+      "attack_distance_scale": 0.0,
+      "contact_damage": 0.0,
+      "armor": 0.0
+    },
+    "entries": [
+      {"id": "L1ScoutGunner", "title": "侦察射手", "kind": "ranged", "min_weapon_level": 1, "weight": 1.0, "scale": 0.78, "health": -1.0, "health_tier": 0, "move_speed": 3.8, "damage": 7.0, "ranged_pattern": 0, "movement_style": 0, "preferred_distance": 14.0, "armor_color": [0.68, 0.08, 0.1], "bullet_color": [1.0, 0.03, 0.15]},
+      {"id": "L1SmallHunter", "title": "小型追猎者", "kind": "melee", "min_weapon_level": 1, "weight": 1.0, "scale": 0.72, "health": 40.0, "health_tier": -1, "move_speed": 5.4, "damage": 10.0, "armor_color": [0.7, 0.2, 0.08]},
+      {"id": "L1MeleeSoldier", "title": "近战士兵", "kind": "melee", "min_weapon_level": 1, "weight": 1.0, "scale": 1.0, "health": 90.0, "health_tier": -1, "move_speed": 4.0, "damage": 16.0, "armor_color": [0.4, 0.1, 0.56]},
+      {"id": "L2BurstRanger", "title": "点射游骑兵", "kind": "ranged", "min_weapon_level": 2, "weight": 1.0, "scale": 0.9, "health": -1.0, "health_tier": 1, "move_speed": 4.0, "damage": 8.0, "ranged_pattern": 1, "movement_style": 2, "preferred_distance": 17.0, "armor_color": [0.08, 0.25, 0.68], "bullet_color": [1.0, 0.3, 0.03]},
+      {"id": "L2SwiftBlade", "title": "迅捷刀手", "kind": "melee", "min_weapon_level": 2, "weight": 1.0, "scale": 0.82, "health": 65.0, "health_tier": -1, "move_speed": 5.1, "damage": 14.0, "armor_color": [0.72, 0.26, 0.04]},
+      {"id": "L2HeavyWarrior", "title": "重装战士", "kind": "melee", "min_weapon_level": 2, "weight": 1.0, "scale": 1.35, "health": 210.0, "health_tier": -1, "move_speed": 2.8, "damage": 24.0, "armor_color": [0.2, 0.22, 0.25]},
+      {"id": "L3SpiralCaster", "title": "旋流术士", "kind": "ranged", "min_weapon_level": 3, "weight": 1.0, "scale": 1.05, "health": -1.0, "health_tier": 2, "move_speed": 3.3, "damage": 10.0, "ranged_pattern": 2, "movement_style": 1, "preferred_distance": 18.0, "armor_color": [0.42, 0.08, 0.66], "bullet_color": [0.76, 0.05, 1.0]},
+      {"id": "L3WallGunner", "title": "弹墙炮手", "kind": "ranged", "min_weapon_level": 3, "weight": 1.0, "scale": 1.15, "health": -1.0, "health_tier": 2, "move_speed": 2.8, "damage": 11.0, "ranged_pattern": 3, "movement_style": 0, "preferred_distance": 20.0, "armor_color": [0.04, 0.45, 0.42], "bullet_color": [1.0, 0.04, 0.55]},
+      {"id": "L3Berserker", "title": "狂战士", "kind": "melee", "min_weapon_level": 3, "weight": 1.0, "scale": 1.15, "health": 150.0, "health_tier": -1, "move_speed": 4.7, "damage": 20.0, "armor_color": [0.7, 0.04, 0.04]},
+      {"id": "L3ShieldGuard", "title": "大型盾卫", "kind": "melee", "min_weapon_level": 3, "weight": 1.0, "scale": 1.4, "health": 260.0, "health_tier": -1, "move_speed": 2.5, "damage": 26.0, "armor_color": [0.12, 0.18, 0.32]},
+      {"id": "L3Runner", "title": "疾行刺客", "kind": "melee", "min_weapon_level": 3, "weight": 1.0, "scale": 0.68, "health": 55.0, "health_tier": -1, "move_speed": 6.0, "damage": 11.0, "armor_color": [0.12, 0.5, 0.2]},
+      {"id": "L4HeavyArtillery", "title": "重型迫击炮", "kind": "ranged", "min_weapon_level": 4, "weight": 1.0, "scale": 1.55, "health": -1.0, "health_tier": 3, "move_speed": 2.2, "damage": 14.0, "ranged_pattern": 4, "movement_style": 0, "preferred_distance": 23.0, "armor_color": [0.32, 0.04, 0.04], "bullet_color": [1.0, 0.12, 0.02]},
+      {"id": "L4GiantBrute", "title": "巨型破坏者", "kind": "melee", "min_weapon_level": 4, "weight": 1.0, "scale": 1.75, "health": 520.0, "health_tier": -1, "move_speed": 2.4, "damage": 34.0, "armor_color": [0.34, 0.03, 0.42], "attrs": {"turn_speed": 150.0, "accel_ratio": 2.0, "knockback_resistance": 0.8, "stagger_duration": 0.12, "attack_distance_scale": 1.0, "contact_damage": 10.0, "armor": 0.15}},
+      {"id": "L4EliteMelee", "title": "精英剑士", "kind": "melee", "min_weapon_level": 4, "weight": 1.0, "scale": 1.25, "health": 240.0, "health_tier": -1, "move_speed": 4.0, "damage": 24.0, "armor_color": [0.66, 0.38, 0.04]},
+      {"id": "L4FastHunter", "title": "猎杀幼体", "kind": "melee", "min_weapon_level": 4, "weight": 1.0, "scale": 0.65, "health": 65.0, "health_tier": -1, "move_speed": 6.2, "damage": 12.0, "armor_color": [0.62, 0.16, 0.08], "attrs": {"turn_speed": 900.0, "accel_ratio": 9.0, "stagger_duration": 0.5}}
+    ]
+  },
+
+  "player": {
+    "_move_doc": "移动手感。注意 sprint 上限与敌人速度的耦合：敌人速度 × max_speed_growth 后仍必须低于 speed × sprint_multiplier，否则变成跑不掉的必死局。当前 5.0×1.7 = 8.5，对敌人最高 6.2×1.25 = 7.75（取实际生效的 enemy_roster 段，最快的是猎杀幼体；enemy 段那张休眠表里的 7.0×1.12 = 7.84 只对 survival_director 生效）。",
+    "max_health": 100.0,
+    "speed": 5.0,
+    "sprint_multiplier": 1.7,
+    "acceleration": 24.0,
+    "deceleration": 30.0,
+    "jump_velocity": 7.0,
+    "step_height": 0.75,
+    "air_control": 0.35,
+    "ads_speed_multiplier": 0.62,
+    "rotation_smooth": 16.0,
+    "_camera_doc": "相机跟随与视野过渡的平滑速率（越大越跟手、越小越飘）。spring_length 是相机弹簧臂长度，决定腰射/开镜时的镜头距离。",
+    "camera_smooth": 22.0,
+    "fov_smooth": 13.0,
+    "hip_spring_length": 5.0,
+    "sniper_spring_length": 2.3,
+    "_look_doc": "视角。mouse_sensitivity 是每像素弧度；开镜时再乘 sniper_sensitivity_multiplier，让狙击更容易微调。",
+    "mouse_sensitivity": 0.002,
+    "sniper_sensitivity_multiplier": 0.34,
+    "fov": {
+      "hip": 70.0,
+      "sniper": 26.0
+    },
+    "_invuln_doc": "受击后的无敌帧（秒），给玩家一个『被打中后至少能拉开距离』的窗口。",
+    "hit_invulnerability": 0.42,
+
+    "_shield_doc": "《命运2》式护盾：伤害先扣护盾，溢出部分才进生命；停火 shield_regen_delay 秒后按 shield_regen_rate 逐点回满。目的是消灭『被近战从背后捅死』这类毫无反应机会的死亡 —— 一次背刺会先打在护盾上，拉开距离就能恢复。设 shield_max = 0 可整体关闭。",
+    "shield_max": 70.0,
+    "shield_regen_delay": 3.0,
+    "shield_regen_rate": 35.0,
+    "_health_regen_doc": "生命自愈只回到 health_regen_cap_ratio × 上限（刻意不做满血自愈，否则生存模式就没压力了）。设 cap_ratio = 0 可单独关闭生命自愈。",
+    "health_regen_delay": 6.0,
+    "health_regen_rate": 6.0,
+    "health_regen_cap_ratio": 0.5,
+    "_fall_rescue_doc": "探索阶段的掉出世界保险：低于当前位置程序化地面 fall_rescue_depth 米时，返回最近稳定落脚点。最终箱庭边界完成后仍可保留为异常兜底。",
+    "fall_rescue_depth": 14.0,
+    "_animation_doc": "玩家程序化动画。步频按实际水平速度连续插值；death_duration 是生命归零到弹出结算画面的倒地过渡时长（秒）。",
+    "animation": {
+      "walk_cadence": 7.4,
+      "run_cadence": 12.0,
+      "death_duration": 1.35
+    }
+  },
+
+  "abilities": {
+    "_doc": "翻滚（Shift）、手雷（E）、震地脉冲（Q）。这三个原先是 player.gd 的 @export 与 grenade.gd / shockwave.gd 里的常量，分散在三处 —— 想调「Q 键威力」根本找不到在哪。现在统一到这里。",
+    "dodge": {
+      "_doc": "翻滚：speed 是过程速度，duration 是持续时长，cooldown 是冷却，invulnerability 是无敌帧时长（用来躲弹幕）。",
+      "speed": 12.5,
+      "duration": 0.42,
+      "cooldown": 0.85,
+      "invulnerability": 0.34
+    },
+    "grenade": {
+      "_doc": "手雷（E）：throw_speed 是抛出初速，fuse 是引信秒数，radius/damage/push 是爆炸结算。手雷【需要视线】—— 被掩体挡住就打不到。",
+      "cooldown": 6.0,
+      "throw_speed": 17.0,
+      "fuse": 1.7,
+      "radius": 5.5,
+      "damage": 95.0,
+      "push": 12.0
+    },
+    "skill": {
+      "_doc": "震地脉冲（Q）：以玩家为中心向外扩散，【穿墙生效】（不需要视线），定位是「贴身被围住时把敌人推开」的自救技。想调 Q 键威力就改 damage。",
+      "cooldown": 9.0,
+      "radius": 9.0,
+      "damage": 55.0,
+      "push": 15.0,
+      "_expand_doc": "扩散环从生成到消失的时长（秒），纯表现，不影响伤害结算。",
+      "expand_duration": 0.5
+    }
+  },
+
+  "pickups": {
+    "_doc": "掉落物定义：颜色、显示文字、以及被拾取时的效果量。新增一种掉落物只需在这里加一项 + 在 pickup.gd 里加一个分支（效果本身也全部读这里，不写死数字）。",
+    "health": {
+      "color": [0.12, 1.0, 0.28, 1.0],
+      "label": "+{value} 生命",
+      "heal": 20.0
+    },
+    "ammo": {
+      "color": [1.0, 0.74, 0.16, 1.0],
+      "label": "+{value} 备弹",
+      "ammo": 60,
+      "sniper_ammo": 6
+    },
+    "fire_rate": {
+      "color": [1.0, 0.5, 0.14, 1.0],
+      "label": "射速模块",
+      "upgrade": "fire_rate"
+    },
+    "damage": {
+      "color": [1.0, 0.22, 0.52, 1.0],
+      "label": "威力模块",
+      "upgrade": "damage"
+    },
+    "magazine": {
+      "color": [0.56, 0.62, 1.0, 1.0],
+      "label": "弹匣模块",
+      "upgrade": "magazine"
+    }
+  },
+
+  "pickup": {
+    "_doc": "掉落物本体（不是掉落概率，那个在 drops 段）。只留存活时长 —— 浮动与自转属 juice，等观感定型后再说。",
+    "lifetime": 30.0
+  },
+
+  "drops": {
+    "_doc": "敌人死亡掉落表。先按 chance 决定是否掉落，再按 weights 抽类型；权重是相对值，不必凑成 1。想调『血包掉太少/太多』只动 health 的权重即可。",
+    "melee_chance": 0.5,
+    "ranged_chance": 0.55,
+    "weights": {
+      "health": 8,
+      "ammo": 26,
+      "fire_rate": 9,
+      "damage": 9,
+      "magazine": 9
+    },
+    "_note": "health 权重 8 / 总权重 61 ≈ 13%，相比改动前的 45%~50% 大幅下调 —— 这是按需求刻意压低的。"
+  },
+
+  "ui": {
+    "_doc": "界面相关数值。",
+    "show_fps": false,
+    "_low_health_doc": "生命低于 low_health_threshold 时开始出现红色 vignette 与心跳；血量越低，心跳越密（间隔从 safe 线性收紧到 critical）。",
+    "low_health_threshold": 0.35,
+    "vignette_rest_intensity": 0.25,
+    "vignette_max_intensity": 0.85,
+    "heartbeat_interval_safe": 1.15,
+    "heartbeat_interval_critical": 0.45,
+    "_minimap_doc": "小地图显示的世界半径（米），实际取值还会按当前竞技场体量收紧到 extent×0.85。",
+    "minimap_world_range": 52.0,
+    "_minimap_enemy_direction_doc": "存活敌人少于此数量时，为落在小地图显示框外的敌人在地图边缘绘制红色方向标。设为 5 表示剩余 1~4 个敌人时启用。",
+    "minimap_enemy_direction_limit": 5
+  },
+
+  "death_marker": {
+    "_doc": "阵亡标记：十字架 + 冲天光柱。光柱往天上打，隔着掩体与坡地也能从远处看见阵亡位置。",
+    "_color_doc": "标记颜色，[r, g, b]。默认亮青：场景整体是绿/棕/灰，青最不容易混进去。",
+    "color": [0.25, 0.9, 1.0],
+    "_beam_height_doc": "光柱高度（米）。要明显高于地形起伏，否则隔着一道坡就看不见了。",
+    "beam_height": 42.0,
+    "beam_radius": 0.22,
+    "cross_size": 1.5
+  },
+
+  "arenas": {
+    "_doc": "竞技场定义。配置只描述【可调的那部分】—— 体量、地形起伏量程、山丘/掩体数量与分布环带、装饰密度、刷怪锚点布局、敌人配比、波次；精确坐标由 arena.gd 的确定性生成器算出。这不是偷懒：坐标必须与平坦遮罩、导航烘焙保持一致，一座山离遮罩太近就会造出 52° 的陡坡墙把敌人卡死（terrain_field.gd 里记着这个实测坑），手写几十个坐标既容易错又无法验证。",
+    "_override_doc": "精修过的竞技场可以直接给 hills / cover 显式坐标表，覆盖生成结果。第一个竞技场就是这么保留原样的。",
+    "_new_arena_doc": "加一个新竞技场 = order 里加个 id + definitions 里加一段（约 25 行），不碰任何代码。",
+    "generation": {
+      "_doc": "生成器自身的参数（不是某个竞技场的配置）。改 seed_base 等于换一整套布局；其余是『布点放不下时怎么办』的容忍度。",
+      "seed_base": 90210,
+      "_clearance_doc": "山脚到遮罩的安全间隙系数（生成器与自检【共用】同一个判据 —— 早先两边各写一个系数，出现过『生成说没问题、自检说有问题』的自相矛盾）。",
+      "hill_clearance_factor": 0.6,
+      "hill_attempts": 16,
+      "hill_angle_jitter": 0.4,
+      "hill_ellipse_ratio_min": 0.6,
+      "hill_min_shrink": 0.4,
+      "cover_attempts": 40,
+      "anchor_radius_jitter": 0.06,
+      "anchor_push_attempts": 12,
+      "anchor_push_step": 2.0
+    },
+    "_order_doc": "出场顺序。当前只留【寂石圣所】一张 —— 其余四张的定义全部保留在 definitions 里（临时关闭，不是删除），把 id 加回这个数组即可恢复。",
+    "order": ["sanctum"],
+    "definitions": {
+      "lakefront": {
+        "label": "湖畔遗址",
+        "_note": "原战场。hills / mask_* / cover 全部照抄改动前的常量，因此地形与那时逐点相同 —— 这一条是刻意的：已经调好的战场不该因为重构而变样。",
+        "extent": 60.0,
+        "ground_color": [0.13, 0.16, 0.13, 1.0],
+        "grass_count": 650,
+        "flower_count": 120,
+        "decor_radius": 56.0,
+        "hills": [
+          [-52.0, -49.0, 17.0, 14.0, 5.0],
+          [45.0, -44.0, 22.0, 16.0, 6.0],
+          [-53.0, 5.0, 14.0, 24.0, 5.0],
+          [53.0, 2.0, 14.0, 25.0, 5.0],
+          [-38.0, 48.0, 24.0, 15.0, 5.5],
+          [38.0, 49.0, 22.0, 14.0, 5.0]
+        ],
+        "mask_rects": [
+          [9.0, 40.0, 8.0, 31.0, 8.0],
+          [-3.8, 3.8, -48.0, 34.0, 7.0],
+          [-40.0, -18.0, -40.0, -18.0, 6.0],
+          [-1.0, 9.0, -16.0, -6.0, 5.0]
+        ],
+        "mask_circles": [[0.0, 13.0, 3.0, 4.0]],
+        "map": {
+          "_doc": "本张地图的地面内容。由 scripts/world_map_builder.gd 按 height_at 吸附建造，因此不再有『陈设必须摆在 y≈0』这个隐含前提。新增一张地图只需要在这里加一段，不必碰代码或场景。",
+          "_legacy_doc": "use_legacy_props = true 表示保留 hyrule_field.tscn 里那几组写死的地面内容且不建造（用于回退对照）；false 表示改由这里的数据建造、并把旧节点退役。",
+          "spawn_origin": [0.0, 13.0],
+          "use_legacy_props": false,
+          "_roads_doc": "pos=[x,z]，size=[宽, 长]，yaw 单位是度。全部按 height_at 落地。",
+          "roads": [
+            {"pos": [0.0, -8.0], "yaw": 0.0, "size": [6.5, 86.0]},
+            {"pos": [11.0, 10.0], "yaw": -44.7, "size": [4.2, 32.0]},
+            {"pos": [-14.0, -19.0], "yaw": -47.0, "size": [4.0, 38.0]}
+          ],
+          "_water_doc": "bed 是沙质底床，surface 是水面。两者都以 pos 为中心。",
+          "water": [
+            {"pos": [25.0, 20.0], "bed": [34.0, 22.0], "surface": [29.0, 17.0]}
+          ],
+          "_props_doc": "基本体 + 材质。solid=true 时额外生成静态碰撞体（可以站上去）。rotation 是 [rx,ry,rz] 度；y 是相对地面的绝对高度（横躺的原木用它）。",
+          "props": [
+            {"shape": "box", "pos": [-29.0, -29.0], "size": [12.0, 0.35, 10.0], "material": "stone_dark", "solid": true},
+            {"shape": "cylinder", "pos": [-33.5, -32.5], "radius": 0.55, "radius_top": 0.45, "height": 5.0, "material": "stone"},
+            {"shape": "cylinder", "pos": [-24.5, -32.5], "radius": 0.55, "radius_top": 0.45, "height": 5.0, "material": "stone"},
+            {"shape": "cylinder", "pos": [-33.5, -25.5], "radius": 0.55, "radius_top": 0.45, "height": 3.4, "material": "stone"},
+            {"shape": "cylinder", "pos": [-24.5, -25.5], "radius": 0.55, "radius_top": 0.45, "height": 4.2, "material": "stone"},
+            {"shape": "box", "pos": [-29.0, -32.5], "size": [9.5, 0.55, 0.7], "material": "stone", "y": 4.55},
+            {"shape": "box", "pos": [-29.0, -29.0], "size": [2.4, 1.25, 2.4], "material": "stone"},
+            {"shape": "sphere", "pos": [-29.0, -29.0], "radius": 0.58, "height": 1.7, "material": "stone", "y": 1.75, "emissive": [0.02, 0.45, 0.8], "emissive_energy": 3.0},
+            {"shape": "box", "pos": [13.5, 20.0], "size": [8.0, 0.35, 2.4], "material": "wood", "solid": true, "lift": 0.055},
+            {"shape": "cylinder", "pos": [4.0, -11.0], "radius": 0.14, "radius_top": 0.12, "height": 1.5, "material": "wood", "rotation": [0.0, 0.0, 90.0], "y": 0.16},
+            {"shape": "cylinder", "pos": [4.0, -11.0], "radius": 0.14, "radius_top": 0.12, "height": 1.5, "material": "wood", "rotation": [90.0, 0.0, 0.0], "y": 0.16},
+            {"shape": "sphere", "pos": [4.0, -11.0], "radius": 0.32, "height": 0.58, "material": "stone", "y": 0.45, "emissive": [1.0, 0.12, 0.01], "emissive_energy": 4.0}
+          ],
+          "_lights_doc": "营火与神龛的点光 —— 画面里唯一允许高饱和的地方。",
+          "lights": [
+            {"pos": [-29.0, -29.0], "height": 2.0, "color": [0.12, 0.75, 1.0], "energy": 3.5, "range": 9.0},
+            {"pos": [4.0, -11.0], "height": 1.0, "color": [1.0, 0.32, 0.06], "energy": 3.0, "range": 8.0}
+          ],
+          "_grove_doc": "树簇。确定性种子；落在遮罩里（湖 / 主路 / 遗迹 / 营地）的点会被跳过。树是有碰撞的导航障碍，会自动登记进 nav_source 组。",
+          "grove": [
+            {"center": [0.0, 0.0], "count": 26, "inner_radius": 26.0, "radius": 52.0, "seed": 4242, "scale_min": 0.85, "scale_max": 1.3}
+          ]
+        },
+        "cover": [
+          [-11.0, 4.0, 6.5, 2.5, 1.1, 25.0, 0],
+          [-15.0, -8.0, 5.5, 2.4, 1.1, -35.0, 0],
+          [-23.0, 6.0, 7.0, 2.6, 1.2, -18.0, 0],
+          [-31.0, -6.0, 6.0, 2.4, 1.1, 30.0, 0],
+          [11.0, -9.0, 5.0, 2.4, 1.1, 15.0, 0],
+          [15.0, -22.0, 6.5, 2.6, 1.2, -20.0, 0],
+          [19.0, 2.0, 5.0, 2.4, 1.1, -25.0, 0],
+          [28.0, -10.0, 6.0, 2.5, 1.1, 10.0, 0],
+          [40.0, -22.0, 6.0, 2.5, 1.1, 25.0, 0],
+          [44.0, 22.0, 6.5, 2.5, 1.2, -15.0, 0],
+          [-8.0, 26.0, 5.5, 2.4, 1.1, 55.0, 0],
+          [-22.0, 30.0, 6.0, 2.4, 1.1, 70.0, 0],
+          [0.0, 43.0, 6.5, 2.5, 1.2, 5.0, 0],
+          [26.0, 44.0, 7.0, 2.6, 1.2, -10.0, 0],
+          [-38.0, 36.0, 6.0, 2.4, 1.1, 40.0, 0],
+          [-6.0, -26.0, 5.0, 2.2, 1.1, 20.0, 1],
+          [22.0, -12.0, 2.2, 2.2, 2.2, 30.0, 1],
+          [36.0, 2.0, 2.6, 1.6, 2.6, 0.0, 1],
+          [-36.0, 6.0, 2.8, 1.8, 2.8, 0.0, 1],
+          [-14.0, -30.0, 2.2, 2.0, 2.2, 45.0, 1],
+          [16.0, -32.0, 2.6, 1.5, 2.6, 0.0, 1],
+          [-27.0, -14.0, 2.8, 1.7, 2.8, 0.0, 1],
+          [-14.0, 7.0, 1.8, 0.0, 0.0, 0.0, 2],
+          [-17.0, 9.0, 1.1, 0.0, 0.0, 0.0, 2],
+          [7.0, 30.0, 1.5, 0.0, 0.0, 0.0, 2],
+          [42.0, 22.0, 2.2, 0.0, 0.0, 0.0, 2],
+          [30.0, -12.0, 1.5, 0.0, 0.0, 0.0, 2],
+          [-37.0, 17.0, 2.0, 0.0, 0.0, 0.0, 2]
+        ],
+        "spawn_anchors": {"count": 15, "radius_min": 20.0, "radius_max": 40.0},
+        "enemy_mix": {"ranged_ratio": 0.44},
+        "wave": {
+          "count": 4,
+          "base_enemies": 10,
+          "growth_per_wave": 4,
+          "intermission": 6.0,
+          "boss_id": "warden"
+        }
+      },
+
+      "sanctum": {
+        "label": "寂石圣所",
+        "_note": "全新风格化地图。与四张旧图的根本差别不是'更好看'，而是【地标由地图自己拥有】—— 中央庭院、南北轴线、断裂柱廊都写在下面的 map.props 里，尺度大胆但彼此成组、成轴、贴地。天空与远景只负责衬托，不再往画面里塞同一套随机大结构。",
+        "_layout_doc": "布局骨架：十字轴线 + 中央方形庭院。南北轴是玩家出生后第一时间看到的方向，尽头立一座 12m 高的门框；柱廊与断台压在轴的两侧和末端，彼此成组而不是随机撒点。",
+        "extent": 90.0,
+        "_ground_color_doc": "0.145 是配合'主光 0.78 + 暗天空'定的，三层一起往下塌的时候它就是黑。抬到 0.21 —— 仍然是低饱和的冷石色，但有了可读的中灰调，面法线的明暗分级才看得见。",
+        "ground_color": [0.15, 0.34, 0.11, 1.0],
+        "ground_high_color": [0.30, 0.46, 0.18, 1.0],
+        "ground_dry_color": [0.42, 0.43, 0.17, 1.0],
+        "_vegetation_doc": "植被按参考画面的信息密度提高：草与小花由 MultiMesh 批量绘制，中型岩块有简化碰撞；近景树承担画框，中远景松树连接山脚。",
+        "grass_count": 1450,
+        "flower_count": 72,
+        "pebble_count": 48,
+        "boulder_count": 22,
+        "distant_pine_count": 78,
+        "decor_radius": 86.0,
+        "hills": [
+          [-78.0, -74.0, 38.0, 32.0, 6.0],
+          [76.0, -70.0, 36.0, 30.0, 6.5],
+          [-80.0, 34.0, 32.0, 44.0, 5.5],
+          [80.0, 30.0, 34.0, 42.0, 6.0],
+          [-44.0, 80.0, 42.0, 32.0, 5.5],
+          [46.0, 82.0, 38.0, 30.0, 6.0]
+        ],
+        "_mask_doc": "压平区就是这张图的构图骨架：中央庭院 + 南北东西四条仪式道。它们同时决定地形起伏、可走面与陈设的落地高度，所以'构图'在这里不是画面概念而是几何概念。",
+        "_feather_doc": "第 5 个值是过渡宽度。它必须给足：遮罩内是平地、外面是起伏，两者之间的高度差全部要在这一段距离里消化掉 —— 过渡太窄就会直接顶破 45° 可走性红线（实测第一版 50.3°，最陡处正落在遮罩边缘）。",
+        "mask_rects": [
+          [-27.0, 29.0, -49.0, 28.0, 22.0],
+          [-8.5, 8.5, -82.0, 82.0, 20.0],
+          [18.0, 56.0, -7.0, 11.0, 18.0]
+        ],
+        "mask_circles": [[3.0, -42.0, 13.0, 12.0]],
+        "_landscape_doc": "远景分四层：贴地低丘遮住山根、近山脚连接地形、中层山脊构成轮廓、最远尖峰接近天空色。angle_offset 让不同地图的主视方向不一样。纪念碑本身由 map.props 拥有。",
+        "landscape": {
+          "cloud_bank_count": 8, "berm_count": 12, "foothill_count": 10, "ridge_count": 9, "tower_count": 3, "angle_offset": 22.0
+        },
+        "map": {
+          "_doc": "本张地图的地面内容。全部按 height_at 吸附落地，不存在'必须摆在 y≈0'的前提。",
+          "spawn_origin": [0.0, 46.0],
+          "use_legacy_props": false,
+          "palette": {
+            "path": [0.49, 0.285, 0.12],
+            "path_edge": [0.30, 0.41, 0.16],
+            "path_edge_outer": [0.17, 0.35, 0.12],
+            "court": [0.37, 0.40, 0.31],
+            "stone": [0.37, 0.39, 0.355],
+            "stone_light": [0.62, 0.57, 0.43],
+            "stone_dark": [0.26, 0.29, 0.27],
+            "moss": [0.25, 0.43, 0.13],
+            "wood": [0.30, 0.17, 0.075],
+            "rock": [0.33, 0.34, 0.31]
+          },
+          "_roads_doc": "山谷主路承担唯一的远近引导，东侧短支路连接营火；不再使用十字竞技场骨架。",
+          "roads": [
+            {"pos": [0.0, 31.0], "yaw": 0.0, "size": [12.0, 104.0], "edge_width": 1.15, "lift": 0.020, "curve_start": 3.0, "curve_end": -4.5},
+            {"pos": [3.0, -47.0], "yaw": 0.0, "size": [10.5, 54.0], "edge_width": 0.95, "lift": 0.020},
+            {"pos": [30.0, 2.0], "yaw": 90.0, "size": [7.5, 46.0], "edge_width": 0.75, "lift": 0.018, "curve_start": -1.0, "curve_end": 2.5},
+            {"pos": [3.0, -25.0], "yaw": 0.0, "size": [24.0, 20.0], "material": "court", "lift": 0.012}
+          ],
+          "_props_doc": "山谷遗迹原型：一座中等尺度目标门、两组低墙和断柱、一处营火。体量按组出现，主路两侧保留大片安静草地。",
+          "props": [
+            {"shape": "box", "pos": [3.0, -42.0], "size": [12.0, 0.55, 11.0], "material": "stone_dark", "solid": true, "bevel": 0.35},
+            {"shape": "box", "pos": [3.0, -42.0], "size": [8.0, 0.5, 7.0], "material": "stone", "solid": true, "y": 0.80, "bevel": 0.28},
+            {"shape": "box", "pos": [3.0, -45.1], "size": [7.2, 0.16, 0.38], "material": "stone_light", "y": 1.08},
+            {"shape": "box", "pos": [3.0, -38.9], "size": [7.2, 0.16, 0.38], "material": "stone_light", "y": 1.08},
+            {"shape": "diamond", "pos": [3.0, -42.0], "radius": 1.15, "height": 3.2, "material": "stone", "y": 2.55, "emissive": [0.03, 0.75, 1.0], "emissive_energy": 4.2},
+
+            {"shape": "box", "pos": [-2.0, -35.5], "size": [2.2, 8.0, 2.5], "material": "stone", "solid": true, "bevel": 0.24},
+            {"shape": "box", "pos": [8.0, -35.5], "size": [2.2, 7.4, 2.5], "material": "stone", "solid": true, "bevel": 0.24},
+            {"shape": "box", "pos": [3.0, -35.5], "size": [12.0, 1.35, 2.7], "material": "stone", "y": 8.15, "rotation": [0.0, 0.0, 1.5], "bevel": 0.22},
+            {"shape": "box", "pos": [-2.0, -35.5], "size": [2.8, 0.38, 3.0], "material": "stone_light", "y": 7.94, "bevel": 0.12},
+            {"shape": "box", "pos": [8.0, -35.5], "size": [2.8, 0.38, 3.0], "material": "stone_light", "y": 7.36, "bevel": 0.12},
+
+            {"shape": "box", "pos": [-18.0, -24.0], "size": [13.0, 3.1, 1.35], "material": "stone", "solid": true, "yaw": -8.0, "bevel": 0.22},
+            {"shape": "box", "pos": [-23.5, -18.0], "size": [1.4, 3.7, 10.5], "material": "stone_dark", "solid": true, "yaw": 5.0, "bevel": 0.18},
+            {"shape": "box", "pos": [-16.0, -16.5], "size": [8.0, 1.8, 1.2], "material": "stone_dark", "solid": true, "yaw": 16.0, "bevel": 0.18},
+            {"shape": "cylinder", "pos": [-27.0, -29.0], "radius": 1.2, "radius_top": 1.05, "height": 6.6, "material": "stone", "solid": true},
+            {"shape": "cylinder", "pos": [-14.0, -33.0], "radius": 1.1, "radius_top": 0.95, "height": 4.4, "material": "stone", "solid": true},
+            {"shape": "box", "pos": [-22.0, -31.5], "size": [7.2, 0.75, 1.5], "material": "stone_light", "rotation": [0.0, -19.0, 8.0], "y": 0.52, "bevel": 0.16},
+
+            {"shape": "box", "pos": [20.0, -21.0], "size": [11.5, 2.8, 1.35], "material": "stone", "solid": true, "yaw": 11.0, "bevel": 0.22},
+            {"shape": "box", "pos": [25.0, -14.0], "size": [1.35, 3.3, 9.0], "material": "stone_dark", "solid": true, "yaw": -7.0, "bevel": 0.18},
+            {"shape": "box", "pos": [17.0, -11.5], "size": [7.5, 1.6, 1.25], "material": "stone_dark", "solid": true, "yaw": -14.0, "bevel": 0.18},
+            {"shape": "cylinder", "pos": [28.5, -28.0], "radius": 1.15, "radius_top": 1.0, "height": 5.8, "material": "stone", "solid": true},
+            {"shape": "cylinder", "pos": [15.0, -31.0], "radius": 1.0, "radius_top": 0.88, "height": 3.7, "material": "stone", "solid": true},
+            {"shape": "box", "pos": [22.0, -31.0], "size": [6.5, 0.7, 1.55], "material": "stone_light", "rotation": [0.0, 24.0, -7.0], "y": 0.50, "bevel": 0.16},
+
+            {"shape": "box", "pos": [-34.0, 2.0], "size": [12.0, 2.6, 1.4], "material": "stone_dark", "solid": true, "yaw": -22.0, "bevel": 0.2},
+            {"shape": "box", "pos": [-39.0, 8.0], "size": [1.5, 4.0, 7.0], "material": "stone", "solid": true, "yaw": 12.0, "bevel": 0.2},
+            {"shape": "box", "pos": [-29.0, 7.0], "size": [6.5, 0.75, 2.2], "material": "stone_light", "rotation": [0.0, -28.0, 6.0], "y": 0.48, "bevel": 0.16},
+
+            {"shape": "box", "pos": [31.0, 4.0], "size": [8.5, 0.5, 8.5], "material": "stone_dark", "solid": true, "bevel": 0.28},
+            {"shape": "box", "pos": [31.0, 4.0], "size": [5.5, 0.45, 5.5], "material": "stone", "solid": true, "y": 0.72, "bevel": 0.22},
+            {"shape": "cylinder", "pos": [31.0, 4.0], "radius": 0.18, "radius_top": 0.14, "height": 1.45, "material": "wood", "solid": true},
+            {"shape": "sphere", "pos": [31.0, 4.0], "radius": 0.52, "height": 0.95, "material": "wood", "y": 1.78, "emissive": [1.0, 0.34, 0.055], "emissive_energy": 4.4},
+
+            {"shape": "box", "pos": [-13.0, 17.0], "size": [7.0, 0.75, 1.5], "material": "stone", "rotation": [0.0, 24.0, -7.0], "y": 0.48, "bevel": 0.16},
+            {"shape": "box", "pos": [15.0, 20.0], "size": [5.5, 0.8, 1.7], "material": "stone_dark", "rotation": [0.0, -20.0, 5.0], "y": 0.50, "bevel": 0.16},
+            {"shape": "cylinder", "pos": [-18.0, 13.0], "radius": 0.95, "radius_top": 0.8, "height": 3.2, "material": "stone", "solid": true},
+            {"shape": "cylinder", "pos": [20.0, 15.0], "radius": 0.9, "radius_top": 0.78, "height": 2.8, "material": "stone", "solid": true}
+          ],
+          "lights": [
+            {"pos": [3.0, -42.0], "height": 3.4, "color": [0.08, 0.68, 1.0], "energy": 4.4, "range": 15.0},
+            {"pos": [31.0, 4.0], "height": 2.0, "color": [1.0, 0.34, 0.06], "energy": 3.5, "range": 10.0}
+          ],
+          "grove": [
+            {"center": [-34.0, 26.0], "count": 14, "inner_radius": 8.0, "radius": 30.0, "seed": 8123, "scale_min": 1.25, "scale_max": 2.15, "pine_ratio": 0.22},
+            {"center": [44.0, 22.0], "count": 16, "inner_radius": 9.0, "radius": 32.0, "seed": 9327, "scale_min": 1.1, "scale_max": 2.0, "pine_ratio": 0.35},
+            {"center": [-42.0, -42.0], "count": 12, "inner_radius": 8.0, "radius": 27.0, "seed": 10117, "scale_min": 1.05, "scale_max": 1.85, "pine_ratio": 0.42}
+          ]
+        },
+        "cover": [
+          [-15.0, 4.0, 7.5, 2.5, 1.25, 18.0, 0],
+          [-23.0, 1.0, 5.5, 2.4, 1.2, -16.0, 0],
+          [-31.0, -7.0, 7.0, 2.5, 1.2, 28.0, 0],
+          [16.0, -2.0, 6.5, 2.5, 1.2, -20.0, 0],
+          [23.0, -8.0, 5.5, 2.4, 1.2, 22.0, 0],
+          [37.0, -13.0, 7.0, 2.5, 1.2, -28.0, 0],
+          [-20.0, 31.0, 6.5, 2.4, 1.2, 32.0, 0],
+          [-34.0, 39.0, 7.0, 2.5, 1.25, -24.0, 0],
+          [22.0, 34.0, 6.0, 2.4, 1.2, -30.0, 0],
+          [42.0, 28.0, 7.5, 2.6, 1.25, 18.0, 0],
+          [-27.0, -43.0, 6.5, 2.5, 1.2, 20.0, 0],
+          [34.0, -39.0, 6.5, 2.5, 1.2, -18.0, 0],
+          [-14.0, 28.0, 2.4, 0.0, 0.0, 0.0, 2],
+          [15.0, 32.0, 2.2, 0.0, 0.0, 0.0, 2],
+          [-40.0, 17.0, 2.3, 0.0, 0.0, 0.0, 2],
+          [48.0, 11.0, 2.3, 0.0, 0.0, 0.0, 2],
+          [-42.0, -27.0, 2.1, 0.0, 0.0, 0.0, 2],
+          [45.0, -25.0, 2.0, 0.0, 0.0, 0.0, 2],
+          [-25.0, 50.0, 1.8, 0.0, 0.0, 0.0, 2],
+          [31.0, 52.0, 2.2, 0.0, 0.0, 0.0, 2]
+        ],
+        "spawn_anchors": {"count": 15, "radius_min": 26.0, "radius_max": 60.0},
+        "enemy_mix": {"ranged_ratio": 0.42},
+        "wave": {
+          "count": 4,
+          "base_enemies": 11,
+          "growth_per_wave": 4,
+          "intermission": 6.0,
+          "boss_id": "warden"
+        }
+      },
+
+      "quarry": {
+        "label": "采石场",
+        "_note": "小而挤、掩体密集、高地更多。近战压力大 —— 给偏好贴脸节奏的一局换个口味。",
+        "extent": 52.0,
+        "ground_color": [0.34, 0.33, 0.31, 1.0],
+        "grass_count": 160,
+        "flower_count": 20,
+        "decor_radius": 47.0,
+        "hill_layout": {
+          "count": 5,
+          "ring_radius_min": 26.0,
+          "ring_radius_max": 36.0,
+          "radius_min": 9.0,
+          "radius_max": 16.0,
+          "height_min": 4.5,
+          "height_max": 7.5
+        },
+        "mask_rects": [[-8.0, 8.0, -26.0, -8.0, 4.0]],
+        "mask_circles": [[0.0, 0.0, 11.0, 4.0]],
+        "map": {
+          "_note": "采石场：切石方块与断柱。构筑物比沙丘多，但仍然是「少而大」，不是一堆小道具。",
+          "spawn_origin": [0.0, 0.0],
+          "use_legacy_props": false,
+          "roads": [
+            {"pos": [0.0, -14.0], "yaw": 0.0, "size": [6.0, 30.0]},
+            {"pos": [16.0, 8.0], "yaw": 58.0, "size": [4.5, 26.0]}
+          ],
+          "props": [
+            {"shape": "box", "pos": [-15.0, -12.0], "size": [10.0, 6.0, 6.0], "material": "stone_dark", "yaw": 12.0},
+            {"shape": "box", "pos": [14.0, -16.0], "size": [8.0, 4.5, 8.0], "material": "stone_dark", "yaw": -26.0},
+            {"shape": "box", "pos": [-20.0, 14.0], "size": [12.0, 3.0, 6.0], "material": "stone", "yaw": 40.0},
+            {"shape": "cylinder", "pos": [22.0, 6.0], "radius": 1.1, "radius_top": 0.9, "height": 9.0, "material": "stone"},
+            {"shape": "cylinder", "pos": [24.5, 10.0], "radius": 1.1, "radius_top": 0.9, "height": 6.0, "material": "stone"},
+            {"shape": "sphere", "pos": [4.0, 0.0], "radius": 0.30, "height": 0.55, "material": "stone", "y": 0.45, "emissive": [1.0, 0.12, 0.01], "emissive_energy": 4.0}
+          ],
+          "lights": [
+            {"pos": [4.0, 0.0], "height": 1.0, "color": [1.0, 0.32, 0.06], "energy": 3.0, "range": 8.0}
+          ],
+          "grove": []
+        },
+        "cover_layout": {
+          "wall_count": 20,
+          "crate_count": 9,
+          "boulder_count": 8,
+          "inner_radius": 8.0,
+          "outer_radius": 38.0,
+          "min_spacing": 4.6
+        },
+        "spawn_anchors": {"count": 14, "radius_min": 18.0, "radius_max": 34.0},
+        "enemy_mix": {"ranged_ratio": 0.32},
+        "wave": {
+          "count": 4,
+          "base_enemies": 9,
+          "growth_per_wave": 4,
+          "intermission": 6.0,
+          "boss_id": "breaker"
+        }
+      },
+
+      "dunes": {
+        "label": "风蚀沙丘",
+        "_note": "大而开阔、起伏低缓、掩体稀薄。远程敌人多 —— 逼你学会用沙丘背坡做视线遮挡，而不是靠墙。",
+        "extent": 68.0,
+        "ground_color": [0.66, 0.57, 0.35, 1.0],
+        "grass_count": 120,
+        "flower_count": 15,
+        "decor_radius": 62.0,
+        "hill_layout": {
+          "count": 9,
+          "ring_radius_min": 22.0,
+          "ring_radius_max": 50.0,
+          "radius_min": 14.0,
+          "radius_max": 24.0,
+          "height_min": 2.2,
+          "height_max": 3.6
+        },
+        "mask_rects": [],
+        "mask_circles": [[0.0, 0.0, 12.0, 5.0]],
+        "map": {
+          "_note": "风蚀沙丘：开阔、低缓、几乎没有构筑物。刻意只有一条路和几块被风蚀出来的岩体，其余全部交给地形与天空。",
+          "spawn_origin": [0.0, 0.0],
+          "use_legacy_props": false,
+          "roads": [
+            {"pos": [0.0, -6.0], "yaw": 0.0, "size": [5.5, 92.0]}
+          ],
+          "props": [
+            {"shape": "box", "pos": [-18.0, -22.0], "size": [11.0, 3.2, 7.0], "material": "rock", "yaw": 24.0},
+            {"shape": "box", "pos": [22.0, -30.0], "size": [8.0, 2.4, 12.0], "material": "rock", "yaw": -38.0},
+            {"shape": "box", "pos": [30.0, 18.0], "size": [13.0, 3.6, 8.0], "material": "rock", "yaw": 62.0},
+            {"shape": "box", "pos": [-26.0, 26.0], "size": [9.0, 2.8, 9.0], "material": "rock", "yaw": -14.0}
+          ],
+          "lights": [
+            {"pos": [6.0, -4.0], "height": 1.0, "color": [1.0, 0.34, 0.07], "energy": 2.6, "range": 7.0}
+          ],
+          "grove": []
+        },
+        "cover_layout": {
+          "wall_count": 8,
+          "crate_count": 5,
+          "boulder_count": 12,
+          "inner_radius": 12.0,
+          "outer_radius": 50.0,
+          "min_spacing": 8.5
+        },
+        "spawn_anchors": {"count": 18, "radius_min": 22.0, "radius_max": 44.0},
+        "enemy_mix": {"ranged_ratio": 0.58},
+        "wave": {
+          "count": 4,
+          "base_enemies": 12,
+          "growth_per_wave": 5,
+          "intermission": 7.0,
+          "boss_id": "colossus"
+        }
+      },
+
+      "citadel": {
+        "label": "废墟内城",
+        "_note": "最小、最封闭。石墙围出几条短走廊，木箱多、视线短 —— 远程敌人几乎无从发挥，是近战与手雷的主场。",
+        "extent": 46.0,
+        "ground_color": [0.3, 0.31, 0.3, 1.0],
+        "grass_count": 90,
+        "flower_count": 12,
+        "decor_radius": 41.0,
+        "_hill_note": "内城的遮罩很大（两条对角广场 + 一条主干道），留给高地的空隙本来就小，所以山丘刻意做得矮小 —— 自检会拦住任何'山脚压进遮罩'的布点。",
+        "hill_layout": {
+          "count": 4,
+          "ring_radius_min": 22.0,
+          "ring_radius_max": 30.0,
+          "radius_min": 5.5,
+          "radius_max": 9.0,
+          "height_min": 2.6,
+          "height_max": 3.8
+        },
+        "mask_rects": [
+          [-30.0, -14.0, -30.0, -14.0, 4.0],
+          [14.0, 30.0, 14.0, 30.0, 4.0],
+          [-4.0, 4.0, -34.0, 26.0, 4.0]
+        ],
+        "mask_circles": [[0.0, 0.0, 9.0, 4.0]],
+        "map": {
+          "_note": "废墟内城：断墙围出的短走廊。墙很高但不厚，视线被切开而通行不被堵死 —— 与掩体系统用的是同一套「挡视线、不造迷宫」的约束。",
+          "spawn_origin": [0.0, 0.0],
+          "use_legacy_props": false,
+          "roads": [
+            {"pos": [0.0, -4.0], "yaw": 0.0, "size": [7.0, 60.0]}
+          ],
+          "props": [
+            {"shape": "box", "pos": [-22.0, -22.0], "size": [14.0, 8.0, 2.2], "material": "stone_dark", "yaw": 0.0},
+            {"shape": "box", "pos": [22.0, 22.0], "size": [14.0, 7.0, 2.2], "material": "stone_dark", "yaw": 0.0},
+            {"shape": "box", "pos": [20.0, -18.0], "size": [2.2, 6.5, 12.0], "material": "stone", "yaw": 0.0},
+            {"shape": "box", "pos": [-18.0, 17.0], "size": [2.2, 5.5, 10.0], "material": "stone", "yaw": 0.0},
+            {"shape": "cylinder", "pos": [0.0, -30.0], "radius": 1.4, "radius_top": 1.1, "height": 11.0, "material": "stone"},
+            {"shape": "sphere", "pos": [0.0, 10.0], "radius": 0.34, "height": 0.6, "material": "stone", "y": 0.5, "emissive": [0.02, 0.45, 0.8], "emissive_energy": 3.0}
+          ],
+          "lights": [
+            {"pos": [0.0, 10.0], "height": 1.2, "color": [0.12, 0.75, 1.0], "energy": 3.2, "range": 8.0}
+          ],
+          "grove": []
+        },
+        "cover_layout": {
+          "wall_count": 22,
+          "crate_count": 12,
+          "boulder_count": 4,
+          "inner_radius": 7.0,
+          "outer_radius": 33.0,
+          "min_spacing": 4.0
+        },
+        "spawn_anchors": {"count": 12, "radius_min": 16.0, "radius_max": 28.0},
+        "enemy_mix": {"ranged_ratio": 0.24},
+        "wave": {
+          "count": 4,
+          "base_enemies": 8,
+          "growth_per_wave": 3,
+          "intermission": 5.0,
+          "boss_id": "sentinel"
+        }
+      }
+    }
+  },
+
+  "graphics": {
+    "_doc": "画质档位。低档必须能在 2080 上跑住，高档留给 5060Ti。",
+    "_active_doc": "当前档位：low / medium / high。改完重启生效。",
+    "active": "high",
+    "_msaa_doc": "多重采样抗锯齿。0=关 1=2x 2=4x 3=8x。项目原来一档都没开，满屏锯齿是廉价感最强的来源。",
+    "_ssao_doc": "屏幕空间环境光遮蔽：让物体落地处、墙角出现接触阴影。不开的话所有东西都像飘在地上。",
+    "_volumetric_doc": "体积雾：让阳光在空气里形成光柱。本项目【全部关闭】—— 实测它在本作里的实际效果不是光柱，而是一层被暖色太阳照亮的均匀纱：近景被整体提亮、远景被冲淡、天空被整片盖成暖灰。那正是\"用后处理掩盖基础形体问题\"，而且代价还高。阴天 + 柔和主光本来就不产生可见光柱，关掉不损失任何东西。",
+    "_fog_doc": "分段空气透视（注意：下面 presets 里的 volumetric_fog 必须保持 false，否则雾的分级会被那层纱重新抹平）。",
+    "_shadow_doc": "阴影模式。注意：【这是本项目渲染开销的最大单点】，它第一顺位决定的不是画质而是『几何体被重画几遍』。graphics_director 把它直接赋给 DirectionalLight3D.directional_shadow_mode，Godot 4.7 的取值实测为 0=SHADOW_ORTHOGONAL（1 张 shadow map）1=SHADOW_PARALLEL_2_SPLITS（2 张）2=SHADOW_PARALLEL_4_SPLITS（4 张）。当前三档都保持单张阴影图：敌人由约 50 个独立网格组成，级联阴影的提交代价远高于收益。档位通过 MSAA、SSAO 与阴影距离递增。",
+    "_shadow_blur_doc": "阴影模糊由 shadow_quality 决定（当前 0→0.5、1→0.45、2→0.4）。",
+    "presets": {
+      "low": {
+        "msaa": 1, "ssao": false, "ssao_intensity": 1.0, "volumetric_fog": false,
+        "shadow_quality": 0, "glow": true, "adjustment": true, "shadow_max_distance": 55.0
+      },
+      "medium": {
+        "msaa": 1, "ssao": true, "ssao_intensity": 1.6, "volumetric_fog": false,
+        "shadow_quality": 0, "glow": true, "adjustment": true, "shadow_max_distance": 65.0
+      },
+      "high": {
+        "msaa": 2, "ssao": true, "ssao_intensity": 1.9, "volumetric_fog": false,
+        "shadow_quality": 0, "glow": true, "adjustment": true, "shadow_max_distance": 75.0
+      }
+    },
+    "_procedural_sky_doc": "程序化分层天空（本项目第一个也是唯一一个着色器）。true = 用 res://shaders/procedural_sky.gdshader 替换场景自带的 ProceduralSkyMaterial；false = 完全退回自带材质，用于对照与回退。",
+    "procedural_sky": true,
+    "_tonemap_doc": "色调分级（所有档位共用）。刚打开 SSAO 与抗锯齿时画面会显得'平'，靠它把对比与饱和拉回来。",
+    "tonemap": {
+      "exposure": 1.05,
+      "saturation": 1.12,
+      "contrast": 1.06,
+      "glow_intensity": 0.55,
+      "glow_bloom": 0.06
+    }
+  },
+
+  "lighting": {
+    "_doc": "每个竞技场的氛围。四个图共用同一个场景文件（地形是程序化重建的），所以'换图只换轮廓、氛围一模一样' —— 这里是让它们各有各的脸的地方。",
+    "_why_here_doc": "放在这里而不是塞进 arenas：这些都是『相机看到的东西』，只有表现意义，而且放一起才能横向对比四个图的差异。",
+    "_fallback_doc": "缺的字段一律【保持场景里的现值】，不写回默认值 —— 只想改雾的颜色时，不必把十几个值抄一遍，也不会顺手冲掉别人调好的值。",
+    "_fields_doc": "sun_* 主光；fill_* 补光；ambient_* 环境光；fog_* 雾；sky_* 天空；exposure/saturation/contrast 色调分级。颜色一律 [r,g,b]。",
+    "arenas": {
+      "sanctum": {
+        "_note": "寂石圣所：阴天而非黄昏。上一版把'阴沉'做成了'欠曝'——主光 0.78、地面色 0.145、天空自身也压得很暗，而环境光取自天空，于是三层一起往下塌，整体读成黑。这一版把三处同时抬回可读区间，同时保持冷灰低饱和的取向。",
+        "_exposure_doc": "主光 0.78 → 1.55。阴天不等于没有主光：没有主光，面法线的明暗分级就没了，切面感也跟着消失（这正是之前'黑成一片'时丢掉的东西）。",
+        "sun_color": [1.0, 0.89, 0.70], "sun_energy": 1.22,
+        "ambient_color": [0.68, 0.80, 0.92], "ambient_energy": 0.78,
+        "fill_energy": 0.5,
+        "fog_mode": "depth",
+        "_fog_segments_doc": "四段空气透视：0–60m 几乎无雾 / 60–200m 开始降对比 / 200–500m 明显蓝灰化 / 500m+ 只剩大型剪影。depth_begin 与 depth_end 是这条曲线的两个端点，curve 决定它在近处爬升得多慢。",
+        "_fog_color_doc": "雾色必须【比天际色暗一档】—— 它同时是远处地面的收敛色。雾色一旦追上天空亮度，地平线就消失，站在地平线上的远景体量会读成悬空（多角度截图里实测到的就是这个）。",
+        "fog_color": [0.54, 0.68, 0.80], "fog_density": 1.0, "fog_energy": 0.58,
+        "fog_depth_begin": 85.0, "fog_depth_end": 820.0, "fog_depth_curve": 1.55,
+        "fog_aerial_perspective": 0.48, "fog_sky_affect": 0.10,
+        "_sky_note2": "顶部深灰蓝 → 中层灰蓝 → 地平线略亮，三段整体上抬，但保持'天空比地面亮'这条关系不变。",
+        "sky_top": [0.22, 0.45, 0.74], "sky_mid": [0.48, 0.67, 0.86],
+        "sky_horizon": [0.76, 0.87, 0.96], "sky_ground": [0.40, 0.52, 0.46],
+        "sky_mid_stop": 0.42, "sky_horizon_width": 0.10, "sky_horizon_gain": 0.34,
+        "_cloud_note": "上一版 cloud_shadow (0.10,0.14,0.21) 比 sky_top (0.15,0.19,0.26) 还暗 —— 于是云不是云，是天空上的深色污渍。阴天的云盖本身比晴空亮，所以这里把两者的关系倒过来：云亮于天空，tonality 只负责云内起伏。scale 也从 2.4 降到 1.7，把形态做大做整。",
+        "cloud_light": [0.96, 0.96, 0.93], "cloud_shadow": [0.62, 0.72, 0.82],
+        "cloud_amount": 0.48, "cloud_scale": 1.45, "cloud_flatten": 0.58,
+        "cloud_threshold": 0.44, "cloud_sharpness": 0.22,
+        "exposure": 0.94, "saturation": 1.05, "contrast": 1.04
+      },
+      "lakefront": {
+        "_note": "湖畔遗址：明亮的上午。作为基准，全部保持原值。",
+        "_id_doc": "键名是【竞技场 id】（见 arenas.order），不是场景文件名 hyrule_field.tscn —— 两者是不同的命名空间，写错了这张图会安静地拿不到预设。",
+        "sun_color": [1.0, 0.9, 0.72], "sun_energy": 1.25,
+        "_ambient_note": "环境光取自天空（ambient_light_source = SKY）。天空调暗之后这里必须补回来：能量 0.65 是配合原来那片【亮】天空定的，天空一暗，环境光就几乎归零，地形一切成面法线就整片压成死黑 —— 掩体与道路于是像浮在空气里。这是换天空时必须一起改的连带项。",
+        "ambient_color": [0.62, 0.72, 0.82], "ambient_energy": 0.9,
+        "_fill_note": "补光从主光的反侧来，专门托住背光面。地形切成面法线之后，背光面只剩环境光可用，全靠它保住明度层级。",
+        "fill_energy": 0.6,
+        "fog_mode": "depth",
+        "_fog_mode_doc": "depth 模式下起雾范围完全由 fog_depth_begin/end/curve 决定，fog_density 不参与（实测：把它从 0.85 改到 0.35，画面毫无变化）。想让某个距离的雾变浓，改 depth_end，不要改 density。",
+        "fog_color": [0.34, 0.38, 0.43], "fog_density": 1.0, "fog_energy": 0.45,
+        "fog_depth_begin": 40.0, "fog_depth_end": 1200.0, "fog_depth_curve": 1.6,
+        "fog_aerial_perspective": 0.4, "fog_sky_affect": 0.15,
+        "_sky_note": "三段分层：顶部深灰蓝 → 中层灰蓝 → 地平线略亮。刻意保持'暗但不黑'——天空是整张画面的环境光来源，压到接近零会连带把地面也拖黑。",
+        "sky_top": [0.17, 0.21, 0.28], "sky_mid": [0.33, 0.38, 0.46],
+        "sky_horizon": [0.60, 0.65, 0.70], "sky_ground": [0.24, 0.25, 0.25],
+        "sky_mid_stop": 0.38, "sky_horizon_width": 0.075, "sky_horizon_gain": 0.28,
+        "cloud_light": [0.66, 0.70, 0.75], "cloud_shadow": [0.11, 0.15, 0.22],
+        "cloud_amount": 0.85, "cloud_scale": 2.6, "cloud_flatten": 0.42,
+        "cloud_threshold": 0.36, "cloud_sharpness": 0.26,
+        "saturation": 1.12, "contrast": 1.06
+      },
+      "quarry": {
+        "_note": "采石场：正午的粉尘天。太阳偏白、雾更浓，把'石头与灰'的干燥感做出来。",
+        "sun_color": [1.0, 0.97, 0.9], "sun_energy": 1.35,
+        "ambient_color": [0.72, 0.72, 0.7], "ambient_energy": 0.7,
+        "fog_mode": "depth",
+        "fog_color": [0.70, 0.70, 0.68], "fog_density": 0.9,
+        "fog_depth_begin": 40.0, "fog_depth_end": 480.0, "fog_depth_curve": 1.5,
+        "fog_aerial_perspective": 0.5, "fog_sky_affect": 0.15,
+        "sky_top": [0.24, 0.27, 0.31], "sky_mid": [0.42, 0.44, 0.46],
+        "sky_horizon": [0.68, 0.68, 0.66], "sky_ground": [0.33, 0.32, 0.30],
+        "cloud_light": [0.76, 0.75, 0.72], "cloud_shadow": [0.26, 0.27, 0.29],
+        "cloud_amount": 0.62, "cloud_scale": 1.6, "cloud_threshold": 0.42, "cloud_sharpness": 0.35,
+        "saturation": 0.95, "contrast": 1.1
+      },
+      "dunes": {
+        "_note": "风蚀沙丘：黄昏。低角度暖光 + 金色雾 —— 四个图里辨识度最高的一张。",
+        "sun_color": [1.0, 0.66, 0.36], "sun_energy": 1.5,
+        "ambient_color": [0.66, 0.5, 0.42], "ambient_energy": 0.6,
+        "fog_mode": "depth",
+        "fog_color": [0.68, 0.62, 0.55], "fog_density": 0.8,
+        "fog_depth_begin": 60.0, "fog_depth_end": 700.0, "fog_depth_curve": 1.5,
+        "fog_aerial_perspective": 0.5, "fog_sky_affect": 0.15,
+        "sky_top": [0.19, 0.22, 0.30], "sky_mid": [0.40, 0.41, 0.45],
+        "sky_horizon": [0.70, 0.64, 0.56], "sky_ground": [0.34, 0.30, 0.26],
+        "cloud_light": [0.78, 0.72, 0.63], "cloud_shadow": [0.24, 0.24, 0.28],
+        "cloud_amount": 0.42, "cloud_scale": 1.6, "cloud_threshold": 0.42, "cloud_sharpness": 0.35,
+        "fill_energy": 0.34,
+        "saturation": 1.2, "contrast": 1.08
+      },
+      "citadel": {
+        "_note": "废墟内城：阴沉的清晨。光弱、雾重、阴影深 —— 封闭压抑，与开阔的沙丘正好相反。",
+        "sun_color": [0.78, 0.84, 0.92], "sun_energy": 0.85,
+        "ambient_color": [0.52, 0.58, 0.7], "ambient_energy": 0.7,
+        "fog_mode": "depth",
+        "fog_color": [0.55, 0.58, 0.63], "fog_density": 0.95,
+        "fog_depth_begin": 30.0, "fog_depth_end": 330.0, "fog_depth_curve": 1.6,
+        "fog_aerial_perspective": 0.55, "fog_sky_affect": 0.15,
+        "sky_top": [0.16, 0.19, 0.25], "sky_mid": [0.30, 0.34, 0.41],
+        "sky_horizon": [0.52, 0.55, 0.60], "sky_ground": [0.24, 0.25, 0.26],
+        "cloud_light": [0.64, 0.66, 0.70], "cloud_shadow": [0.18, 0.21, 0.27],
+        "cloud_amount": 0.55, "cloud_scale": 1.6, "cloud_threshold": 0.42, "cloud_sharpness": 0.35,
+        "fill_energy": 0.15,
+        "saturation": 0.92, "contrast": 1.12
+      }
+    }
+  },
+
+  "mortar": {
+    "_doc": "迫击炮的投掷表现。地面 X 标记回答『落在哪』，弹体回答『那是什么、从哪来的』。",
+    "_hard_rule_doc": "弹体是【纯视觉】：落地伤害仍由地面预警自己的倒计时判定。弹体没生成只是少一段动画，不会少一次伤害 —— 反过来会让一次视觉故障变成一次玩法故障。",
+    "_flight_doc": "弹体飞行时长（秒）。它与预警倒计时【必须同值】：预警走到头的那一刻弹体正好落地。调小 = 更急更短的反应时间。",
+    "flight_time": 1.4,
+    "_arc_doc": "抛物线拱高（米）：最高点比起点到落点的连线高出多少。太低会被掩体挡住看不见，太高会看不出落点。",
+    "arc_height": 7.0
+  },
+
+  "bosses": {
+    "_doc": "Boss 定义。每阶段（一个竞技场）一个，见 arenas.definitions.<id>.wave.boss_id。",
+    "_behaviors_doc": "三种行为共享一套参数，各自的 Boss 用 behavior 字段选用 —— 这样加第四个 Boss 只要指一个已有效果，不必再抄一遍参数。",
+    "_contact_doc": "贴身碰撞伤害的冷却（秒）。没有它的话冲撞型 Boss 会在一秒内判定几十次接触。",
+    "contact_damage_cooldown": 1.1,
+    "_shape_doc": "Boss 的碰撞体与弱点核心尺寸。胶囊【以根节点为圆心】，所以 stand_height = capsule_half_height × scale 才是『站在地面上』的高度；爆头线与弱点区都由胶囊推导，改这里会同时影响受击判定。",
+    "capsule_half_height": 1.15,
+    "capsule_radius": 0.62,
+    "weak_core_radius": 0.34,
+    "_recover_doc": "出手后的收招时长（秒）—— 这是玩家的反击窗口。",
+    "recover_duration": 0.5,
+    "behaviors": {
+      "charge": {
+        "_doc": "冲撞：平时中速逼近，每隔 charge_interval 秒突进一次；突进期间速度乘 charge_speed_scale，起手有 charge_windup 的抬身预警。",
+        "charge_interval": 5.5,
+        "charge_windup": 0.85,
+        "charge_duration": 1.25,
+        "charge_speed_scale": 2.7
+      },
+      "slam": {
+        "_doc": "震地：逼近到 slam_range 内蓄力，地面上出现预警圈（复用敌人迫击炮那套 ground_warning），随后范围伤害 + 击退。",
+        "slam_interval": 3.2,
+        "slam_range": 7.0,
+        "slam_windup": 1.15,
+        "slam_radius": 5.2,
+        "slam_damage_scale": 1.25
+      },
+      "barrage": {
+        "_doc": "弹幕：维持 barrage_distance 的距离，每隔 barrage_interval 秒扇面齐射 barrage_count 发（复用敌人的 enemy_bullet 对象池）。",
+        "barrage_windup": 0.45,
+        "barrage_distance": 16.0,
+        "barrage_interval": 3.6,
+        "barrage_count": 5,
+        "barrage_speed": 7.2,
+        "barrage_damage_scale": 0.8,
+        "barrage_spread_degrees": 26.0
+      }
+    },
+    "warden": {
+      "label": "遗迹守望者",
+      "health": 2600.0,
+      "scale": 2.2,
+      "move_speed": 4.6,
+      "touch_damage": 26.0,
+      "weak_point_ratio": 0.34,
+      "weak_point_multiplier": 2.0,
+      "behavior": "charge"
+    },
+    "breaker": {
+      "label": "采石场破碎者",
+      "health": 3000.0,
+      "scale": 2.6,
+      "move_speed": 3.9,
+      "touch_damage": 30.0,
+      "weak_point_ratio": 0.3,
+      "weak_point_multiplier": 2.2,
+      "behavior": "slam"
+    },
+    "colossus": {
+      "label": "沙丘巨像",
+      "health": 3400.0,
+      "scale": 2.9,
+      "move_speed": 3.4,
+      "touch_damage": 34.0,
+      "weak_point_ratio": 0.28,
+      "weak_point_multiplier": 2.4,
+      "behavior": "barrage"
+    },
+    "sentinel": {
+      "label": "内城执政官",
+      "health": 3800.0,
+      "scale": 2.4,
+      "move_speed": 4.9,
+      "touch_damage": 32.0,
+      "weak_point_ratio": 0.26,
+      "weak_point_multiplier": 2.6,
+      "behavior": "charge"
+    }
+  },
+
+  "audio": {
+    "_doc": "音色参数表。数组含义由 _bank_format 给出，改完立刻能听出差别。",
+    "_bank_format": "[时长秒, 起始频率Hz, 结束频率Hz, 衰减指数, 噪声占比0~1, 增益]",
+    "bank": {
+      "shot": [0.13, 460.0, 95.0, 4.5, 0.55, 0.85],
+      "sniper": [0.34, 210.0, 52.0, 3.0, 0.5, 1.0],
+      "enemy_shot": [0.15, 320.0, 120.0, 4.0, 0.45, 0.6],
+      "hit": [0.08, 900.0, 430.0, 7.0, 0.35, 0.5],
+      "headshot": [0.17, 1350.0, 880.0, 5.0, 0.18, 0.62],
+      "kill": [0.26, 520.0, 130.0, 4.0, 0.25, 0.7],
+      "hurt": [0.24, 170.0, 62.0, 3.5, 0.35, 0.9],
+      "pickup": [0.2, 640.0, 1180.0, 3.0, 0.05, 0.42],
+      "explosion": [0.55, 150.0, 38.0, 2.6, 0.8, 1.0],
+      "shockwave": [0.42, 260.0, 45.0, 2.8, 0.55, 0.95],
+      "mortar": [1.3, 880.0, 190.0, 0.5, 0.12, 0.9],
+      "ui": [0.09, 880.0, 1200.0, 4.0, 0.0, 0.35],
+      "heartbeat": [0.2, 88.0, 42.0, 3.2, 0.22, 1.0]
+    }
+  },
+
+  "visual": {
+    "_doc": "视觉迭代拍摄设施。只有带命令行参数 --vis-capture 启动时才会生效；正常游玩完全不受影响（见 scripts/visual_capture.gd）。",
+    "_why_doc": "视觉分级只能靠对比。相机位姿、等待帧数、是否显示 UI 全部写死在这里，保证每一轮都在同一条件下拍同一张图 —— 否则「这一轮是不是变好了」会变成各说各话。",
+    "_cameras_doc": "pos / look_at 是世界坐标（米），fov 是垂直视场角（度）。",
+    "_multi_angle_doc": "【单机位判断不了悬空】—— 一个物体在某个角度看着像浮着，可能只是视线刚好切过它落地的接缝；换个角度就正常，反之亦然。所以改成多角度绕拍：south/court/gate/gate_low 沿南北轴线由远及近，east_low/west_low 从两侧低角度把地标压到天空上做剪影检查，orbit_ne/orbit_sw 是 3/4 视角看体量与落地，north_high/far_ring 从高处与远处看整张图有没有与地面脱节，horizon 平视检查四段空气透视。每轮全部拍，逐张比对，不再靠单一机位下结论。",
+    "arena_id": "sanctum",
+    "resolution": [1920, 1080],
+    "settle_frames": 150,
+    "hide_ui": true,
+    "output_dir": "res://visual_captures",
+    "cameras": [
+      { "name": "south",     "pos": [0.0, 4.5, 46.0],  "look_at": [0.0, 3.0, -10.0],  "fov": 62.0 },
+      { "name": "court",     "pos": [0.0, 2.4, 24.0],  "look_at": [0.0, 6.0, -4.0],   "fov": 65.0 },
+      { "name": "gate",      "pos": [0.0, 3.5, -12.0], "look_at": [0.0, 8.0, -34.0],  "fov": 62.0 },
+      { "name": "gate_low",  "pos": [0.0, 1.2, -22.0], "look_at": [0.0, 10.0, -34.0], "fov": 70.0 },
+      { "name": "east_low",  "pos": [58.0, 2.2, 0.0],  "look_at": [0.0, 5.0, 0.0],    "fov": 62.0 },
+      { "name": "west_low",  "pos": [-58.0, 2.2, 0.0], "look_at": [0.0, 5.0, 0.0],    "fov": 62.0 },
+      { "name": "orbit_ne",  "pos": [36.0, 16.0, 34.0], "look_at": [0.0, 3.0, -8.0],  "fov": 58.0 },
+      { "name": "orbit_sw",  "pos": [-38.0, 14.0, 36.0], "look_at": [0.0, 4.0, 0.0],  "fov": 58.0 },
+      { "name": "north_high", "pos": [0.0, 40.0, -78.0], "look_at": [0.0, 0.0, 0.0],  "fov": 60.0 },
+      { "name": "far_ring",  "pos": [0.0, 55.0, 150.0], "look_at": [0.0, 0.0, 0.0],   "fov": 55.0 },
+      { "name": "horizon",   "pos": [0.0, 1.7, 62.0],  "look_at": [0.0, 1.7, 260.0],  "fov": 55.0 }
+    ]
+  }
+}

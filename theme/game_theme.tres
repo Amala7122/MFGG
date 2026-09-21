@@ -1,0 +1,99 @@
+[gd_resource type="Theme" format=3]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_normal"]
+content_margin_left = 18.0
+content_margin_top = 8.0
+content_margin_right = 18.0
+content_margin_bottom = 8.0
+bg_color = Color(0.12, 0.24, 0.13, 0.94)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.63, 0.48, 0.22, 0.9)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_focus"]
+content_margin_left = 18.0
+content_margin_top = 8.0
+content_margin_right = 18.0
+content_margin_bottom = 8.0
+bg_color = Color(0.94, 0.84, 0.62, 0.98)
+draw_center = false
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.91, 0.69, 0.29, 0.92)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hover"]
+content_margin_left = 18.0
+content_margin_top = 8.0
+content_margin_right = 18.0
+content_margin_bottom = 8.0
+bg_color = Color(0.94, 0.84, 0.62, 0.98)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.91, 0.69, 0.29, 0.92)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_pressed"]
+content_margin_left = 18.0
+content_margin_top = 8.0
+content_margin_right = 18.0
+content_margin_bottom = 8.0
+bg_color = Color(0.88, 0.7, 0.39, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.91, 0.69, 0.29, 0.92)
+
+[resource]
+Button/colors/font_color = Color(0.96, 0.91, 0.76, 1)
+Button/colors/font_disabled_color = Color(0.74, 0.73, 0.6, 1)
+Button/colors/font_focus_color = Color(0.2, 0.82, 0.84, 1)
+Button/colors/font_hover_color = Color(0.16, 0.15, 0.1, 1)
+Button/colors/font_pressed_color = Color(0.16, 0.15, 0.1, 1)
+Button/font_sizes/font_size = 21
+Button/styles/disabled = SubResource("StyleBoxFlat_normal")
+Button/styles/focus = SubResource("StyleBoxFlat_focus")
+Button/styles/hover = SubResource("StyleBoxFlat_hover")
+Button/styles/normal = SubResource("StyleBoxFlat_normal")
+Button/styles/pressed = SubResource("StyleBoxFlat_pressed")
+UiBody/base_type = &"Label"
+UiBody/colors/font_color = Color(0.96, 0.91, 0.76, 1)
+UiBody/colors/font_shadow_color = Color(0, 0, 0, 0.95)
+UiBody/constants/shadow_offset_x = 2
+UiBody/constants/shadow_offset_y = 2
+UiBody/font_sizes/font_size = 19
+UiDim/base_type = &"Label"
+UiDim/colors/font_color = Color(0.74, 0.73, 0.6, 1)
+UiDim/colors/font_shadow_color = Color(0, 0, 0, 0.95)
+UiDim/constants/shadow_offset_x = 2
+UiDim/constants/shadow_offset_y = 2
+UiDim/font_sizes/font_size = 17
+UiHudAbilities/base_type = &"Label"
+UiHudAbilities/colors/font_color = Color(0.2, 0.82, 0.84, 1)
+UiHudAbilities/colors/font_shadow_color = Color(0, 0, 0, 0.95)
+UiHudAbilities/constants/shadow_offset_x = 2
+UiHudAbilities/constants/shadow_offset_y = 2
+UiHudAbilities/font_sizes/font_size = 20
+UiHudTime/base_type = &"Label"
+UiHudTime/colors/font_color = Color(0.96, 0.91, 0.76, 1)
+UiHudTime/colors/font_shadow_color = Color(0, 0, 0, 0.95)
+UiHudTime/constants/shadow_offset_x = 2
+UiHudTime/constants/shadow_offset_y = 2
+UiHudTime/font_sizes/font_size = 20
+UiHudWeapon/base_type = &"Label"
+UiHudWeapon/colors/font_color = Color(0.98, 0.76, 0.25, 1)
+UiHudWeapon/colors/font_shadow_color = Color(0, 0, 0, 0.95)
+UiHudWeapon/constants/shadow_offset_x = 2
+UiHudWeapon/constants/shadow_offset_y = 2
+UiHudWeapon/font_sizes/font_size = 18
+UiTitle/base_type = &"Label"
+UiTitle/colors/font_color = Color(0.98, 0.84, 0.38, 1)
+UiTitle/colors/font_shadow_color = Color(0, 0, 0, 0.95)
+UiTitle/constants/shadow_offset_x = 2
+UiTitle/constants/shadow_offset_y = 2
+UiTitle/font_sizes/font_size = 58
