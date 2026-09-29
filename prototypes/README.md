@@ -12,13 +12,14 @@
 prototypes/
 ├─ combat/              当前战斗实验场与其专用工具
 │  └─ enemies/          Combat Lab 使用的程序化敌人场景
+├─ visual/              纯视觉观察台：造型、轮廓、材质、灯光检查
 ├─ environment/         天空、天气、环境等隔离实验场
 └─ legacy/              已归档但仍保留参考价值的旧实验
    ├─ melee/
-   └─ visual/
+   └─ visual/            仅保留被替代的旧视觉原型资产
 ```
 
-行为脚本仍按代码职责保留在 `scripts/prototypes/`；这里统一解决的是“实验场景从哪里打开”的入口问题。
+行为脚本仍按代码职责保留在 `scripts/prototypes/`；这里统一解决的是“实验场景从哪里打开”的入口问题。Combat Lab 用来验证战斗行为与数值，Visual Lab 则保持无战斗干扰的固定观察条件，两者长期并存。
 
 在 Godot 中打开 `res://prototypes/combat/combat_lab.tscn`，按 **F6（运行当前场景）** 启动。
 
