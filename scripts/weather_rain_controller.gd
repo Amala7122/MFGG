@@ -661,7 +661,7 @@ func _update_environment(delta: float = 0.0) -> void:
 	if _moon != null:
 		_moon.light_volumetric_fog_energy = float(_base_environment.get("moon_scatter", 1.0)) * (1.0 - stratus_cover)
 
-	if is_instance_valid(_sky_world) and _sky_world.environment != null 			and not _base_environment.is_empty():
+	if is_instance_valid(_sky_world) and _sky_world.environment != null and not _base_environment.is_empty():
 		var environment := _sky_world.environment
 		environment.fog_enabled = fog_strength > 0.001
 		environment.fog_mode = Environment.FOG_MODE_EXPONENTIAL
@@ -672,11 +672,19 @@ func _update_environment(delta: float = 0.0) -> void:
 		environment.fog_sun_scatter = 0.0
 		environment.fog_sky_affect = 0.0
 		var fog_distance := lerpf(downpour_fog_end, _standalone_fog_distance, manual_share)
-		environment.fog_density = 4.6 / maxf(fog_distance, 1.0) * pow(fog_strength, 1.6) 			* (1.0 + _wind_strength * 0.45)
+		environment.fog_density = (
+			4.6 / maxf(fog_distance, 1.0)
+			* pow(fog_strength, 1.6)
+			* (1.0 + _wind_strength * 0.45)
+		)
 
 		# 多云继续使用 Sky3D 天空作为环境光源，因此蓝天区域仍会贡献蓝色天光。
 		# 阴天改用冷灰漫射色，Coverage 越接近 1，越彻底离开晴天天空照明。
-		environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR 			if stratus_cover > 0.001 else int(_base_environment.ambient_light_source)
+		environment.ambient_light_source = (
+			Environment.AMBIENT_SOURCE_COLOR
+			if stratus_cover > 0.001
+			else int(_base_environment.ambient_light_source)
+		)
 		var light_overcast := Color(0.43, 0.49, 0.58).lerp(Color(0.72, 0.76, 0.82), daylight)
 		var deep_overcast := Color(0.27, 0.31, 0.38).lerp(Color(0.47, 0.52, 0.59), daylight)
 		var overcast_ambient := light_overcast.lerp(deep_overcast, storm)
