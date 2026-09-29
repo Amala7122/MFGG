@@ -1,0 +1,25 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "websearch": "allow",
+    "webfetch": "allow",
+    "bash": "ask"
+  },
+  "mcp": {
+    "godot": {
+      "type": "local",
+      "command": [
+        "C:\\path\\to\\npx.cmd",
+        "-y",
+        "@coding-solo/godot-mcp"
+      ],
+      "enabled": true,
+      "environment": {
+        "GODOT_PATH": "D:\\path\\to\\Godot_v4.7-stable_win64.exe",
+        "DEBUG": "true"
+      },
+      "cwd": "D:\\path\\to\\project-root",
+      "timeout": 60000
+    }
+  }
+}
