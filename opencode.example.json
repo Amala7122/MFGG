@@ -9,16 +9,16 @@
     "godot": {
       "type": "local",
       "command": [
-        "C:\\Users\\ZXG\\AppData\\Local\\hermes\\node\\npx.cmd",
+        "C:\\path\\to\\npx.cmd",
         "-y",
         "@coding-solo/godot-mcp"
       ],
       "enabled": true,
       "environment": {
-        "GODOT_PATH": "D:\\godot_project\\Godot_v4.7.1-stable_win64.exe",
+        "GODOT_PATH": "D:\\path\\to\\Godot_v4.7-stable_win64.exe",
         "DEBUG": "true"
       },
-      "cwd": "D:\\godot_project",
+      "cwd": "D:\\path\\to\\project-root",
       "timeout": 60000
     }
   }
