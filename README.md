@@ -21,7 +21,7 @@ MFGG 是一个使用 Godot 4.7.x 开发的第三人称动作 / 探索游戏原�
 |---|---|
 | `scenes/` | 正式游戏场景，以及独立的 experiments / prototypes 场景 |
 | `scripts/` | 正式运行脚本；`scripts/prototypes/` 为实验敌人与实验逻辑 |
-| `prototypes/` | Combat Lab 等独立实验场与调参工具 |
+| `prototypes/` | 统一实验区：`combat/` 当前实验、`environment/` 环境实验、`legacy/` 历史实验 |
 | `data/` | 游戏配置、敌人配置、实验预设 |
 | `assets/` | 项目资产；其中 `assets/generated/valley/` 是当前导出仍会使用的静态山谷资源 |
 | `shaders/` | 正式使用的 shader |
