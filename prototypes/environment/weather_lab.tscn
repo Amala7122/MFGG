@@ -76,7 +76,7 @@ script = ExtResource("16_preview")
 [node name="WeatherEnvironment" parent="." unique_id=1293549010 instance=ExtResource("18_weather_environment")]
 
 [node name="Sky3D" parent="WeatherEnvironment" index="0" unique_id=1502289054]
-current_time = 21.33
+current_time = 9.0
 tonemap_exposure = 0.94
 sun_shadow_opacity = 0.68
 sky_contribution = 0.655
