@@ -61,14 +61,21 @@ func _draw() -> void:
 		return
 	var origin := Vector2(MARGIN, size.y - MARGIN - PANEL_HEIGHT)
 	draw_set_transform(origin)
+	var glass := PackedVector2Array([
+		Vector2.ZERO, Vector2(PANEL_WIDTH, 0),
+		Vector2(PANEL_WIDTH - 24, PANEL_HEIGHT), Vector2(0, PANEL_HEIGHT),
+	])
+	UiThemeUtil.draw_black_glass(self, glass)
 	var white := Color(0.97, 0.98, 0.95)
 	var dim := Color(0.84, 0.89, 0.86, 0.78)
 	var low := _ammo <= maxi(ceili(_capacity * 0.2), 1)
 	var ink := Color(1.0, 0.56, 0.35) if low else white
 	var digits := str(_ammo)
-	_text(_number_font, Vector2(3, 77), digits, 62, ink)
+	# 所有弹匣数字共用同一条水平基线；斜度只来自字形本身。
+	const AMMO_BASELINE := 77.0
+	_text(_number_font, Vector2(10, AMMO_BASELINE), digits, 62, ink)
 	var number_width := _number_font.get_string_size(digits, HORIZONTAL_ALIGNMENT_LEFT, -1, 62).x
-	_text(_font, Vector2(number_width + 16, 72), "/ %d" % _capacity, 17, dim)
+	_text(_font, Vector2(number_width + 23, AMMO_BASELINE), "/ %d" % _capacity, 17, dim)
 	var reserve_text := "∞" if _reserve < 0 else str(_reserve)
 	_text(_font, Vector2(4, 99), "备弹  " + reserve_text, 11, dim)
 	if _reloading:
