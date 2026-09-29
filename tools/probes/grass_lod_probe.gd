@@ -1,4 +1,10 @@
 extends SceneTree
+## 手动草地 LOD 诊断探针。
+##
+## 这不是自动回归测试：它通过移动一个虚拟 player，打印草地 chunk 的 LOD / 可见性
+## 分布，适合在调整 grass_field.gd 的 LOD 逻辑后人工核对。
+## 正式自动测试请放在 tests/，只打印观察结果的诊断脚本统一放 tools/probes/。
+
 
 var _frame := 0
 var _grass: Node3D
