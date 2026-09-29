@@ -1,15 +1,26 @@
 extends "res://scripts/weather_rain_controller.gd"
 class_name WeatherSystem
-## 主场景与寂石圣所实验场景共用的天气入口。
+## 主场景与天气实验场共用的统一天气入口。
 ## 云、雨、雾、雪是可独立启用的层；天空、光照、雾只在本节点合成一次。
-## 日后抽成插件时，场景只需实例化本节点及其 SnowLayer 子节点。
+##
+## Cloud Layer 第一版拆成三个维度：
+## - Type：Cumulus 多云 / Stratus 阴天
+## - Coverage：天空覆盖面积
+## - Density：云体厚度与吸光程度
+##
+## 多云暂时保留强直射阳光，不做“云块刚好遮住太阳”时的局部光照采样；
+## 阴天使用连续层云并接管直射光/环境光。先把两类天空的视觉家族分开。
+
+enum CloudType { CUMULUS, STRATUS }
 
 @export_category("天气组合：可复选")
-## 独立阴天层。它只改变云幕与环境光照，不自动产生雨、雪或雾。
 @export var cloud_enabled := false
-## 0=晴空，约 0.25=薄阴，0.55=普通阴天，0.80=厚云，1=压城重云。
-## 浅阴优先消除硬太阳、高光与硬阴影；重阴才明显降低整体亮度。
-@export_range(0.0, 1.0, 0.01) var cloud_amount := 0.0
+## Cumulus：分散积云，保留蓝天；Stratus：连续层云，用于阴天。
+@export_enum("Cumulus 多云:0", "Stratus 阴天:1") var cloud_type: int = CloudType.STRATUS
+## 天空有多少面积被云覆盖。Stratus 接近 1 时成为连续云底。
+@export_range(0.0, 1.0, 0.01) var cloud_coverage := 1.0
+## 云有多厚。它不决定覆盖面积；低值偏明亮薄云，高值偏厚重吸光。
+@export_range(0.0, 1.0, 0.01) var cloud_density := 0.47
 ## 关闭雨层不影响云、雾、雪或风。雨量使用下方五档预设/连续雨量设置。
 @export var rain_enabled := true
 ## 独立雾层开关，不再由云层自动开启。
@@ -24,15 +35,17 @@ class_name WeatherSystem
 @export_range(0.0, 1.0, 0.01) var snow_amount := 0.45
 
 var _cloud_level := 0.0
+var _cloud_density_level := 0.0
 var _snow_level := 0.0
 @onready var _snow_layer: Node3D = get_node_or_null("SnowLayer")
 
 
 func _ready() -> void:
-	# 统一天气入口从这一版开始把降水与天空环境解耦。
-	# WeatherRainController 单独使用时仍保留旧的“雨量带阴天”行为，避免破坏旧实验场。
+	# 统一天气入口关闭“下雨自动变阴天”的旧耦合。
+	# WeatherRainController 单独使用时仍保留旧行为，避免破坏旧实验。
 	_precipitation_environment_coupling = 0.0
-	_cloud_level = cloud_amount if cloud_enabled else 0.0
+	_cloud_level = cloud_coverage if cloud_enabled else 0.0
+	_cloud_density_level = cloud_density
 	_snow_level = snow_amount if snow_enabled else 0.0
 	_sync_extra_layers()
 	super._ready()
@@ -41,9 +54,10 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	var transition_speed := delta / maxf(weather_transition_seconds, 0.1)
-	var cloud_target := cloud_amount if cloud_enabled else 0.0
+	var cloud_target := cloud_coverage if cloud_enabled else 0.0
 	var snow_target := snow_amount if snow_enabled else 0.0
 	_cloud_level = move_toward(_cloud_level, cloud_target, transition_speed)
+	_cloud_density_level = move_toward(_cloud_density_level, cloud_density, transition_speed)
 	_snow_level = move_toward(_snow_level, snow_target, transition_speed)
 	_sync_extra_layers()
 	super._process(delta)
@@ -54,9 +68,22 @@ func _target_intensity() -> float:
 	return super._target_intensity() if rain_enabled else 0.0
 
 
+func set_cloud_type(type: int) -> void:
+	cloud_type = clampi(type, CloudType.CUMULUS, CloudType.STRATUS)
+
+
+func set_cloud_coverage(amount: float) -> void:
+	cloud_coverage = clampf(amount, 0.0, 1.0)
+	cloud_enabled = cloud_coverage > 0.001
+
+
+func set_cloud_density(amount: float) -> void:
+	cloud_density = clampf(amount, 0.0, 1.0)
+
+
+## 兼容第一版 Cloud Amount API；新代码应明确调用 set_cloud_coverage()。
 func set_cloud_amount(amount: float) -> void:
-	cloud_amount = clampf(amount, 0.0, 1.0)
-	cloud_enabled = cloud_amount > 0.001
+	set_cloud_coverage(amount)
 
 
 func set_rain_amount(amount: float) -> void:
@@ -77,16 +104,24 @@ func set_snow_amount(amount: float) -> void:
 func _sync_extra_layers() -> void:
 	_baseline_fog_enabled = fog_enabled
 	_external_fog_strength = fog_amount if fog_enabled else 0.0
-	# 云量与“阴沉程度”不是同一条线。薄阴可以已经遮住太阳，但环境仍然明亮；
-	# 只有厚云继续增加时，整个世界才逐渐进入低曝光的重阴状态。
 	_external_cloud_cover = _cloud_level
-	_external_storm_strength = _cloud_darkness(_cloud_level)
+	_external_cloud_density = _cloud_density_level
+	_external_cloud_style = cloud_type
+	_external_storm_strength = _cloud_darkness(
+		_cloud_level, _cloud_density_level, cloud_type
+	)
 	_standalone_fog_distance = fog_visibility_distance
 	_standalone_fog_color = fog_color
 
 
-static func _cloud_darkness(amount: float) -> float:
-	return smoothstep(0.30, 1.0, clampf(amount, 0.0, 1.0)) * 0.92
+static func _cloud_darkness(coverage: float, density: float, type: int) -> float:
+	# 多云第一版保持晴空照明家族：云块会出现在天空，但不统一压暗整个世界。
+	# 后续再根据太阳方向的局部云密度驱动直射光。
+	if type == CloudType.CUMULUS:
+		return 0.0
+	var cover := smoothstep(0.35, 1.0, clampf(coverage, 0.0, 1.0))
+	var thick := smoothstep(0.12, 1.0, clampf(density, 0.0, 1.0))
+	return cover * thick * 0.92
 
 
 func _update_snow_layer() -> void:
