@@ -42,6 +42,11 @@ var _health_label: Label3D
 var _tuning: Dictionary
 var _crowd := Crowd.new()
 var _dive_direction := Vector3.FORWARD
+var _flight_jitter := Vector3.ZERO
+var _flight_jitter_target := Vector3.ZERO
+var _flight_jitter_timer := 0.0
+var _flight_wobble_phase := 0.0
+var _wing_phase_offset := 0.0
 
 
 func _ready() -> void:
@@ -64,6 +69,8 @@ func _ready() -> void:
 	remaining_needles = int(_p("needle_count"))
 	flight_clock = _crowd.phase
 	strafe_dir = 1.0 if randf() > 0.5 else -1.0
+	_flight_wobble_phase = randf_range(0.0, TAU)
+	_wing_phase_offset = randf_range(0.0, TAU)
 	add_to_group("enemies")
 	collision_layer = 4
 	collision_mask = 3
@@ -126,12 +133,14 @@ func _physics_process(delta: float) -> void:
 		State.PREPARE_FIRE:
 			response = _p("fire_drag")
 			_look_at_target(delta)
+			_settle_flight_posture(delta)
 			abdomen_pivot.rotation_degrees.x = lerpf(abdomen_pivot.rotation_degrees.x, _p("aim_abdomen_angle"), 1.0 - exp(-_p("aim_response") * delta))
 			if state_timer >= _p("fire_windup"):
 				_launch_stinger_needle()
 				_set_state(State.FIRE_RECOVER)
 		State.FIRE_RECOVER:
 			response = _p("fire_drag")
+			_settle_flight_posture(delta)
 			if state_timer >= _p("fire_recovery"):
 				strafe_dir *= -1.0
 				_enter_hover()
@@ -140,6 +149,8 @@ func _physics_process(delta: float) -> void:
 			_look_at_target(delta)
 			var progress := clampf(state_timer / _p("dive_windup"), 0.0, 1.0)
 			visual_root.position.y = VISUAL_OFFSET + _p("dive_lift") * progress
+			thorax_node.rotation_degrees.x = _p("dive_body_angle") * progress
+			thorax_node.rotation_degrees.z = lerpf(thorax_node.rotation_degrees.z, 0.0, progress)
 			head_pivot.rotation_degrees.x = _p("dive_head_angle") * progress
 			jaw_left.rotation_degrees.y = _p("jaw_open_angle") * progress
 			jaw_right.rotation_degrees.y = -_p("jaw_open_angle") * progress
@@ -149,6 +160,9 @@ func _physics_process(delta: float) -> void:
 				_set_state(State.SWOOP_DIVE)
 		State.SWOOP_DIVE:
 			desired = _dive_direction * _p("dive_speed")
+			thorax_node.rotation_degrees.x = lerpf(
+				thorax_node.rotation_degrees.x, _p("dive_body_angle"), 1.0 - exp(-10.0 * delta)
+			)
 			jaw_left.rotation_degrees.y = sin(flight_clock * _p("bite_frequency")) * _p("bite_angle")
 			jaw_right.rotation_degrees.y = -jaw_left.rotation_degrees.y
 		State.SWOOP_RECOVER:
@@ -156,6 +170,8 @@ func _physics_process(delta: float) -> void:
 			desired.y = clampf((_hover_height() - global_position.y) * _p("height_response"), -_p("pull_up_speed"), _p("pull_up_speed"))
 			var progress := clampf(state_timer / _p("recovery_pose_time"), 0.0, 1.0)
 			visual_root.position.y = VISUAL_OFFSET + _p("dive_lift") * (1.0 - progress)
+			thorax_node.rotation_degrees.x = _p("dive_body_angle") * (1.0 - progress)
+			thorax_node.rotation_degrees.z = lerpf(thorax_node.rotation_degrees.z, 0.0, progress)
 			head_pivot.rotation_degrees.x = _p("dive_head_angle") * (1.0 - progress)
 			jaw_left.rotation_degrees.y = _p("jaw_open_angle") * (1.0 - progress)
 			jaw_right.rotation_degrees.y = -jaw_left.rotation_degrees.y
@@ -197,12 +213,55 @@ func _orbital_velocity(delta: float) -> Vector3:
 	else:
 		var radial := offset.normalized() * _p("radial_speed") if distance < _p("strafe_distance") - _p("orbit_band") else Vector3.ZERO
 		desired = offset.cross(Vector3.UP).normalized() * strafe_dir * move_speed + radial
-	desired += Vector3(sin(flight_clock * 2.5), 0, cos(flight_clock * 2.0)) * _p("turbulence_strength")
-	desired.y = clampf((_hover_height() - global_position.y) * _p("height_response"), -_p("vertical_speed_limit"), _p("vertical_speed_limit"))
+
+	# 蜂类不是沿完美圆轨道滑行：每隔很短时间换一次微修正方向，再平滑追向它。
+	_update_flight_jitter(delta)
+	desired += Vector3(_flight_jitter.x, 0.0, _flight_jitter.z)
+	desired += Vector3(sin(flight_clock * 2.5), 0.0, cos(flight_clock * 2.0)) * _p("turbulence_strength")
+	var vertical := (_hover_height() - global_position.y) * _p("height_response") + _flight_jitter.y
+	desired.y = clampf(vertical, -_p("vertical_speed_limit"), _p("vertical_speed_limit"))
 	desired = _crowd.steer_air(desired, target.global_position, delta, approaching)
 	_look_at_target(delta)
-	thorax_node.rotation_degrees.z = lerpf(thorax_node.rotation_degrees.z, -strafe_dir * _p("bank_angle") if not approaching else 0.0, 1.0 - exp(-_p("flight_response") * delta))
+	_apply_flight_posture(desired, delta, approaching)
 	return desired
+
+
+func _update_flight_jitter(delta: float) -> void:
+	_flight_jitter_timer -= delta
+	if _flight_jitter_timer <= 0.0:
+		var lateral := _p("flight_jitter_speed")
+		var vertical := _p("flight_jitter_vertical")
+		_flight_jitter_target = Vector3(
+			randf_range(-lateral, lateral),
+			randf_range(-vertical, vertical),
+			randf_range(-lateral, lateral)
+		)
+		_flight_jitter_timer = randf_range(0.08, 0.20)
+	_flight_jitter = _flight_jitter.lerp(_flight_jitter_target, 1.0 - exp(-12.0 * delta))
+
+
+func _apply_flight_posture(desired: Vector3, delta: float, approaching: bool) -> void:
+	var local_motion := global_basis.inverse() * desired
+	var speed_reference := maxf(move_speed, 0.1)
+	var pitch_target := clampf(local_motion.z / speed_reference, -1.0, 1.0) * _p("flight_pitch_angle")
+	var roll_scale := 0.65 if approaching else 1.0
+	var roll_target := clampf(-local_motion.x / speed_reference, -1.0, 1.0) * _p("bank_angle") * roll_scale
+	var wobble_frequency := _p("flight_wobble_frequency")
+	var wobble := (
+		sin(flight_clock * wobble_frequency + _flight_wobble_phase)
+		+ 0.35 * sin(flight_clock * wobble_frequency * 1.83 + _flight_wobble_phase * 0.47)
+	) * _p("flight_wobble_angle")
+	var response := 1.0 - exp(-_p("flight_response") * delta)
+	thorax_node.rotation_degrees.x = lerpf(thorax_node.rotation_degrees.x, pitch_target + wobble * 0.25, response)
+	thorax_node.rotation_degrees.y = lerpf(thorax_node.rotation_degrees.y, wobble * 0.30, response)
+	thorax_node.rotation_degrees.z = lerpf(thorax_node.rotation_degrees.z, roll_target + wobble, response)
+
+
+func _settle_flight_posture(delta: float) -> void:
+	var response := 1.0 - exp(-_p("flight_response") * 1.5 * delta)
+	thorax_node.rotation_degrees.x = lerpf(thorax_node.rotation_degrees.x, 0.0, response)
+	thorax_node.rotation_degrees.y = lerpf(thorax_node.rotation_degrees.y, 0.0, response)
+	thorax_node.rotation_degrees.z = lerpf(thorax_node.rotation_degrees.z, 0.0, response)
 
 
 func _look_at_target(delta: float) -> void:
@@ -320,11 +379,17 @@ func _update_health_label() -> void:
 
 
 func _animate_wings() -> void:
-	var phase := flight_clock * _p("wing_frequency")
+	# 不追求真实蜂类每秒数百次振翅，而是在当前帧率下制造“持续嗡振”的视觉。
+	# 四翼保留左右对应关系，但加入轻微相位 / 速度差，避免像四个同步伺服电机。
+	var base_phase := flight_clock * _p("wing_frequency") + _wing_phase_offset
+	var phase_offsets := [0.0, 0.16, 0.54, 0.71]
+	var speed_scales := [1.0, 0.975, 1.035, 1.01]
 	for index in range(wings.size()):
 		var side := 1.0 if index % 2 == 0 else -1.0
 		var amplitude := _p("wing_amplitude") if index < 2 else _p("wing_rear_amplitude")
-		wings[index].rotation_degrees.z = side * (sin(phase + (0.5 if index >= 2 else 0.0)) * amplitude - _p("wing_rest_angle"))
+		var phase := base_phase * float(speed_scales[index]) + float(phase_offsets[index])
+		var stroke := sin(phase) + 0.16 * sin(phase * 2.17 + 0.4 * index)
+		wings[index].rotation_degrees.z = side * (stroke * amplitude - _p("wing_rest_angle"))
 
 
 func _animate_hover_idle() -> void:
@@ -332,7 +397,8 @@ func _animate_hover_idle() -> void:
 	for index in range(abdomen_segments.size()):
 		abdomen_segments[index].rotation_degrees.x = 10.0 + sin(flight_clock * _p("abdomen_frequency") - index * 0.4) * 4.0
 	for index in range(legs.size()):
-		legs[index].rotation_degrees.x = sin(flight_clock * _p("leg_frequency") + index) * _p("leg_amplitude")
+		# 飞行时六足向后收，不再像无人机下方垂着六根支架。
+		legs[index].rotation_degrees.x = -18.0 + sin(flight_clock * _p("leg_frequency") + index) * _p("leg_amplitude")
 	visual_root.position.y = VISUAL_OFFSET + sin(flight_clock * _p("hover_bob_frequency")) * _p("hover_bob_amplitude")
 
 
