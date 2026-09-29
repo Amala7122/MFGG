@@ -101,54 +101,8 @@ var _up_magazine := 0
 var _weapon_class_label := ""
 var _sniper_class_label := ""
 
-## ── 顶部中央的分层（避免互相压住）──────────────────────────────
-##
-## 顶部中央这块原来只有 SurvivalLabel（22..56）。后来加的波次读数放在 14..42，
-## 正好把它压住；Boss 血条又放在 50..92，三层全挤在一起。现在按固定槽位往下排：
-##
-##   生存读数   22..56   （player.tscn 自带）
-##   波次横幅   60..96   （36 高：一行读数 + 一根波次格/倒计时条）
-##   Boss 血条 100..146  （46 高：首领小牌 + 标题 + 分段血条）
-##
-## 【为什么都比原先高】波次与 Boss 现在是一整块面板而不是一行文字，面板需要
-## 上下留白才不像"字直接印在场景上"。每加 4~6 像素就够撑起一块板的呼吸感。
-##
-## ── 顶部中央还要在【水平方向】避让两侧 ──────────────────────────
-##
-## 上面那张表只管纵向。而这一列的东西（生存读数 / 波次横幅 / Boss 血条）都是
-## "占满整行"的宽元素，横向一伸长就必然压住左右两栏：
-##
-##   左栏  生命面板 28..300（24..110）→ 小队面板 28..300（118..178）
-##   右栏  小地图 958..1126（26..194）→ 击杀读数 974..1126（202..236）
-##
-## 原先按"屏幕宽的 ±340"算，左端落在 236，正好盖住生命面板右侧的护盾读数 ——
-## 截图里那块"阶段 1"小牌压在护盾数字上就是这么来的。所以这一列的半宽必须由
-## 【两侧留白】算出来（见 _center_half_width），不能由屏幕宽算。
-##
-## 同理，右上角的 KillLabel（24..56）原先压在小地图（26..194）上，
-## 已改到小地图下方（见 _place_right_column）。
-##
-## ── 左侧信息区的分层 ────────────────────────────────────────────
-##
-##   生命/护盾面板  24..110  （VitalsPanel，272×86）
-##   小队面板      118 起    （只在窄屏下再往下让，因为生存读数会挪到左侧）
-##
-## 生命面板把原先"生命文字 24..50 + 生命条 52..74 + 护盾条 76..94"三块
-## 收成了一块，高度多出十几像素是刻意的：石板面板需要内边距。
-##
-## ── 屏幕宽度：只有一个值 ────────────────────────────────────────
-##
-## HUD 的坐标全部按【1152 宽】写。这不是"暂时写死"：窗外无论怎么拖，可见宽度
-## 都恒 ≥ 1152（stretch = canvas_items + aspect = expand 会把多出来的比例折成
-## 高度）。
-##
-## 原先这里有一条 NARROW_WIDTH（<900）的紧凑排布分支。它有两重问题：
-##   1. 如上所述，这条分支由拖窗口触发不到 —— 存在但永远走不到；
-##   2. 正是它让人以为"HUD 会自适应宽度"，于是出现一个恰恰反过来证明它没生效的
-##      重叠（Round 36）。现已整体删除，连同 UI 一起删除的是那个错误前提。
-##
-## 宽度仍然从 AimUI 所在的视口读（见 _hud_width）而不是用常量代替：
-## PlayerHUD 挂在玩家节点上，get_viewport() 拿到的是根视口。
+## 轻量 HUD：左下弹药、下中血盾、右下技能、右上地图。
+## UI 使用当前视口的逻辑尺寸；波次只在开场和休整显示。
 const REFERENCE_WIDTH := 1152.0
 const WAVE_HALF_WIDTH := 190.0
 const BOSS_HALF_WIDTH := 200.0
@@ -168,6 +122,7 @@ const SURVIVAL_PLATE_TOP := 16.0
 ## 帧数读数的槽位在击杀读数下方（见 _place_right_column），这里只给高度。
 const FPS_PLATE_HEIGHT := 22.0
 const LAYOUT_GAP := 4.0
+const BOTTOM_MARGIN := WeaponPanelScript.MARGIN
 ## 顶部中央那一列与左右两栏之间的留白。比 LAYOUT_GAP 宽：这一列是"插在"
 ## 两栏之间的，4 像素看着像贴上了，8 像素才读得出是两块独立的板。
 const TOP_ROW_GAP := 8.0
@@ -285,6 +240,21 @@ func relayout_for_width() -> void:
 		_survival_plate.offset_bottom = SURVIVAL_PLATE_TOP + SURVIVAL_PLATE_HEIGHT
 
 	_place_right_column()
+	_place_bottom_hud()
+
+
+## 底部三组共用同一条下基线；技能组同时服从右栏的右基线。
+func _place_bottom_hud() -> void:
+	if _vitals != null:
+		_vitals.offset_left = -VitalsPanelScript.PANEL_WIDTH * 0.5
+		_vitals.offset_right = VitalsPanelScript.PANEL_WIDTH * 0.5
+		_vitals.offset_top = -BOTTOM_MARGIN - VitalsPanelScript.PANEL_HEIGHT
+		_vitals.offset_bottom = -BOTTOM_MARGIN
+	if _ability_bar != null:
+		_ability_bar.offset_left = -MinimapScript.MARGIN - AbilityBarScript.PANEL_WIDTH
+		_ability_bar.offset_right = -MinimapScript.MARGIN
+		_ability_bar.offset_top = -BOTTOM_MARGIN - AbilityBarScript.PANEL_HEIGHT
+		_ability_bar.offset_bottom = -BOTTOM_MARGIN
 
 
 ## 顶部中央那一列（生存读数 / 波次横幅 / Boss 血条）能用的半宽。
@@ -313,21 +283,19 @@ func _center_half_width(width: float) -> float:
 ## 高度由字体撑到 26，压不住 22 的槽位 —— 实际矩形会向下长到 28，
 ## 于是压进小地图 2 像素。挂在击杀读数下面就没有这个"最小高度顶出去"的问题。
 func _place_right_column() -> void:
-	if _fps_label != null:
-		_fps_label.offset_top = _below_minimap()
-		_fps_label.offset_bottom = _below_minimap() + FPS_PLATE_HEIGHT
 	if _minimap != null:
 		var minimap_top := _minimap_top()
 		_minimap.offset_top = minimap_top
 		_minimap.offset_bottom = minimap_top + MinimapScript.PANEL_SIZE
-	if _kill_plate != null:
-		var top := _below_minimap()
-		_kill_plate.offset_top = top
-		_kill_plate.offset_bottom = top + KILL_PLATE_HEIGHT
-		if _fps_label != null:
-			var fps_top := top + KILL_PLATE_HEIGHT + LAYOUT_GAP
-			_fps_label.offset_top = fps_top
-			_fps_label.offset_bottom = fps_top + FPS_PLATE_HEIGHT
+	var next_top := _below_minimap()
+	if _game_time_plate != null:
+		_game_time_plate.offset_top = next_top
+		_game_time_plate.offset_bottom = next_top + GAME_TIME_PLATE_HEIGHT
+		if _game_time_plate.visible:
+			next_top += GAME_TIME_PLATE_HEIGHT + LAYOUT_GAP
+	if _fps_label != null:
+		_fps_label.offset_top = next_top
+		_fps_label.offset_bottom = next_top + FPS_PLATE_HEIGHT
 
 
 ## 小地图下沿再留一点缝的位置。
@@ -336,8 +304,6 @@ func _below_minimap() -> float:
 
 
 func _minimap_top() -> float:
-	if _has_sky_time:
-		return MinimapScript.MARGIN + GAME_TIME_PLATE_HEIGHT + LAYOUT_GAP
 	return MinimapScript.MARGIN
 
 
@@ -418,8 +384,8 @@ func _build_vitals() -> void:
 	_vitals.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_vitals.offset_left = -VitalsPanelScript.PANEL_WIDTH * 0.5
 	_vitals.offset_right = VitalsPanelScript.PANEL_WIDTH * 0.5
-	_vitals.offset_top = -26.0 - VitalsPanelScript.PANEL_HEIGHT
-	_vitals.offset_bottom = -26.0
+	_vitals.offset_top = -BOTTOM_MARGIN - VitalsPanelScript.PANEL_HEIGHT
+	_vitals.offset_bottom = -BOTTOM_MARGIN
 	_aim_ui.add_child(_vitals)
 
 
@@ -432,11 +398,20 @@ func _build_extra_readouts() -> void:
 	_ability_bar = AbilityBarScript.new()
 	_ability_bar.name = "AbilityBar"
 	_ability_bar.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	_ability_bar.offset_left = -26.0 - AbilityBarScript.PANEL_WIDTH
-	_ability_bar.offset_right = -26.0
-	_ability_bar.offset_top = -26.0 - AbilityBarScript.PANEL_HEIGHT
-	_ability_bar.offset_bottom = -26.0
+	_ability_bar.offset_left = -MinimapScript.MARGIN - AbilityBarScript.PANEL_WIDTH
+	_ability_bar.offset_right = -MinimapScript.MARGIN
+	_ability_bar.offset_top = -BOTTOM_MARGIN - AbilityBarScript.PANEL_HEIGHT
+	_ability_bar.offset_bottom = -BOTTOM_MARGIN
 	_aim_ui.add_child(_ability_bar)
+	_game_time_plate = ReadoutPlateScript.new()
+	_game_time_plate.name = "GameTimePlate"
+	_game_time_plate.configure(UiThemeUtil.COLOR_ACCENT, UiThemeUtil.PLATE_FOREST)
+	_game_time_plate.minimal = true
+	_game_time_plate.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_game_time_plate.offset_left = -MinimapScript.PANEL_SIZE - MinimapScript.MARGIN
+	_game_time_plate.offset_right = -MinimapScript.MARGIN
+	_game_time_plate.visible = false
+	_aim_ui.add_child(_game_time_plate)
 	# 战斗画面仅保留行动所需的信息；战绩仍由 GameFlow 记录并在结算展示。
 
 func _build_notifications() -> void:
@@ -446,6 +421,9 @@ func _build_notifications() -> void:
 
 
 func show_notice(text: String, kind: String = "info") -> void:
+	# 普通补给已有拾取音效以及血量/弹药变化，避免叠加战斗文字日志。
+	if kind == "health" or kind == "ammo":
+		return
 	if _notifications == null:
 		return
 	var accent := UiThemeUtil.COLOR_ACCENT
