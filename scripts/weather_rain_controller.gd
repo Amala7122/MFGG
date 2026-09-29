@@ -117,6 +117,9 @@ var _external_cloud_cover := 0.0
 var _external_storm_strength := 0.0
 var _standalone_fog_distance := 150.0
 var _standalone_fog_color := Color(0.72, 0.79, 0.83)
+## 兼容旧实验：直接实例化 WeatherRainController 时雨仍会带来阴天/雨雾；
+## WeatherSystem 会把它设为 0，让云、雨、雾、雪成为真正独立的输入层。
+var _precipitation_environment_coupling := 1.0
 
 var _rain_particles: GPUParticles3D
 var _rain_process: ParticleProcessMaterial
@@ -160,9 +163,9 @@ func _ready() -> void:
 	_begin_calm(true)
 	# 预设决定运行首帧天气。
 	_rain_intensity = _target_intensity()
-	# 指定天气表示进入一个已经处于该天气的世界，后续切换才缓慢起雾/消散。
-	var opening_storm := maxf(profile_value(&"storm_strength") * storm_environment_strength, _external_storm_strength)
-	_fog_amount = 1.0 - (1.0 - clampf(opening_storm, 0.0, 1.0)) * (1.0 - _external_fog_strength)
+	# 云层本身不等于雾。只有旧雨雾联动或独立 Fog Layer 才决定开场雾量。
+	var opening_rain_fog := profile_value(&"storm_strength") * storm_environment_strength 		* _precipitation_environment_coupling
+	_fog_amount = 1.0 - (1.0 - clampf(opening_rain_fog, 0.0, 1.0)) 		* (1.0 - _external_fog_strength)
 	_update_environment()
 	set_process(true)
 
@@ -546,6 +549,8 @@ func _capture_sky_baseline() -> void:
 			"ambient_light_color": environment.ambient_light_color,
 		}
 		_base_environment["sun_specular"] = _sun.light_specular
+		_base_environment["sun_shadow_opacity"] = _sun.shadow_opacity
+		_base_environment["sun_shadow_blur"] = _sun.shadow_blur
 		if _moon != null:
 			_base_environment["moon_scatter"] = _moon.light_volumetric_fog_energy
 		if _sky_world.camera_attributes != null:
@@ -554,19 +559,22 @@ func _capture_sky_baseline() -> void:
 
 
 func _update_environment(delta: float = 0.0) -> void:
-	var rain := clampf(_rain_intensity, 0.0, 1.0)
-	# 小雨只略微蒙住天空；大雨开始全面联动，暴雨才完整达到黑云、弱日照和
-	# 近距离雨雾。这样中雨与暴雨不是同一环境简单调暗。
-	var storm := maxf(profile_value(&"storm_strength") * storm_environment_strength, _external_storm_strength)
-	storm = clampf(storm, 0.0, 1.0)
-	var cloud_cover := clampf(maxf(profile_value(&"cloud_cover") * storm_environment_strength,
-		_external_cloud_cover), 0.0, 1.0)
-	var daylight := smoothstep(-0.06, 0.25, _sun.global_basis.z.normalized().y) \
-		if is_instance_valid(_sun) else 0.0
-	var horizon := Color(0.13, 0.16, 0.20).lerp(
-		Color(0.56, 0.60, 0.64).lerp(downpour_sky_color, storm), daylight
+	# “降水”和“阴天”是两个概念。旧 WeatherRainController 可以继续用 profile
+	# 自动带出阴雨环境；统一 WeatherSystem 把 coupling 设为 0，此时只有
+	# Cloud Layer 能改变云幕，只有 Fog Layer 能制造独立雾。
+	var rain_storm := profile_value(&"storm_strength") * storm_environment_strength 		* _precipitation_environment_coupling
+	var rain_cloud := profile_value(&"cloud_cover") * storm_environment_strength 		* _precipitation_environment_coupling
+	var storm := clampf(maxf(rain_storm, _external_storm_strength), 0.0, 1.0)
+	var cloud_cover := clampf(maxf(rain_cloud, _external_cloud_cover), 0.0, 1.0)
+	var daylight := smoothstep(-0.06, 0.25, _sun.global_basis.z.normalized().y) 		if is_instance_valid(_sun) else 0.0
+	# 薄阴先成为明亮漫射云幕；厚云继续增加时才逐渐压向深冷灰。
+	var clear_horizon := Color(0.13, 0.16, 0.20).lerp(Color(0.56, 0.60, 0.64), daylight)
+	var overcast_horizon := Color(0.16, 0.19, 0.23).lerp(
+		Color(0.69, 0.72, 0.75).lerp(Color(0.29, 0.32, 0.36), storm), daylight
 	)
-	var fog_target := 1.0 - (1.0 - storm) * (1.0 - clampf(_external_fog_strength, 0.0, 1.0))
+	var horizon := clear_horizon.lerp(overcast_horizon, cloud_cover)
+	# 云层本身不降低能见度。只有旧雨雾联动或独立 Fog Layer 改变雾量。
+	var fog_target := 1.0 - (1.0 - clampf(rain_storm, 0.0, 1.0)) 		* (1.0 - clampf(_external_fog_strength, 0.0, 1.0))
 	var fog_seconds := fog_build_seconds if fog_target > _fog_amount else fog_clear_seconds
 	if delta > 0.0:
 		_fog_amount = move_toward(_fog_amount, fog_target, delta / maxf(fog_seconds, 0.1))
@@ -601,16 +609,27 @@ func _update_environment(delta: float = 0.0) -> void:
 	))
 	_sky_dome.set("atm_sun_intensity", lerpf(float(_base_sky.atm_sun_intensity), 8.0, storm))
 	_sky_dome.set("atm_darkness", lerpf(float(_base_sky.atm_darkness), 0.72, storm))
-	_sky_dome.set("exposure", lerpf(float(_base_sky.exposure), 0.90, storm))
+	_sky_dome.set("exposure", lerpf(float(_base_sky.exposure), 0.72, storm))
 	_sky_dome.set("ground_color", (_base_sky.ground_color as Color).lerp(
 		Color(0.20, 0.23, 0.25, 1.0), storm
 	))
 	_sky_dome.set("starmap_color", _weather_star_color(_base_sky.starmap_color as Color, storm))
 	_sky_dome.set("star_field_color", _weather_star_color(_base_sky.star_field_color as Color, storm))
-	_sky_dome.set("sun_disk_intensity", float(_base_sky.sun_disk_intensity) * (1.0 - cloud_cover))
-	_sky_dome.set("atm_sun_mie_intensity", float(_base_sky.atm_sun_mie_intensity) * (1.0 - cloud_cover))
-	_sky_dome.set("sun_light_energy", float(_base_sky.sun_light_energy) * (1.0 - cloud_cover))
-	_sun.light_specular = float(_base_environment.get("sun_specular", 1.0)) * (1.0 - cloud_cover)
+	# 阴天最先失去的是硬太阳，而不是整体亮度。薄阴已经显著压高光与硬阴影，
+	# 但环境漫射仍明亮；厚云继续增加后，直射光才接近完全消失。
+	var sun_occlusion := smoothstep(0.04, 0.88, cloud_cover)
+	var sun_disk_scale := 1.0 - smoothstep(0.02, 0.62, cloud_cover)
+	var direct_sun_scale := lerpf(1.0, 0.06, sun_occlusion)
+	var specular_scale := lerpf(1.0, 0.025, smoothstep(0.0, 0.68, cloud_cover))
+	var shadow_scale := lerpf(1.0, 0.10, sun_occlusion)
+	_sky_dome.set("sun_disk_intensity", float(_base_sky.sun_disk_intensity) * sun_disk_scale)
+	_sky_dome.set("atm_sun_mie_intensity", float(_base_sky.atm_sun_mie_intensity) * sun_disk_scale)
+	_sky_dome.set("sun_light_energy", float(_base_sky.sun_light_energy) * direct_sun_scale)
+	_sun.light_specular = float(_base_environment.get("sun_specular", 1.0)) * specular_scale
+	_sun.shadow_opacity = float(_base_environment.get("sun_shadow_opacity", 1.0)) * shadow_scale
+	_sun.shadow_blur = lerpf(
+		float(_base_environment.get("sun_shadow_blur", 1.0)), 1.45, sun_occlusion
+	)
 	if _moon != null:
 		_moon.light_volumetric_fog_energy = float(_base_environment.get("moon_scatter", 1.0)) * (1.0 - cloud_cover)
 	# SkyDome 每次时间更新会恢复阴影状态，光能为零使完全阴天不再产生硬日影。
@@ -620,7 +639,7 @@ func _update_environment(delta: float = 0.0) -> void:
 		environment.fog_enabled = fog_strength > 0.001
 		environment.fog_mode = Environment.FOG_MODE_EXPONENTIAL
 		environment.fog_aerial_perspective = 0.0
-		var manual_share := _external_fog_strength / maxf(_external_fog_strength + storm, 0.001)
+		var manual_share := _external_fog_strength / maxf(_external_fog_strength + rain_storm, 0.001)
 		environment.fog_light_color = horizon.lerp(_standalone_fog_color, manual_share)
 		environment.fog_light_energy = 1.0
 		environment.fog_sun_scatter = 0.0
@@ -629,19 +648,24 @@ func _update_environment(delta: float = 0.0) -> void:
 		var fog_distance := lerpf(downpour_fog_end, _standalone_fog_distance, manual_share)
 		environment.fog_density = 4.6 / maxf(fog_distance, 1.0) * pow(fog_strength, 1.6) \
 			* (1.0 + _wind_strength * 0.45)
-		environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR \
-			if cloud_cover > 0.001 else int(_base_environment.ambient_light_source)
+		environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR 			if cloud_cover > 0.001 else int(_base_environment.ambient_light_source)
+		# 阴天仍保留大量漫射天光。薄阴明亮柔和，厚云才降低能量并转成深冷灰，
+		# 避免“天空灰了，但所有材质还像打过蜡”的塑料感。
+		var light_overcast := Color(0.43, 0.49, 0.58).lerp(Color(0.72, 0.76, 0.82), daylight)
+		var deep_overcast := Color(0.27, 0.31, 0.38).lerp(Color(0.47, 0.52, 0.59), daylight)
+		var overcast_ambient := light_overcast.lerp(deep_overcast, storm)
 		environment.ambient_light_color = (_base_environment.ambient_light_color as Color).lerp(
-			Color(0.48, 0.54, 0.64).lerp(Color(0.72, 0.76, 0.82), daylight), cloud_cover
+			overcast_ambient, cloud_cover
 		)
+		var overcast_energy := lerpf(0.38, 0.86, daylight) * lerpf(1.0, 0.70, storm)
 		environment.ambient_light_energy = lerpf(
-			float(_base_environment.ambient_light_energy), lerpf(0.50, 0.95, daylight), cloud_cover
+			float(_base_environment.ambient_light_energy), overcast_energy, cloud_cover
 		)
 		environment.ambient_light_sky_contribution = lerpf(
 			float(_base_environment.ambient_light_sky_contribution), 0.0, cloud_cover
 		)
 		environment.tonemap_exposure = lerpf(
-			float(_base_environment.tonemap_exposure), 0.97, storm
+			float(_base_environment.tonemap_exposure), 0.84, storm
 		)
 		if _sky_world.camera_attributes != null and _base_environment.has("camera_exposure"):
 			_sky_world.camera_attributes.exposure_multiplier = lerpf(
