@@ -144,6 +144,25 @@
           "unit": "米/秒"
         },
         {
+          "key": "flight_jitter_speed",
+          "label": "短促横向修正速度",
+          "value": 0.9,
+          "min": 0,
+          "max": 5,
+          "step": 0.05,
+          "unit": "米/秒",
+          "tip": "蜂类悬停时频繁改变微小修正方向；值过大会影响轨迹可读性。"
+        },
+        {
+          "key": "flight_jitter_vertical",
+          "label": "短促垂直修正速度",
+          "value": 0.45,
+          "min": 0,
+          "max": 3,
+          "step": 0.05,
+          "unit": "米/秒"
+        },
+        {
           "key": "separation_radius",
           "label": "群体避让直径",
           "value": 2,
@@ -389,6 +408,15 @@
           "unit": "度"
         },
         {
+          "key": "dive_body_angle",
+          "label": "俯冲身体前倾",
+          "value": -28,
+          "min": -60,
+          "max": 0,
+          "step": 1,
+          "unit": "度"
+        },
+        {
           "key": "jaw_open_angle",
           "label": "前摇大牙张开角度",
           "value": 45,
@@ -495,16 +523,16 @@
         {
           "key": "wing_frequency",
           "label": "振翅角频率",
-          "value": 45,
+          "value": 120,
           "min": 1,
-          "max": 100,
+          "max": 220,
           "step": 0.1,
           "unit": "弧度/秒"
         },
         {
           "key": "wing_amplitude",
           "label": "前翼振幅",
-          "value": 35,
+          "value": 50,
           "min": 0,
           "max": 80,
           "step": 1,
@@ -513,7 +541,7 @@
         {
           "key": "wing_rear_amplitude",
           "label": "后翼振幅",
-          "value": 30,
+          "value": 44,
           "min": 0,
           "max": 80,
           "step": 1,
@@ -549,11 +577,38 @@
         {
           "key": "bank_angle",
           "label": "盘旋侧倾角度",
-          "value": 18,
+          "value": 22,
           "min": 0,
           "max": 60,
           "step": 1,
           "unit": "度"
+        },
+        {
+          "key": "flight_pitch_angle",
+          "label": "随飞行速度前后倾角",
+          "value": 16,
+          "min": 0,
+          "max": 45,
+          "step": 1,
+          "unit": "度"
+        },
+        {
+          "key": "flight_wobble_angle",
+          "label": "飞行身体不规则摆幅",
+          "value": 6,
+          "min": 0,
+          "max": 20,
+          "step": 0.5,
+          "unit": "度"
+        },
+        {
+          "key": "flight_wobble_frequency",
+          "label": "飞行身体摆动角频率",
+          "value": 8.5,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "弧度/秒"
         },
         {
           "key": "abdomen_frequency",
