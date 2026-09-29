@@ -387,9 +387,11 @@ func _build_hornet_mesh() -> void:
 	mat_crystal.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 
 	var mat_wing := StandardMaterial3D.new()
-	mat_wing.albedo_color = Color(0.7, 0.85, 0.9, 0.4) # 半透明薄翼
+	# 更饱和、更不透明的蓝色薄翼，让晶刺蜂在战斗距离也能读出飞行轮廓。
+	mat_wing.albedo_color = Color(0.16, 0.58, 1.0, 0.72)
 	mat_wing.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat_wing.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat_wing.cull_mode = BaseMaterial3D.CULL_DISABLED
 
 	# --- 1. 胸腔（Thorax）---
 	thorax_node = Node3D.new()
@@ -445,11 +447,13 @@ func _build_hornet_mesh() -> void:
 	jr.rotation_degrees.y = 15.0
 
 	# --- 3. 四翼（Wings）---
+	# 翅膀承担飞行敌人的第一识别特征：前翼更长更宽，后翼略短，
+	# 并向身体两侧展开，避免原版细长薄片在远处几乎消失。
 	wings.clear()
-	_create_wing("WingFL", Vector3(-0.25, 0.25, -0.1), Vector3(0.2, 0.02, 0.9), mat_wing)
-	_create_wing("WingFR", Vector3(0.25, 0.25, -0.1), Vector3(0.2, 0.02, 0.9), mat_wing)
-	_create_wing("WingBL", Vector3(-0.2, 0.22, 0.15), Vector3(0.16, 0.02, 0.65), mat_wing)
-	_create_wing("WingBR", Vector3(0.2, 0.22, 0.15), Vector3(0.16, 0.02, 0.65), mat_wing)
+	_create_wing("WingFL", Vector3(-0.42, 0.25, -0.08), Vector3(0.72, 0.025, 1.2), mat_wing, -18.0)
+	_create_wing("WingFR", Vector3(0.42, 0.25, -0.08), Vector3(0.72, 0.025, 1.2), mat_wing, 18.0)
+	_create_wing("WingBL", Vector3(-0.36, 0.22, 0.22), Vector3(0.55, 0.025, 0.85), mat_wing, -28.0)
+	_create_wing("WingBR", Vector3(0.36, 0.22, 0.22), Vector3(0.55, 0.025, 0.85), mat_wing, 28.0)
 
 	# --- 4. 三段铰接腹腔与晶刺（Abdomen & 3 Needles）---
 	abdomen_segments.clear()
@@ -502,7 +506,9 @@ func _build_hornet_mesh() -> void:
 		_create_leg("L", Vector3(-0.25, -0.2, z_pos), mat_carapace)
 		_create_leg("R", Vector3(0.25, -0.2, z_pos), mat_carapace)
 
-func _create_wing(part_name: String, pos: Vector3, size: Vector3, mat: Material) -> void:
+func _create_wing(
+	part_name: String, pos: Vector3, size: Vector3, mat: Material, yaw_degrees: float = 0.0
+) -> void:
 	var w_node := MeshInstance3D.new()
 	w_node.name = part_name
 	var mesh := BoxMesh.new()
@@ -510,6 +516,7 @@ func _create_wing(part_name: String, pos: Vector3, size: Vector3, mat: Material)
 	w_node.mesh = mesh
 	w_node.material_override = mat
 	w_node.position = pos
+	w_node.rotation_degrees.y = yaw_degrees
 	thorax_node.add_child(w_node)
 	wings.append(w_node)
 
