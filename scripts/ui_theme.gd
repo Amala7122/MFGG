@@ -254,6 +254,44 @@ static func closed(points: PackedVector2Array) -> PackedVector2Array:
 	return out
 
 
+## 中性黑色玻璃。轮廓由调用者决定，本函数只负责统一材质：清晰边缘、
+## 半透明黑色主体和非常克制的内部明暗层次。没有彩色玻璃、厚包边或外发光。
+static func draw_black_glass(ci: CanvasItem, points: PackedVector2Array) -> void:
+	if points.size() < 3:
+		return
+	var shadow := points.duplicate()
+	for i in range(shadow.size()):
+		shadow[i] += Vector2(1.0, 2.0)
+	ci.draw_colored_polygon(shadow, Color(0.0, 0.0, 0.0, 0.18))
+	var min_x := INF
+	var max_x := -INF
+	var min_y := INF
+	var max_y := -INF
+	for point in points:
+		min_x = minf(min_x, point.x)
+		max_x = maxf(max_x, point.x)
+		min_y = minf(min_y, point.y)
+		max_y = maxf(max_y, point.y)
+	var span := maxf(max_y - min_y, 1.0)
+	var colors := PackedColorArray()
+	for point in points:
+		var depth := clampf((point.y - min_y) / span, 0.0, 1.0)
+		colors.append(Color(0.012, 0.013, 0.015, lerpf(0.62, 0.50, depth)))
+	ci.draw_polygon(points, colors)
+	# 宽而淡的内部折射面。它完全收在轮廓里，只改变亮度，不给玻璃染色。
+	var width := maxf(max_x - min_x, 1.0)
+	var inset := minf(3.0, span * 0.12)
+	var reflection := PackedVector2Array([
+		Vector2(min_x + width * 0.08, min_y + inset),
+		Vector2(min_x + width * 0.40, min_y + inset),
+		Vector2(min_x + width * 0.27, max_y - inset),
+		Vector2(min_x + width * 0.02, max_y - inset),
+	])
+	ci.draw_colored_polygon(reflection, Color(1.0, 1.0, 1.0, 0.045))
+	# 这条线不是装饰边框，而是玻璃断面的一丝中性反光；透明度刻意压低。
+	ci.draw_polyline(closed(points), Color(0.88, 0.90, 0.90, 0.11), 0.8, true)
+
+
 ## 切角矩形的八个顶点（左上 / 右上 / 右下 / 左下各切一刀）。
 ## 切角量会被夹到短边的一半，所以极扁的条也能安全调用。
 static func bevel_points(rect: Rect2, bevel: float) -> PackedVector2Array:

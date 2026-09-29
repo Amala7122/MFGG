@@ -1,6 +1,6 @@
 [gd_scene load_steps=13 format=3]
 
-[ext_resource type="Script" path="res://prototypes/combat_lab.gd" id="1_lab"]
+[ext_resource type="Script" path="res://prototypes/combat/combat_lab.gd" id="1_lab"]
 
 [sub_resource type="ProceduralSkyMaterial" id="SkyMaterial"]
 sky_top_color = Color(0.25, 0.39, 0.48, 1)

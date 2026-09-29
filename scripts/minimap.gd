@@ -15,13 +15,13 @@ extends Control
 ##   3. **玩家居中，贴近地形边界时地图停止滚动**。否则采样框会超出贴图范围，
 ##      边缘会出现空白或拉伸。这也是绝大多数游戏的处理方式。
 ##
-## 地形只按高度着色，没有单独标出湖面/道路 —— 它们都被遮罩压成 0 高度，
-## 在这个尺度上本来就和低地难以区分。小地图的职责是"敌人在哪、我在朝哪"，
-## 不是测绘。
+## 地形底图之外再叠加配置中的道路与主要遗迹：玩家看到的是一张微缩地图，
+## 不再是一块只有高低色阶的绿色雷达底。
 
 const TerrainFieldUtil := preload("res://scripts/terrain_field.gd")
 const UiThemeUtil := preload("res://scripts/ui_theme.gd")
 const ConfigUtil := preload("res://scripts/game_config.gd")
+const ArenaUtil := preload("res://scripts/arena.gd")
 
 const TEX_SIZE := 128
 ## 小地图显示的世界半径上限（米）。必须明显小于地形半宽，否则采样框会超出贴图。
@@ -42,11 +42,8 @@ const ENEMY_DIRECTION_MARKER_INSET := ENEMY_DIRECTION_MARKER_SIZE + 1.5
 ## 每秒数千次的分组查询压到固定上限。
 const REFRESH_INTERVAL := 1.0 / 20.0
 
-## 【新增】石板边框的宽度。原先只有一圈 1 像素描边，地形一直铺到控件边缘 ——
-## 于是它看起来像"把一张绿图贴在屏幕上"，而不是一块仪器面板。
-## 现在先铺一块标准面板，地形只画在内缩 FRAME 的内容区里，那 9 像素的
-## 石头边就是它的框，形状语言与武器面板 / 生命面板一致。
-const FRAME := 7.0
+## 地形与黑玻璃断面之间的极窄留白。它只负责收住贴图边缘，不形成外框。
+const FRAME := 1.5
 
 var _terrain_texture: ImageTexture
 var _player: Node3D
@@ -57,6 +54,8 @@ var _extent := 60.0
 var _world_range := 52.0
 var _enemy_direction_limit := 5
 var _refresh_time := 0.0
+var _roads: Array = []
+var _props: Array = []
 
 
 func _ready() -> void:
@@ -77,6 +76,16 @@ func _ready() -> void:
 	_enemy_direction_limit = maxi(
 		ConfigUtil.get_int("ui.minimap_enemy_direction_limit", 5), 1
 	)
+	var arena := ArenaUtil.get_params()
+	var map_value: Variant = arena.get("map", null)
+	if map_value is Dictionary:
+		var map := map_value as Dictionary
+		var roads_value: Variant = map.get("roads", null)
+		var props_value: Variant = map.get("props", null)
+		if roads_value is Array:
+			_roads = (roads_value as Array).duplicate(true)
+		if props_value is Array:
+			_props = (props_value as Array).duplicate(true)
 	_terrain_texture = _build_terrain_texture()
 
 
@@ -104,7 +113,16 @@ func _build_terrain_texture() -> ImageTexture:
 		var z := -_extent + span * (float(iz) + 0.5) / float(TEX_SIZE)
 		for ix in range(TEX_SIZE):
 			var x := -_extent + span * (float(ix) + 0.5) / float(TEX_SIZE)
-			image.set_pixel(ix, iz, _terrain_color(TerrainFieldUtil.height_at(x, z)))
+			var height := TerrainFieldUtil.height_at(x, z)
+			var color := _terrain_color(height)
+			# 等高线只出现在有坡度的地方，平地不会因为高度恰好为 0 而整片变线。
+			var slope := absf(TerrainFieldUtil.height_at(x + 0.7, z) - height) \
+				+ absf(TerrainFieldUtil.height_at(x, z + 0.7) - height)
+			var phase := fposmod(height + 20.0, 0.85)
+			var contour_distance := minf(phase, 0.85 - phase)
+			if slope > 0.025 and contour_distance < 0.045:
+				color = color.darkened(0.14)
+			image.set_pixel(ix, iz, color)
 	return ImageTexture.create_from_image(image)
 
 
@@ -118,8 +136,8 @@ func _terrain_color(height: float) -> Color:
 	var t := clampf(height / 5.0, 0.0, 1.0)
 	# 四档色阶而不是连续渐变：地图也遵循场景的低多边形切面语言。
 	t = floorf(t * 3.999) / 3.0
-	var low := Color(0.08, 0.22, 0.12, 1.0)
-	var high := Color(0.32, 0.48, 0.20, 1.0)
+	var low := Color(0.055, 0.14, 0.085, 1.0)
+	var high := Color(0.22, 0.32, 0.18, 1.0)
 	return low.lerp(high, t)
 
 
@@ -132,10 +150,10 @@ func _content() -> Rect2:
 func _draw() -> void:
 	if _terrain_texture == null or not is_instance_valid(_player):
 		return
-	# 先铺标准面板：它的外圈就是边框，后面的地形只画在内缩后的内容区。
-	UiThemeUtil.draw_plate(
-		self, Rect2(Vector2.ZERO, size), UiThemeUtil.COLOR_HAIRLINE, UiThemeUtil.PLATE_FOREST
-	)
+	# 先铺中性黑玻璃，地形只画在内缩后的内容区。
+	UiThemeUtil.draw_black_glass(self, PackedVector2Array([
+		Vector2.ZERO, Vector2(size.x, 0), Vector2(size.x, size.y), Vector2(0, size.y),
+	]))
 	var content := _content()
 	var span_px := _world_range * 2.0 / (_extent * 2.0) * float(TEX_SIZE)
 	var half := span_px * 0.5
@@ -147,10 +165,82 @@ func _draw() -> void:
 	)
 	var source := Rect2(center - Vector2(half, half), Vector2(span_px, span_px))
 	draw_texture_rect_region(_terrain_texture, content, source)
+	_draw_world_features(source, span_px)
 	_draw_pickups(source, span_px)
 	_draw_enemies(source, span_px)
 	_draw_player(source, span_px)
 	_draw_frame(content)
+
+
+func _draw_world_features(source: Rect2, span_px: float) -> void:
+	for value in _roads:
+		if not (value is Dictionary):
+			continue
+		var road := value as Dictionary
+		var pos := _pair(road.get("pos", []))
+		var road_size := _pair(road.get("size", []))
+		if road_size.x <= 0.0 or road_size.y <= 0.0:
+			continue
+		var edge := float(road.get("edge_width", 0.7))
+		var yaw := float(road.get("yaw", 0.0))
+		# 真实道路很宽；按实宽画到 124px 地图上会像一条棕色墙。地图符号略作收窄，
+		# 庭院仍保留实际占地，兼顾空间判断与清爽度。
+		var display_size := road_size
+		if String(road.get("material", "")) != "court":
+			display_size.x *= 0.58
+		var outer := _map_rect(pos, display_size + Vector2(edge * 1.3, edge * 1.3), yaw, source, span_px)
+		var inner := _map_rect(pos, display_size, yaw, source, span_px)
+		draw_colored_polygon(outer, Color(0.18, 0.25, 0.14, 0.92))
+		draw_colored_polygon(inner, Color(0.50, 0.34, 0.18, 0.88))
+
+	for value in _props:
+		if not (value is Dictionary):
+			continue
+		var prop := value as Dictionary
+		var pos := _pair(prop.get("pos", []))
+		var shape := String(prop.get("shape", ""))
+		if shape == "diamond":
+			var diamond_at := _to_map(Vector3(pos.x, 0, pos.y), source, span_px)
+			if _inside(diamond_at):
+				draw_colored_polygon(PackedVector2Array([
+					diamond_at + Vector2(0, -3), diamond_at + Vector2(3, 0),
+					diamond_at + Vector2(0, 3), diamond_at + Vector2(-3, 0),
+				]), Color(0.72, 0.90, 0.92, 0.92))
+			continue
+		if shape == "cylinder":
+			var point := _to_map(Vector3(pos.x, 0, pos.y), source, span_px)
+			if _inside(point):
+				var radius := float(prop.get("radius", 0.8)) * _content().size.x / (_world_range * 2.0)
+				draw_circle(point, maxf(radius, 1.2), Color(0.48, 0.50, 0.45, 0.78))
+			continue
+		if shape != "box":
+			continue
+		var raw_size: Variant = prop.get("size", [])
+		if not (raw_size is Array) or (raw_size as Array).size() < 3:
+			continue
+		var dimensions := raw_size as Array
+		var footprint := Vector2(float(dimensions[0]), float(dimensions[2]))
+		var yaw := float(prop.get("yaw", 0.0))
+		var polygon := _map_rect(pos, footprint, yaw, source, span_px)
+		draw_colored_polygon(polygon, Color(0.43, 0.45, 0.42, 0.82))
+		draw_polyline(UiThemeUtil.closed(polygon), Color(0.76, 0.77, 0.70, 0.30), 0.7, true)
+
+
+func _pair(value: Variant) -> Vector2:
+	if value is Array and (value as Array).size() >= 2:
+		var pair := value as Array
+		return Vector2(float(pair[0]), float(pair[1]))
+	return Vector2.ZERO
+
+
+func _map_rect(center: Vector2, dimensions: Vector2, yaw: float, source: Rect2, span_px: float) -> PackedVector2Array:
+	var half := dimensions * 0.5
+	var radians := deg_to_rad(yaw)
+	var out := PackedVector2Array()
+	for local in [Vector2(-half.x, -half.y), Vector2(half.x, -half.y), Vector2(half.x, half.y), Vector2(-half.x, half.y)]:
+		var world := center + (local as Vector2).rotated(radians)
+		out.append(_to_map(Vector3(world.x, 0, world.y), source, span_px))
+	return out
 
 
 func _world_to_texture(world: Vector3) -> Vector2:
@@ -299,4 +389,6 @@ func _draw_player(source: Rect2, span_px: float) -> void:
 ## 发丝线不是为了"描边"，是为了把地形和石头框之间那条生硬的接缝盖掉 ——
 ## 否则贴图边缘与面板内圈之间会出现一条色差细缝。
 func _draw_frame(content: Rect2) -> void:
-	draw_rect(content, UiThemeUtil.with_alpha(UiThemeUtil.COLOR_EDGE_LIGHT, 0.30), false, UiThemeUtil.HAIRLINE_WIDTH)
+	draw_rect(content, Color(0.85, 0.89, 0.87, 0.18), false, 0.7)
+	draw_rect(Rect2(size.x * 0.5 - 9, 3, 18, 15), Color(0.02, 0.04, 0.05, 0.65))
+	draw_string(UiThemeUtil.get_font(), Vector2(size.x * 0.5 - 4, 14), "N", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.94, 0.96, 0.93))
