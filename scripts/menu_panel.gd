@@ -104,7 +104,7 @@ func _draw_engraved_frame(rect: Rect2) -> void:
 	var alpha := _reveal * 0.34
 	draw_polyline(
 		UiThemeUtil.closed(UiThemeUtil.bevel_points(frame, UiThemeUtil.BEVEL - 2.0)),
-		UiThemeUtil.with_alpha(accent, alpha), 1.0, true
+		UiThemeUtil.with_alpha(accent, alpha), UiThemeUtil.HAIRLINE_WIDTH, true
 	)
 
 

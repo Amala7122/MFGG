@@ -22,8 +22,9 @@ extends Node3D
 ## 只用 SOURCE_GEOMETRY_GROUPS_WITH_CHILDREN + 组 nav_source 收集源几何，
 ## 所以不入组就对导航烘焙与 Jolt 完全不可见。这是它能存在的全部依据。
 ##
-## 【红线二：绘制调用锁死 2 个】地台一个 ArrayMesh，
-## 地标一个 MultiMesh，就这样。
+## 【红线二：默认绘制调用锁死 2 个】地台一个 ArrayMesh，
+## 地标一个 ArrayMesh。Sky3D 场景例外增加一个云层提交：云和地景需要不同的
+## 受光策略，否则云会像悬在低空的实体，或在夜间仍像白纸。
 ##
 ## 【红线三：稀疏】—— 严禁"小房子 × 40"。宁可只有几个体块，也要让每个体块
 ## 都大到能单独撑起构图。
@@ -38,6 +39,9 @@ const ArenaUtil := preload("res://scripts/arena.gd")
 const LowPolyMeshUtil := preload("res://scripts/lowpoly_mesh.gd")
 ## 地台内圈要读地形高度，才能和地形边缘对齐。
 const TerrainUtil := preload("res://scripts/terrain_field.gd")
+const CloudShader := preload("res://shaders/backdrop_cloud.gdshader")
+const CloudLighting := preload("res://scripts/cloud_lighting.gd")
+const ValleyArt := preload("res://scripts/valley_art.gd")
 
 ## 地台内圈跟随地形高度、向外在这么多米内回落到 y=0。
 ##
@@ -71,6 +75,8 @@ var _land_color := Color(0.16, 0.19, 0.17)
 var _landscape: Dictionary = {}
 ## 地台内圈半径，供 _edge_height 判断"离地形边缘还有多远"。
 var _inner: float = 0.0
+var _cloud_mesh: MeshInstance3D
+var _cloud_time := 0.0
 
 
 func _ready() -> void:
@@ -88,8 +94,53 @@ func _build() -> void:
 	_read_palette(arena)
 	var raw: Variant = arena.get("landscape", null)
 	_landscape = raw as Dictionary if raw is Dictionary else {}
-	add_child(_build_skirt(arena))
-	add_child(_build_landmarks())
+	var sky3d_lighting := _uses_sky3d_lighting()
+	if String(arena.get("_id", "")) == "sanctum":
+		var valley := MeshInstance3D.new()
+		valley.name = "ContinuousValley"
+		valley.mesh = ValleyArt.mountains()
+		valley.material_override = _make_material(false, true)
+		valley.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(valley)
+		_cloud_mesh = _build_clouds()
+		add_child(_cloud_mesh)
+		_update_editor_cloud_tint()
+		return
+	add_child(_build_skirt(arena, sky3d_lighting))
+	if sky3d_lighting:
+		# 远景云独立成第三个提交：保持低模轮廓，但不再当作近处实体受直射光。
+		add_child(_build_landforms(true))
+		_cloud_mesh = _build_clouds()
+		add_child(_cloud_mesh)
+		_update_editor_cloud_tint()
+	else:
+		add_child(_build_landmarks())
+
+
+func _process(delta: float) -> void:
+	if not is_instance_valid(_cloud_mesh):
+		return
+	# 高空云层的慢漂移与地表阵风不同；风静时仍可缓慢移动。
+	_cloud_time += delta
+	_cloud_mesh.rotation.y = _cloud_time * 0.00055
+	var material := _cloud_mesh.material_override as ShaderMaterial
+	if material != null:
+		material.set_shader_parameter("cloud_time", _cloud_time)
+	_update_editor_cloud_tint()
+
+
+func _update_editor_cloud_tint() -> void:
+	# WeatherSystem 只在游戏中运行；编辑器里的程序化预览必须自行跟随 Sky3D。
+	if not Engine.is_editor_hint() or not is_instance_valid(_cloud_mesh):
+		return
+	var scene_root := get_tree().edited_scene_root
+	if scene_root == null:
+		return
+	var sky := scene_root.find_child("Sky3D", true, false)
+	var sun := sky.get_node_or_null("SunLight") as DirectionalLight3D if sky != null else null
+	var material := _cloud_mesh.material_override as ShaderMaterial
+	if material != null:
+		material.set_shader_parameter("cloud_tint", CloudLighting.tint_for_sun(sun))
 
 
 ## 天空与地景基调色。天空色直接决定远景向哪个方向收敛 ——
@@ -109,7 +160,7 @@ func _read_palette(arena: Dictionary) -> void:
 ## 地台：从竞技场边缘铺到几百米外的大切面盘。
 ## 它同时干三件事：消掉矩形切边、托住巨型体量、用逐级变亮变冷的颜色
 ## 把空间纵深画出来。
-func _build_skirt(arena: Dictionary) -> MeshInstance3D:
+func _build_skirt(arena: Dictionary, stylized_lighting: bool = false) -> MeshInstance3D:
 	var extent := float(arena.get("extent", 60.0))
 	# 向主地形内侧压 2m，并把地台略微下沉：接缝被主地形覆盖，但不会共面闪烁。
 	var inner := extent - 2.0
@@ -121,8 +172,9 @@ func _build_skirt(arena: Dictionary) -> MeshInstance3D:
 	var instance := MeshInstance3D.new()
 	instance.name = "BackdropSkirt"
 	instance.mesh = LowPolyMeshUtil.commit(builder)
-	# 外圈只承担远景连续色，不再吃主光形成一圈深浅不一的折面。
-	instance.material_override = _make_material(true)
+	# 旧天空继续使用固定远景色；Sky3D 实验让外圈跟随太阳、月亮与天空环境光，
+	# 但使用包裹漫反射并禁止接收阴影，避免日落时整个外圈坠成黑色。
+	instance.material_override = _make_material(not stylized_lighting, stylized_lighting)
 	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return instance
 
@@ -182,21 +234,53 @@ func _edge_height(x: float, z: float, radius: float) -> float:
 func _build_landmarks() -> MeshInstance3D:
 	var builder := LowPolyMeshUtil.begin()
 	_push_cloud_banks(builder)
+	_push_landforms(builder)
+	return _commit_landmark_mesh(builder, "BackdropLandmarks", false)
+
+
+## Sky3D 路径把云和陆地拆开。远山保留面法线参与受光，低模切面因此会跟随
+## 太阳/月亮方向变化；不接收阴影，远景不会被近景物体切出不合理的大黑块。
+func _build_landforms(stylized_lighting: bool) -> MeshInstance3D:
+	var builder := LowPolyMeshUtil.begin()
+	_push_landforms(builder)
+	return _commit_landmark_mesh(builder, "BackdropLandforms", stylized_lighting)
+
+
+func _build_clouds() -> MeshInstance3D:
+	var builder := LowPolyMeshUtil.begin()
+	_push_cloud_banks(builder)
+	var instance := MeshInstance3D.new()
+	instance.name = "BackdropClouds"
+	instance.mesh = LowPolyMeshUtil.commit(builder)
+	var material := ShaderMaterial.new()
+	material.shader = CloudShader
+	instance.material_override = material
+	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	instance.extra_cull_margin = 12.0
+	return instance
+
+
+func _push_landforms(builder: LowPolyMeshUtil.Builder) -> void:
 	_push_horizon_berms(builder)
 	_push_foothills(builder)
 	_push_ridges(builder)
 	_push_towers(builder)
+
+
+func _commit_landmark_mesh(
+	builder: LowPolyMeshUtil.Builder, node_name: String, stylized_lighting: bool
+) -> MeshInstance3D:
 	var instance := MeshInstance3D.new()
-	instance.name = "BackdropLandmarks"
+	instance.name = node_name
 	instance.mesh = LowPolyMeshUtil.commit(builder)
-	instance.material_override = _make_material(true)
+	instance.material_override = _make_material(not stylized_lighting, stylized_lighting)
 	# 远景已经远在 directional_shadow_max_distance 之外，投影只是白烧性能。
 	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return instance
 
 
 ## 参考画面里天空并不是一张空色纸，而是由横向云带把山峰一层层切开。
-## 云与远山一起烘进背景网格：几十个低多边形云团仍然只占一次绘制提交。
+## 云仍合并成一次绘制提交；Sky3D 路径另用独立材质处理高空色调与移动。
 func _push_cloud_banks(builder: LowPolyMeshUtil.Builder) -> void:
 	var count := maxi(int(_landscape.get("cloud_bank_count", 8)), 0)
 	if count <= 0:
@@ -207,19 +291,20 @@ func _push_cloud_banks(builder: LowPolyMeshUtil.Builder) -> void:
 			+ _rng.randf_range(-0.11, 0.11)
 		var radial := Vector3(cos(angle), 0.0, sin(angle))
 		var tangent := Vector3(-sin(angle), 0.0, cos(angle))
-		var distance := _rng.randf_range(560.0, 700.0)
-		var cluster_center := radial * distance + Vector3(0.0, _rng.randf_range(105.0, 160.0), 0.0)
-		var puff_count := _rng.randi_range(4, 5)
+		# 离开山峰附近的低空：云是远处的大气层，不是放大了的场景道具。
+		var distance := _rng.randf_range(760.0, 880.0)
+		var cluster_center := radial * distance + Vector3(0.0, _rng.randf_range(295.0, 365.0), 0.0)
+		var puff_count := _rng.randi_range(5, 6)
 		for puff_index in range(puff_count):
 			var centered := float(puff_index) - float(puff_count - 1) * 0.5
 			var center := cluster_center \
-				+ tangent * (centered * _rng.randf_range(24.0, 34.0)) \
-				+ radial * _rng.randf_range(-8.0, 8.0) \
-				+ Vector3(0.0, _rng.randf_range(-5.0, 12.0) - absf(centered) * 2.5, 0.0)
+				+ tangent * (centered * _rng.randf_range(60.0, 80.0)) \
+				+ radial * _rng.randf_range(-12.0, 12.0) \
+				+ Vector3(0.0, _rng.randf_range(-15.0, 20.0) - absf(centered) * 3.0, 0.0)
 			var size := Vector3(
-				_rng.randf_range(35.0, 56.0),
-				_rng.randf_range(21.0, 36.0),
-				_rng.randf_range(21.0, 35.0)
+				_rng.randf_range(80.0, 115.0),
+				_rng.randf_range(31.0, 48.0),
+				_rng.randf_range(30.0, 48.0)
 			)
 			_push_cloud_puff(builder, center, size, 10)
 
@@ -400,7 +485,9 @@ func _push_towers(builder: LowPolyMeshUtil.Builder) -> void:
 ## 地台与地标共用的材质。<br>
 ## 顶点色当反照率用：远景的分级色是【烘进顶点】的，运行时代价为零。
 ## cast_shadow 由调用方关掉 —— 远景远在 directional_shadow_max_distance 之外。
-func _make_material(unshaded: bool = false) -> StandardMaterial3D:
+func _make_material(
+	unshaded: bool = false, stylized_lighting: bool = false
+) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.vertex_color_use_as_albedo = true
 	# 【这一行不能省】albedo_color 按 sRGB 转线性，而顶点色默认被当作【线性】
@@ -414,9 +501,25 @@ func _make_material(unshaded: bool = false) -> StandardMaterial3D:
 	# 整圈山脚变成黑墙；远景用无光照材质后，各方向的空气透视关系保持一致。
 	if unshaded:
 		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	elif stylized_lighting:
+		# Lambert Wrap 让背光面仍保留少量主光，配合 Sky3D 的环境光可避免巨大
+		# 远山在太阳贴近地平线时变成黑墙；面法线仍然保留低多边形明暗切面。
+		material.diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT_WRAP
+		material.disable_receive_shadows = true
 	# 高光压到最低：远景不需要镜面反射，只要一块干净的哑光面。
 	material.metallic_specular = 0.05
 	return material
+
+
+## 主场景与实验场景都使用 Sky3D，远景与云分别使用对应的受光策略。
+func _uses_sky3d_lighting() -> bool:
+	if not is_inside_tree():
+		return false
+	var candidate := get_tree().root.find_child("Sky3D", true, false)
+	if not (candidate is WorldEnvironment):
+		return false
+	var attached := candidate.get_script() as Script
+	return attached != null and attached.resource_path == "res://addons/sky_3d/src/Sky3D.gd"
 
 
 func _array_to_color(value: Variant, fallback: Color) -> Color:

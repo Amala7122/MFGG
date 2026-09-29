@@ -15,6 +15,7 @@ extends RefCounted
 ## 资源是可编辑入口，代码提供不会坏的兜底，缺了哪一边游戏都能跑。
 
 const THEME_PATH := "res://theme/game_theme.tres"
+const FONT_PATH := "res://theme/fonts/NotoSansSC-wght.ttf"
 
 # ---------------------------------------------------------------- 主题变体名
 # 控件用这些名字取样式，不要再去各自写死颜色与字号。
@@ -93,6 +94,8 @@ const PLATE_STEEL := 5
 ## 【切角边长】整套 UI 的签名。项目场景是低多边形切面几何，
 ## 界面若用圆角就与场景语言对冲 —— 这里一律切角，不用圆角。
 const BEVEL := 7.0
+## 1152 逻辑画布映射到 1080p 时，1.5 逻辑像素至少约 2 个物理像素。
+const HAIRLINE_WIDTH := 1.5
 ## 进度条这类矮元素的切角（太大在 10px 高的条上会吃掉整段）。
 const BAR_BEVEL := 5.0
 ## 内嵌层相对外板的内缩量。
@@ -105,6 +108,12 @@ const RADIUS := 0
 const PAD_H := 12
 
 static var _cached: Theme
+
+
+## 项目内置、可随游戏分发的中英文字体。手绘 HUD 与普通控件使用同一资源。
+static func get_font() -> Font:
+	var theme := get_theme()
+	return theme.default_font if theme.default_font != null else ThemeDB.fallback_font
 
 
 ## 取全局主题。首次调用时尝试读 theme/game_theme.tres，读不到就用代码构建。
@@ -134,6 +143,11 @@ static func get_theme() -> Theme:
 ## 脚本调用 —— 这样磁盘上的资源与代码默认值从一开始就是一致的。
 static func build_default_theme() -> Theme:
 	var theme := Theme.new()
+	if ResourceLoader.exists(FONT_PATH):
+		var game_font := FontVariation.new()
+		game_font.base_font = load(FONT_PATH) as Font
+		game_font.variation_opentype = {0x77676874: 600}
+		theme.default_font = game_font
 	_add_label_variation(theme, VARIATION_TITLE, 58, COLOR_TITLE)
 	_add_label_variation(theme, VARIATION_BODY, 19, COLOR_BODY)
 	_add_label_variation(theme, VARIATION_DIM, 17, COLOR_DIM)
@@ -172,7 +186,7 @@ static func _add_button_styles(theme: Theme) -> void:
 	var normal := StyleBoxFlat.new()
 	normal.bg_color = Color(0.12, 0.24, 0.13, 0.94)
 	normal.border_color = COLOR_EDGE
-	normal.set_border_width_all(1)
+	normal.set_border_width_all(2)
 	normal.set_corner_radius_all(RADIUS)
 	normal.content_margin_left = PAD_H + 6
 	normal.content_margin_right = PAD_H + 6
@@ -342,7 +356,7 @@ static func draw_plate(
 	ci.draw_colored_polygon(bevel_points(shadow_rect, bevel), with_alpha(COLOR_SHADOW, 0.52))
 	var outer := bevel_points(rect, bevel)
 	ci.draw_colored_polygon(outer, outer_dark)
-	ci.draw_polyline(closed(outer), with_alpha(rim_light, 0.76), 1.0, true)
+	ci.draw_polyline(closed(outer), with_alpha(rim_light, 0.76), HAIRLINE_WIDTH, true)
 
 	# 金属包边不是一根线：先铺青铜中层，再内嵌深色槽，细小面积也能读出厚度。
 	var rim_rect := rect.grow(-1.25)
@@ -371,12 +385,12 @@ static func draw_plate(
 	# 顶亮、底暗与两枚角铆片共同建立“薄而精”的镶边，不增加面板占地。
 	ci.draw_line(
 		p + Vector2(inner_bevel, 0.5), p + Vector2(s.x - inner_bevel, 0.5),
-		with_alpha(rim_light, 0.58), 1.0, true
+		with_alpha(rim_light, 0.58), HAIRLINE_WIDTH, true
 	)
 	ci.draw_line(
 		p + Vector2(maxf(BEVEL - PLATE_INSET, 1.0), s.y - 0.5),
 		p + Vector2(s.x - maxf(BEVEL - PLATE_INSET, 1.0), s.y - 0.5),
-		with_alpha(COLOR_SHADOW, 0.80), 1.0, true
+		with_alpha(COLOR_SHADOW, 0.80), HAIRLINE_WIDTH, true
 	)
 	ci.draw_colored_polygon(PackedVector2Array([
 		rect.position + Vector2(bevel, 0.0), rect.position + Vector2(bevel + 11.0, 0.0),
@@ -386,7 +400,7 @@ static func draw_plate(
 		rect.end - Vector2(bevel, 0.0), rect.end - Vector2(bevel + 11.0, 0.0),
 		rect.end - Vector2(bevel + 6.0, PLATE_INSET), rect.end - Vector2(bevel - 2.0, PLATE_INSET),
 	]), with_alpha(accent, 0.22))
-	ci.draw_polyline(closed(inner), with_alpha(accent, 0.28), 1.0, true)
+	ci.draw_polyline(closed(inner), with_alpha(accent, 0.28), HAIRLINE_WIDTH, true)
 
 	_draw_plate_signature(ci, rect, variant, accent, rim_light, bevel)
 	draw_corner_bevels(ci, rect, accent, rim_light, bevel)
@@ -404,17 +418,17 @@ static func _draw_plate_signature(
 		PLATE_HEALTH:
 			var x := p.x + s.x - bevel - 11.0
 			ci.draw_line(Vector2(x, p.y + 5.0), Vector2(x + 6.0, p.y + 11.0),
-				with_alpha(rim_light, 0.62), 1.2, true)
+				with_alpha(rim_light, 0.62), HAIRLINE_WIDTH, true)
 			ci.draw_line(Vector2(x + 5.0, p.y + 5.0), Vector2(x + 11.0, p.y + 11.0),
-				with_alpha(accent, 0.56), 1.2, true)
+				with_alpha(accent, 0.56), HAIRLINE_WIDTH, true)
 		PLATE_SHIELD:
 			var left := p.x + bevel + 10.0
 			var right := p.x + s.x - bevel - 10.0
 			if right > left:
 				ci.draw_line(Vector2(left, p.y + 2.0), Vector2(right, p.y + 2.0),
-					with_alpha(rim_light, 0.66), 1.0, true)
+					with_alpha(rim_light, 0.66), HAIRLINE_WIDTH, true)
 				ci.draw_line(Vector2(left + 7.0, p.y + s.y - 2.0), Vector2(right, p.y + s.y - 2.0),
-					with_alpha(accent, 0.48), 1.0, true)
+					with_alpha(accent, 0.48), HAIRLINE_WIDTH, true)
 		PLATE_GOLD:
 			var mid_y := p.y + s.y * 0.5
 			ci.draw_colored_polygon(PackedVector2Array([
@@ -435,7 +449,7 @@ static func _draw_plate_signature(
 			ci.draw_line(
 				p + Vector2(bevel + 5.0, s.y - 3.0),
 				p + Vector2(minf(s.x * 0.38, s.x - bevel - 5.0), s.y - 3.0),
-				with_alpha(accent, 0.48), 1.0, true
+				with_alpha(accent, 0.48), HAIRLINE_WIDTH, true
 			)
 
 
@@ -447,8 +461,8 @@ static func draw_divider(ci: CanvasItem, start: Vector2, length: float, accent: 
 	var pts := PackedVector2Array([
 		start,
 		start + Vector2(length, 0.0),
-		start + Vector2(length, 1.0),
-		start + Vector2(0.0, 1.0),
+		start + Vector2(length, HAIRLINE_WIDTH),
+		start + Vector2(0.0, HAIRLINE_WIDTH),
 	])
 	var cols := PackedColorArray([
 		with_alpha(accent, 0.55),
@@ -480,7 +494,7 @@ static func draw_bar(
 
 	var track := bevel_points(rect, b)
 	ci.draw_colored_polygon(track, COLOR_TRACK)
-	ci.draw_polyline(closed(track), Color(1.0, 1.0, 1.0, 0.10), 1.0, true)
+	ci.draw_polyline(closed(track), Color(1.0, 1.0, 1.0, 0.10), HAIRLINE_WIDTH, true)
 
 	var shown := clampf(ratio, 0.0, 1.0)
 
@@ -510,7 +524,7 @@ static func draw_bar(
 				Vector2(fill_rect.position.x + 1.0, fill_rect.position.y + 1.0),
 				Vector2(fill_rect.end.x - 1.0, fill_rect.position.y + 1.0),
 				with_alpha(shade(fill, 0.45), 0.55),
-				1.0, true
+				HAIRLINE_WIDTH, true
 			)
 
 	if segments > 1:
@@ -518,7 +532,7 @@ static func draw_bar(
 		for i in range(1, segments):
 			var x := rect.position.x + rect.size.x * float(i) / float(segments)
 			ci.draw_line(
-				Vector2(x, rect.position.y + 1.0), Vector2(x, rect.end.y - 1.0), tick, 1.0, true
+				Vector2(x, rect.position.y + 1.0), Vector2(x, rect.end.y - 1.0), tick, HAIRLINE_WIDTH, true
 			)
 
 
@@ -535,7 +549,7 @@ static func draw_tag(
 	var rect := Rect2(pos, Vector2(w, float(size) + 6.0))
 	var pts := bevel_points(rect, 4.0)
 	ci.draw_colored_polygon(pts, COLOR_PAPER)
-	ci.draw_polyline(closed(pts), with_alpha(accent, 0.78), 1.0, true)
+	ci.draw_polyline(closed(pts), with_alpha(accent, 0.78), HAIRLINE_WIDTH, true)
 	draw_tracked(
 		ci, font, Vector2(rect.position.x + 8.0, rect.position.y + float(size) + 1.0),
 		text, size, COLOR_INK, tracking

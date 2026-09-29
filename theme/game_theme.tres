@@ -1,15 +1,21 @@
 [gd_resource type="Theme" format=3]
 
+[ext_resource type="FontFile" path="res://theme/fonts/NotoSansSC-wght.ttf" id="1_font"]
+
+[sub_resource type="FontVariation" id="FontVariation_main"]
+base_font = ExtResource("1_font")
+variation_opentype = {2003265652: 600}
+
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_normal"]
 content_margin_left = 18.0
 content_margin_top = 8.0
 content_margin_right = 18.0
 content_margin_bottom = 8.0
 bg_color = Color(0.12, 0.24, 0.13, 0.94)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
 border_color = Color(0.63, 0.48, 0.22, 0.9)
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_focus"]
@@ -31,10 +37,10 @@ content_margin_top = 8.0
 content_margin_right = 18.0
 content_margin_bottom = 8.0
 bg_color = Color(0.94, 0.84, 0.62, 0.98)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
 border_color = Color(0.91, 0.69, 0.29, 0.92)
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_pressed"]
@@ -43,13 +49,14 @@ content_margin_top = 8.0
 content_margin_right = 18.0
 content_margin_bottom = 8.0
 bg_color = Color(0.88, 0.7, 0.39, 1)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
 border_color = Color(0.91, 0.69, 0.29, 0.92)
 
 [resource]
+default_font = SubResource("FontVariation_main")
 Button/colors/font_color = Color(0.96, 0.91, 0.76, 1)
 Button/colors/font_disabled_color = Color(0.74, 0.73, 0.6, 1)
 Button/colors/font_focus_color = Color(0.2, 0.82, 0.84, 1)

@@ -1,0 +1,133 @@
+[gd_scene load_steps=13 format=3]
+
+[ext_resource type="Script" path="res://prototypes/combat_lab.gd" id="1_lab"]
+
+[sub_resource type="ProceduralSkyMaterial" id="SkyMaterial"]
+sky_top_color = Color(0.25, 0.39, 0.48, 1)
+sky_horizon_color = Color(0.77, 0.83, 0.82, 1)
+ground_bottom_color = Color(0.22, 0.25, 0.23, 1)
+ground_horizon_color = Color(0.61, 0.65, 0.60, 1)
+
+[sub_resource type="Sky" id="Sky"]
+sky_material = SubResource("SkyMaterial")
+
+[sub_resource type="Environment" id="Environment"]
+background_mode = 2
+sky = SubResource("Sky")
+ambient_light_source = 3
+ambient_light_color = Color(0.76, 0.82, 0.84, 1)
+ambient_light_energy = 0.65
+reflected_light_source = 2
+tonemap_mode = 2
+
+[sub_resource type="StandardMaterial3D" id="FloorMaterial"]
+albedo_color = Color(0.42, 0.47, 0.43, 1)
+roughness = 0.94
+
+[sub_resource type="BoxMesh" id="FloorMesh"]
+material = SubResource("FloorMaterial")
+size = Vector3(122, 1, 92)
+
+[sub_resource type="BoxShape3D" id="FloorShape"]
+size = Vector3(122, 1, 92)
+
+[sub_resource type="StandardMaterial3D" id="WallMaterial"]
+albedo_color = Color(0.25, 0.31, 0.28, 1)
+roughness = 0.9
+
+[sub_resource type="BoxMesh" id="WallLongMesh"]
+material = SubResource("WallMaterial")
+size = Vector3(122, 5, 1)
+
+[sub_resource type="BoxShape3D" id="WallLongShape"]
+size = Vector3(122, 5, 1)
+
+[sub_resource type="BoxMesh" id="WallSideMesh"]
+material = SubResource("WallMaterial")
+size = Vector3(1, 5, 90)
+
+[sub_resource type="BoxShape3D" id="WallSideShape"]
+size = Vector3(1, 5, 90)
+
+[node name="CombatLab" type="Node3D"]
+script = ExtResource("1_lab")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment")
+
+[node name="KeyLight" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-56, -28, 0)
+light_color = Color(1, 0.94, 0.81, 1)
+light_energy = 1.2
+shadow_enabled = true
+directional_shadow_max_distance = 120.0
+
+[node name="Floor" type="StaticBody3D" parent="."]
+position = Vector3(0, -0.5, 0)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="Floor"]
+mesh = SubResource("FloorMesh")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor"]
+shape = SubResource("FloorShape")
+
+[node name="Walls" type="Node3D" parent="."]
+
+[node name="North" type="StaticBody3D" parent="Walls"]
+position = Vector3(0, 2.5, -45)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/North"]
+mesh = SubResource("WallLongMesh")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Walls/North"]
+shape = SubResource("WallLongShape")
+
+[node name="South" type="StaticBody3D" parent="Walls"]
+position = Vector3(0, 2.5, 45)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/South"]
+mesh = SubResource("WallLongMesh")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Walls/South"]
+shape = SubResource("WallLongShape")
+
+[node name="West" type="StaticBody3D" parent="Walls"]
+position = Vector3(-60.5, 2.5, 0)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/West"]
+mesh = SubResource("WallSideMesh")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Walls/West"]
+shape = SubResource("WallSideShape")
+
+[node name="East" type="StaticBody3D" parent="Walls"]
+position = Vector3(60.5, 2.5, 0)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/East"]
+mesh = SubResource("WallSideMesh")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Walls/East"]
+shape = SubResource("WallSideShape")
+
+[node name="NavigationRegion3D" type="NavigationRegion3D" parent="."]
+
+[node name="Combatants" type="Node3D" parent="."]
+
+[node name="Enemies" type="Node3D" parent="Combatants"]
+
+[node name="OverviewCamera" type="Camera3D" parent="."]
+position = Vector3(0, 46, 61)
+rotation_degrees = Vector3(-36, 0, 0)
+fov = 72.0
+far = 240.0
+current = true

@@ -11,6 +11,11 @@ const ConfigUtil := preload("res://scripts/game_config.gd")
 const PickupUtil := preload("res://scripts/pickup.gd")
 const TargetingUtil := preload("res://scripts/targeting.gd")
 const TerrainFieldUtil := preload("res://scripts/terrain_field.gd")
+const AttackArea := preload("res://scripts/enemy_attack_area.gd")
+var _attack_area := AttackArea.new()
+var _attack_elapsed := -1.0
+var _attack_duration := 0.6
+var _attack_target: CharacterBody3D
 
 ## 重新选目标的间隔（秒）。两人分开跑位时，敌人应该转向更近的那个，
 ## 而不是被 _ready 时选中的那个人永远牵着走。
@@ -56,11 +61,12 @@ var shield_damage_scale := 1.0
 ## （旧 move_speed×7）、硬直 0.42、攻击距离不随体型缩放、无接触伤害、无护甲。
 var _turn_speed := 0.0
 var _turn_speed_rad := 0.0
-## 起步加速度 ÷ move_speed。收脚（刹停）固定取它的 9/7 倍，以复刻旧行为。
+## 起步 / 刹停加速度 ÷ move_speed；可分别调节重量感。
 var _accel_ratio := 7.0
+var _brake_ratio := 9.0
 ## 0~1 霸体：手雷 / 脉冲击退力 × (1 - 本值)。
 var _knockback_resistance := 0.0
-## 贴身每秒伤害，0 = 关。
+## 贴身压力：每秒值折算到可预警挥击（值 × 攻击间隔），0 = 关。
 var _contact_damage := 0.0
 ## 0~1 减伤，对所有伤害来源生效。
 var _armor := 0.0
@@ -86,6 +92,7 @@ var _took_damage := false
 ## 被手雷 / 震地脉冲击退：短时间接管移动形成明确的"被打飞"反馈。
 ## 【重量】霸体：击退力按 (1 - knockback_resistance) 打折，巨型几乎推不动。
 func apply_push(direction: Vector3, force: float) -> void:
+	cancel_attack()
 	var flat := Vector3(direction.x, 0.0, direction.z)
 	if flat.is_zero_approx():
 		flat = Vector3.FORWARD
@@ -124,6 +131,7 @@ func _ready() -> void:
 	_rig.name = "EnemyRig"
 	add_child(_rig)
 	_rig.setup(enemy_model)
+	add_child(_attack_area)
 	# 半径取得比视觉体型略大，避免贴着掩体角"蹭"过去时穿模。
 	_steering.setup(self, 0.6, 1.8)
 	update_health_label()
@@ -180,11 +188,16 @@ func configure_stats(
 	update_health_label()
 
 
+func configure_gait(settings: Dictionary) -> void:
+	_rig.configure_gait(settings)
+
+
 ## 套用「重量」属性。缺项一律取旧行为默认值 —— 所以传空字典就是阶段 2 之前的样子。
 func _apply_weight_attrs(attrs: Dictionary, safe_scale: float) -> void:
 	_turn_speed = maxf(float(attrs.get("turn_speed", 0.0)), 0.0)
 	_turn_speed_rad = deg_to_rad(_turn_speed)
 	_accel_ratio = maxf(float(attrs.get("accel_ratio", 7.0)), 0.1)
+	_brake_ratio = maxf(float(attrs.get("brake_ratio", _accel_ratio * 9.0 / 7.0)), 0.1)
 	_knockback_resistance = clampf(float(attrs.get("knockback_resistance", 0.0)), 0.0, 1.0)
 	_stagger_duration = maxf(float(attrs.get("stagger_duration", _stagger_duration)), 0.0)
 	_contact_damage = maxf(float(attrs.get("contact_damage", 0.0)), 0.0)
@@ -209,27 +222,18 @@ func _face_flat_direction(delta: float, flat_direction: Vector3) -> void:
 
 
 ## 贴身伤害：在攻击距离内按秒结算（用 1 秒的整块是为了跨过玩家 0.42s 的无敌帧）。
-func _tick_contact_damage(delta: float) -> void:
-	if _contact_damage <= 0.0:
-		_contact_timer = 0.0
-		return
-	_contact_timer += delta
-	if _contact_timer < 1.0:
-		return
-	if is_instance_valid(target):
-		target.call(
-			"take_damage", _contact_damage * _contact_timer * _damage_scale, global_position, 1.0
-		)
-	_contact_timer = 0.0
-
-
 func _physics_process(delta: float) -> void:
 	# 掉出场地就先结算 —— 底下那个已经不是"一个还在战斗的敌人"，不该继续跑 AI。
 	if _kill_if_below_world():
 		return
+	var prior_yaw := rotation.y
+	var locomoting := _stagger_time <= 0.0
 	_update_behavior(delta)
+	var actual_velocity := get_real_velocity()
 	_rig.update(
-		delta, Vector2(velocity.x, velocity.z).length(), move_speed, is_on_floor()
+		delta, Vector2(actual_velocity.x, actual_velocity.z).length(), move_speed, is_on_floor(),
+		global_basis.orthonormalized().inverse() * actual_velocity, locomoting,
+		wrapf(rotation.y - prior_yaw, -PI, PI) / maxf(delta, 0.001)
 	)
 
 
@@ -245,6 +249,16 @@ func _update_behavior(delta: float) -> void:
 	if not is_on_floor():
 		velocity.y -= gravity * delta
 	attack_cooldown = maxf(attack_cooldown - delta, 0.0)
+	if _attack_elapsed >= 0.0:
+		if not is_instance_valid(_attack_target) or float(_attack_target.get("health")) <= 0.0:
+			cancel_attack()
+		else:
+			_update_attack(delta)
+			velocity.x = 0.0
+			velocity.z = 0.0
+			move_and_slide()
+			update_feedback(delta)
+			return
 	# 【目标一旦不能打了，立刻重选，不等定时器】
 	# 只靠每 RETARGET_INTERVAL 秒选一次的话，玩家阵亡之后敌人会继续
 	# 对着尸体打上最多 1.5 秒。
@@ -257,16 +271,19 @@ func _update_behavior(delta: float) -> void:
 		# 于是目标倒下之后 target 会一直留着那个尸体，敌人继续捶它。
 		target = TargetingUtil.nearest_player(self) as CharacterBody3D
 	if _stagger_time > 0.0:
+		_steering.direction_to(global_position, Vector3.ZERO, delta, false)
 		_stagger_time = maxf(_stagger_time - delta, 0.0)
 		velocity.x = _stagger_velocity.x
 		velocity.z = _stagger_velocity.z
 		_stagger_velocity = _stagger_velocity.move_toward(Vector3.ZERO, 34.0 * delta)
-		_contact_timer = 0.0
 		move_and_slide()
 		update_feedback(delta)
 		return
 	if not is_instance_valid(target):
-		_contact_timer = 0.0
+		_steering.direction_to(global_position, Vector3.ZERO, delta, false)
+		var brake := move_speed * _brake_ratio * delta
+		velocity.x = move_toward(velocity.x, 0.0, brake)
+		velocity.z = move_toward(velocity.z, 0.0, brake)
 		move_and_slide()
 		return
 
@@ -274,24 +291,24 @@ func _update_behavior(delta: float) -> void:
 	var distance := offset.length()
 	var flat_direction := Vector3(offset.x, 0.0, offset.z).normalized()
 	if distance <= detection_range:
-		_face_flat_direction(delta, flat_direction)
 		if distance > attack_distance:
 			# 用导航路径代替直线追击：场上有 34° 的坡和 28 个掩体，直线追
 			# 会直接撞上去然后贴着滑。导航不可用时自动回退直线。
 			var chase := _steering.direction_to(target.global_position, flat_direction, delta)
+			_face_flat_direction(delta, chase)
 			velocity.x = move_toward(velocity.x, chase.x * move_speed, move_speed * _accel_ratio * delta)
 			velocity.z = move_toward(velocity.z, chase.z * move_speed, move_speed * _accel_ratio * delta)
-			_contact_timer = 0.0
 		else:
-			# 收脚速度固定取起步的 9/7 倍，以复刻旧行为（accel_ratio 默认 7 → 9）。
-			var brake := move_speed * _accel_ratio * 9.0 / 7.0 * delta
+			_face_flat_direction(delta, flat_direction)
+			_steering.direction_to(global_position, Vector3.ZERO, delta, false)
+			var brake := move_speed * _brake_ratio * delta
 			velocity.x = move_toward(velocity.x, 0.0, brake)
 			velocity.z = move_toward(velocity.z, 0.0, brake)
 			if attack_cooldown <= 0.0:
 				attack()
-			_tick_contact_damage(delta)
+			# 贴身压力并入可躲的挥击，不再另开无预警扣血计时器。
 	else:
-		_contact_timer = 0.0
+		_steering.direction_to(global_position, Vector3.ZERO, delta, false)
 		# 未察觉时不要"纯粹站定"。
 		#
 		# 这条分支原本只是减速到 0，于是只要"察觉距离 < 刷怪半径"就会让敌人
@@ -310,21 +327,54 @@ func _update_behavior(delta: float) -> void:
 
 
 func attack() -> void:
-	attack_cooldown = attack_interval
-	_rig.play_attack(attack_interval * 0.85)
-	if is_instance_valid(target) and global_position.distance_to(target.global_position) <= attack_distance + 0.35:
-		# 第二个参数是伤害来源的世界坐标，供 HUD 的受击方向指示器使用 ——
-		# 第三人称看不到背后，没有这个指示玩家完全无法应对背刺。
-		# 第三个参数是护盾倍率：小型快速近战对护盾打折，对生命不打折。
-		target.call(
-			"take_damage", attack_damage * _damage_scale, global_position, shield_damage_scale
-		)
+	if _attack_elapsed >= 0.0 or health <= 0.0 or _stagger_time > 0.0 or not is_instance_valid(target) or float(target.get("health")) <= 0.0:
+		return
+	_attack_target = target
+	_attack_duration = maxf(attack_interval * 0.85, 0.5)
+	attack_cooldown = maxf(attack_interval, _attack_duration)
+	_attack_elapsed = 0.0
+	velocity.x = 0.0
+	velocity.z = 0.0
+	var angle := ConfigUtil.get_float("enemy.melee_attack_angle", 110.0)
+	_attack_area.prepare(global_transform, {"kind": "sector", "radius": attack_distance + 0.35,
+		"angle": angle, "height": 2.0 * scale.y},
+		(attack_damage + _contact_damage * attack_interval) * _damage_scale)
+	_rig.play_attack(_attack_duration)
+
+
+func _update_attack(delta: float) -> void:
+	if _attack_elapsed < 0.0:
+		return
+	_attack_elapsed += delta
+	_attack_area.set_progress(_attack_elapsed / (_attack_duration * EnemyRigUtil.ATTACK_HIT_PROGRESS))
+	# 与 EnemyRig 的抬臂/劈下/回收曲线共用 0.32 / 0.62 命中进度。
+	if _attack_elapsed >= _attack_duration * EnemyRigUtil.ATTACK_LOCK_PROGRESS:
+		_attack_area.lock()
+	if _attack_elapsed >= _attack_duration * EnemyRigUtil.ATTACK_HIT_PROGRESS and _attack_area.strike():
+		if _attack_area.can_hit(_attack_target, _attack_area.global_position):
+			preload("res://scripts/combat_telemetry.gd").hurt_player(_attack_target,
+				_attack_area.damage, _attack_area.global_position, shield_damage_scale,
+				preload("res://scripts/combat_telemetry.gd").source_info(self, "近战攻击"))
+		_attack_area.recover()
+	if _attack_elapsed >= _attack_duration:
+		cancel_attack()
+
+
+func cancel_attack() -> void:
+	_attack_elapsed = -1.0
+	_attack_target = null
+	_attack_area.cancel()
+	_rig.cancel_attack()
 
 
 func take_damage(amount: float) -> void:
+	if health <= 0.0 or is_queued_for_deletion():
+		return
+	var before := health
 	_took_damage = true
 	# 【重量】护甲：对所有伤害来源减伤（含手雷 / 脉冲的爆炸结算）。
 	health -= amount * (1.0 - _armor)
+	preload("res://scripts/combat_telemetry.gd").enemy_damaged(self, before)
 	if health <= 0.0:
 		die()
 		return
@@ -335,6 +385,8 @@ func take_damage(amount: float) -> void:
 
 
 func die() -> void:
+	cancel_attack()
+	set_physics_process(false)
 	_credit_killer()
 	# 掉落表在配置里（drops 段）：总概率与各类型权重都可调，不写死。
 	var drop := PickupUtil.roll_drop("melee")
@@ -364,6 +416,7 @@ func _kill_if_below_world() -> bool:
 	if global_position.y >= expected_ground - _fall_kill_depth:
 		return false
 	health = 0.0
+	cancel_attack()
 	# 【一次性结算】queue_free() 要到帧末才真正摘掉节点，这中间主循环若再次进来
 	#（同一帧被多处调用就会发生），没有这一句就会按调用次数重复记账 ——
 	# 掉一次被记成 N 次击杀。停掉主循环才是"之后不再需要它"的正解。

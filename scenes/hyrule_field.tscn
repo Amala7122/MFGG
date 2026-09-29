@@ -15,32 +15,7 @@
 [ext_resource type="Script" uid="uid://b8tv5aogle5bh" path="res://scripts/enemy_spawner.gd" id="14_enemy_spawner"]
 [ext_resource type="Script" uid="uid://bloban6gwlou8" path="res://scripts/editor_world_preview.gd" id="16_preview"]
 [ext_resource type="Script" uid="uid://c00g3qsxniqas" path="res://scripts/grass_field.gd" id="17_grass"]
-
-[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_world"]
-sky_top_color = Color(0.22, 0.45, 0.74, 1)
-sky_horizon_color = Color(0.76, 0.87, 0.96, 1)
-ground_bottom_color = Color(0.18, 0.31, 0.17, 1)
-ground_horizon_color = Color(0.52, 0.68, 0.46, 1)
-sun_angle_max = 18.0
-sun_curve = 0.12
-
-[sub_resource type="Sky" id="Sky_world"]
-sky_material = SubResource("ProceduralSkyMaterial_world")
-
-[sub_resource type="Environment" id="Environment_world"]
-background_mode = 2
-sky = SubResource("Sky_world")
-ambient_light_source = 3
-ambient_light_color = Color(0.68, 0.8, 0.92, 1)
-ambient_light_energy = 0.78
-reflected_light_source = 2
-tonemap_mode = 2
-glow_enabled = true
-fog_enabled = true
-fog_light_color = Color(0.54, 0.68, 0.8, 1)
-fog_light_energy = 0.58
-fog_density = 0.002
-fog_sky_affect = 0.1
+[ext_resource type="PackedScene" path="res://scenes/weather_environment.tscn" id="18_weather_environment"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_path"]
 albedo_color = Color(0.19, 0.18, 0.155, 1)
@@ -103,22 +78,48 @@ height = 0.58
 [node name="HyruleField" type="Node3D" unique_id=20188834]
 script = ExtResource("16_preview")
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1502289054]
-environment = SubResource("Environment_world")
+[node name="WeatherEnvironment" parent="." unique_id=1293549010 instance=ExtResource("18_weather_environment")]
 
-[node name="Sun" type="DirectionalLight3D" parent="." unique_id=988917742]
-transform = Transform3D(0.7960838, 0.4664407, -0.3855952, 0, 0.6371511, 0.7707389, 0.6051864, -0.6135728, 0.5072257, 0, 0, 0)
-light_color = Color(1, 0.89, 0.7, 1)
-light_energy = 1.22
+[node name="Sky3D" parent="WeatherEnvironment" index="0" unique_id=1502289054]
+current_time = 21.33
+tonemap_exposure = 0.94
+sun_shadow_opacity = 0.68
+sky_contribution = 0.655
+ambient_energy = 1.42
+
+[node name="SunLight" parent="WeatherEnvironment/Sky3D" index="0" unique_id=1669123254]
+transform = Transform3D(-0.5622058, -0.5643558, -0.6045057, 0, 0.73096454, -0.6824155, 0.82699734, -0.38365793, -0.4109525, -0.6045057, -0.6824155, -0.4109525)
+light_color = Color(1, 0.61, 0.38, 1)
+light_energy = 0.0
+shadow_enabled = false
+shadow_opacity = 0.68
+
+[node name="MoonLight" parent="WeatherEnvironment/Sky3D" index="1" unique_id=487357045]
+transform = Transform3D(0, -0.99508, -0.09907452, 0.75434124, -0.06504069, 0.65325266, -0.6564825, -0.074736, 0.7506299, -0.09907452, 0.65325266, 0.7506299)
+light_energy = 0.32088274
 shadow_enabled = true
-shadow_bias = 0.1
-shadow_normal_bias = 0.15
-directional_shadow_max_distance = 70.0
 
-[node name="FillLight" type="DirectionalLight3D" parent="." unique_id=2003871144]
-transform = Transform3D(-0.58850116, 0.489291, 0.64363086, 0, 0.7960838, -0.6051864, -0.80849636, -0.3561529, -0.46849623, 0, 0, 0)
-light_color = Color(0.55, 0.67, 0.82, 1)
-light_energy = 0.5
+[node name="SkyDome" parent="WeatherEnvironment/Sky3D" index="2" unique_id=2009320672]
+sun_azimuth = -5.3094397
+sun_altitude = -2.3218584
+moon_azimuth = -3.2728226
+moon_altitude = -0.85892385
+atm_sun_intensity = 30.0
+fog_density = 0.00861079
+fog_mie_depth = 0.0071012676
+
+[node name="TimeOfDay" parent="WeatherEnvironment/Sky3D" index="3" unique_id=313974012]
+current_time = 21.33
+
+[node name="WeatherSystem" parent="WeatherEnvironment" index="2" unique_id=714604810]
+rain_preset = 4
+
+[node name="FillLight" parent="WeatherEnvironment" index="3" unique_id=2003871144]
+light_color = Color(0.3728, 0.4696, 0.69600004, 1)
+light_energy = 0.135296
+
+[node name="NightSkyLight" parent="WeatherEnvironment" index="4" unique_id=1120473704]
+light_energy = 0.9936892
 
 [node name="Ground" type="StaticBody3D" parent="." unique_id=271098666]
 visible = false
@@ -319,7 +320,7 @@ transform = Transform3D(0.85, 0, 0, 0, 0.85, 0, 0, 0, 0.85, 18, 0, 33)
 [node name="Tree22" parent="Forest" unique_id=1497541844 instance=ExtResource("2_tree")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 31, 0, 36)
 
-[node name="Grass" type="Node3D" parent="."]
+[node name="Grass" type="Node3D" parent="." unique_id=2056372697]
 visible = false
 script = ExtResource("17_grass")
 
@@ -579,3 +580,5 @@ enemy_move_speed = 6.2
 enemy_damage = 12.0
 enemy_title = "猎杀幼体"
 armor_color = Color(0.62, 0.16, 0.08, 1)
+
+[editable path="WeatherEnvironment"]

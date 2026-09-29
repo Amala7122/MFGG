@@ -370,6 +370,7 @@ func update(delta: float, trigger_held: bool, aiming: bool, movement_ratio: floa
 	_trigger_last = trigger_held
 
 	if _reload_timer > 0.0:
+		preload("res://scripts/combat_telemetry.gd").resource(_host, "primary", "reload_time", minf(delta, _reload_timer))
 		_reload_timer = maxf(_reload_timer - delta, 0.0)
 		if _reload_timer <= 0.0:
 			_finish_reload()
@@ -436,6 +437,8 @@ func fire() -> void:
 	if _aiming:
 		if _sniper_ammo <= 0 or _sniper_reload_timer > 0.0:
 			return
+	set_meta(&"combat_context", preload("res://scripts/combat_telemetry.gd").begin_attack(_host, "sniper" if _aiming else "primary"))
+	if _aiming:
 		_fire_sniper(base_direction)
 		_sniper_ammo -= 1
 		sniper_ammo_changed.emit(_sniper_ammo, get_sniper_capacity(), _sniper_reload_timer)
@@ -474,13 +477,7 @@ func _fire_rapid(base_direction: Vector3) -> void:
 		# 敌人弹幕仍然是飞行弹丸 —— 这个不对称是刻意保留的：
 		# 玩家拿到即时反馈，敌人留下可读可躲的预警。
 		_fire_hitscan(direction, false)
-	var fire_rate_bonus := minf(
-		1.0 + float(_weapon_level - 1) * float(_curve_flat("fire_rate_bonus_per_level", 0.09)),
-		float(_curve_flat("fire_rate_bonus_max", 1.5))
-	)
-	_fire_cooldown = 1.0 / maxf(
-		shots_per_second * fire_rate_bonus * get_fire_rate_multiplier(), 0.1
-	)
+	_fire_cooldown = 1.0 / get_primary_shots_per_second()
 	var bloom_growth := float(_curve_flat("bloom_growth_per_level", 0.05))
 	_bloom = minf(_bloom + bloom_per_shot * (1.0 + float(_weapon_level) * bloom_growth), max_bloom_degrees)
 
@@ -560,7 +557,7 @@ func _fire_hitscan(direction: Vector3, sniper: bool) -> void:
 	# 穿透时逐个目标依次结算。
 	for entry in hits:
 		var killed := BallisticsUtil.apply_damage(
-			entry["collider"], entry["amount"], entry["position"], entry["headshot"]
+			entry["collider"], entry["amount"], entry["position"], entry["headshot"], get_meta(&"combat_context", {})
 		)
 		BallisticsUtil.play_hit_feedback_flagged(
 			scene, entry["position"], entry["normal"], entry["is_enemy"],
@@ -700,6 +697,8 @@ func add_ammo(primary: int, sniper: int) -> int:
 	_ammo += taken_primary
 	_reserve += taken_spare
 	_sniper_ammo += taken_sniper
+	preload("res://scripts/combat_telemetry.gd").resource(_host, "primary", "pickup", taken_primary + taken_spare)
+	preload("res://scripts/combat_telemetry.gd").resource(_host, "sniper", "pickup", taken_sniper)
 	return taken_primary + taken_spare + taken_sniper
 
 
@@ -728,6 +727,7 @@ func is_sniper_reloading() -> bool:
 func _update_sniper_reload(delta: float) -> void:
 	var capacity := get_sniper_capacity()
 	if _sniper_reload_timer > 0.0:
+		preload("res://scripts/combat_telemetry.gd").resource(_host, "sniper", "reload_time", minf(delta, _sniper_reload_timer))
 		_sniper_reload_timer = maxf(_sniper_reload_timer - delta, 0.0)
 		if _sniper_reload_timer <= 0.0:
 			if _reserve_enabled:
@@ -739,6 +739,7 @@ func _update_sniper_reload(delta: float) -> void:
 		sniper_ammo_changed.emit(_sniper_ammo, capacity, _sniper_reload_timer)
 	elif _sniper_ammo <= 0 and ((not _reserve_enabled) or _sniper_reserve > 0):
 		_sniper_reload_timer = sniper_reload_duration
+		preload("res://scripts/combat_telemetry.gd").resource(_host, "sniper", "reload")
 		sniper_ammo_changed.emit(_sniper_ammo, capacity, _sniper_reload_timer)
 
 
@@ -749,6 +750,7 @@ func start_reload() -> void:
 		var sniper_can_reload := (not _reserve_enabled) or _sniper_reserve > 0
 		if _sniper_reload_timer <= 0.0 and _sniper_ammo < sniper_capacity and sniper_can_reload:
 			_sniper_reload_timer = sniper_reload_duration
+			preload("res://scripts/combat_telemetry.gd").resource(_host, "sniper", "reload")
 			sniper_ammo_changed.emit(_sniper_ammo, sniper_capacity, _sniper_reload_timer)
 		return
 	# 【弹匣满了不让换】—— 换弹本来就是把弹匣补到容量，满了再换是白白停一下。
@@ -759,6 +761,7 @@ func start_reload() -> void:
 	# 而备弹只能靠子弹包补 —— 一旦包捡不到，玩家就彻底失去攻击手段。
 	# 那是无解局面，不是难度。现在换弹永远成立，缺的只是"能一口气补多少"。
 	_reload_timer = get_reload_duration()
+	preload("res://scripts/combat_telemetry.gd").resource(_host, "primary", "reload")
 
 
 func _finish_reload() -> void:
@@ -786,6 +789,30 @@ func _finish_reload() -> void:
 
 func get_level() -> int:
 	return _weapon_level
+
+
+func get_primary_shots_per_second() -> float:
+	var bonus := minf(
+		1.0 + float(_weapon_level - 1) * float(_curve_flat("fire_rate_bonus_per_level", 0.09)),
+		float(_curve_flat("fire_rate_bonus_max", 1.5)))
+	return maxf(shots_per_second * bonus * get_fire_rate_multiplier(), 0.1)
+
+
+## 与实际开火共用数值入口，测试界面不复制另一套成长曲线。
+func get_combat_snapshot() -> Dictionary:
+	return {
+		"level": _weapon_level, "label": get_weapon_label(), "sniper_label": get_sniper_label(),
+		"damage": get_bullet_damage(), "pellets": get_pellet_count(), "rate": get_primary_shots_per_second(),
+		"sniper_damage": BallisticsUtil.sniper_damage(_weapon_level),
+		"sniper_rate": maxf(sniper_shots_per_second * get_fire_rate_multiplier(true), 0.05),
+		"headshot_multiplier": sniper_headshot_multiplier,
+		"damage_stacks": get_upgrade_stacks("damage"), "rate_stacks": get_upgrade_stacks("fire_rate"),
+		"magazine_stacks": get_upgrade_stacks("magazine"),
+		"damage_bonus": (get_damage_multiplier() - 1.0) * 100.0, "rate_bonus": (get_fire_rate_multiplier() - 1.0) * 100.0,
+		"ammo": _ammo, "capacity": get_capacity(), "reserve": get_reserve(),
+		"sniper_ammo": _sniper_ammo, "sniper_capacity": get_sniper_capacity(), "sniper_reserve": get_sniper_reserve(),
+		"reload": _reload_timer, "sniper_reload": _sniper_reload_timer,
+	}
 
 
 ## 读备用弹夹参数。放在配置里而不是 @export：它与"子弹包掉落"是配套的一对，

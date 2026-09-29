@@ -16,6 +16,9 @@ extends Node
 
 const ATTACK_RAISE_ANGLE := 3.9
 const ATTACK_STRIKE_ANGLE := 1.15
+const ATTACK_LOCK_PROGRESS := 0.32
+const ATTACK_HIT_PROGRESS := 0.62
+const ATTACK_RELAX_PROGRESS := 0.85
 
 @export_category("步态")
 @export var walk_cadence := 6.2
@@ -29,6 +32,13 @@ const ATTACK_STRIKE_ANGLE := 1.15
 @export_range(-25.0, 0.0) var move_lean_degrees := -7.0
 @export var bob_height := 0.045
 @export var pose_smoothing := 12.0
+@export var idle_lean_degrees := 0.0
+@export var crouch_height := 0.0
+@export var hip_sway := 0.06
+@export var shoulder_sway := 0.03
+@export var weight_shift := 0.0
+@export var turn_lag := 0.06
+@export var motion_response := 8.0
 
 @export_category("手臂")
 @export_range(0.0, 1.2) var arm_swing := 0.4
@@ -57,6 +67,22 @@ var _motion_weight := 0.0
 var _flinch := 0.0
 var _attack_time := 0.0
 var _attack_duration := 0.0
+var _chest_impact := Vector3.ZERO
+var _head_impact := Vector3.ZERO
+var _travel := Vector2(0, 1)
+
+const GAIT_FIELDS := [
+	"walk_cadence", "run_cadence", "walk_swing", "run_swing", "knee_base_bend",
+	"knee_swing_bend", "move_lean_degrees", "idle_lean_degrees", "bob_height",
+	"pose_smoothing", "arm_swing", "crouch_height", "hip_sway", "shoulder_sway",
+	"weight_shift", "turn_lag", "motion_response",
+]
+
+
+func configure_gait(settings: Dictionary) -> void:
+	for field in GAIT_FIELDS:
+		if settings.has(field):
+			set(field, float(settings[field]))
 
 
 func setup(model: Node3D) -> void:
@@ -96,11 +122,27 @@ func is_attacking() -> bool:
 	return _attack_duration > 0.0
 
 
-func update(delta: float, horizontal_speed: float, max_speed: float, grounded: bool) -> void:
+func cancel_attack() -> void:
+	_attack_time = 0.0
+	_attack_duration = 0.0
+
+
+func update(
+	delta: float, horizontal_speed: float, max_speed: float, grounded: bool,
+	local_velocity := Vector3.ZERO, locomoting := true, turn_rate := 0.0
+) -> void:
 	if not _model or not _chest:
 		return
-	var moving := horizontal_speed > 0.15
-	_motion_weight = move_toward(_motion_weight, 1.0 if moving else 0.0, delta * 6.0)
+	# 先还原基础姿态再平滑，受击偏移不能成为下一帧的基础继续累积。
+	_chest.rotation -= _chest_impact
+	if _head:
+		_head.rotation -= _head_impact
+	_chest_impact = Vector3.ZERO
+	_head_impact = Vector3.ZERO
+	var moving := horizontal_speed > 0.15 and grounded and locomoting
+	var speed_ratio := clampf(horizontal_speed / maxf(max_speed, 0.01), 0.0, 1.6)
+	var motion_target := minf(speed_ratio * 2.0, 1.0) if moving else 0.0
+	_motion_weight = move_toward(_motion_weight, motion_target, delta * motion_response)
 	_flinch = maxf(_flinch - delta * 2.6, 0.0)
 	var attack_progress := 0.0
 	if _attack_duration > 0.0:
@@ -108,17 +150,20 @@ func update(delta: float, horizontal_speed: float, max_speed: float, grounded: b
 		attack_progress = clampf(1.0 - _attack_time / _attack_duration, 0.0, 1.0)
 		if _attack_time <= 0.0:
 			_attack_duration = 0.0
-	var settle := minf(delta * pose_smoothing, 1.0)
+	var settle := 1.0 - exp(-delta * pose_smoothing)
 
 	# ---- 步态 ----
-	var speed_ratio := clampf(horizontal_speed / maxf(max_speed, 0.01), 0.0, 1.6)
-	var run_blend := clampf((speed_ratio - 1.0) / 0.6, 0.0, 1.0)
+	var run_blend := clampf((speed_ratio - 0.55) / 0.45, 0.0, 1.0)
 	var cadence := lerpf(walk_cadence, run_cadence, run_blend)
 	var swing_amount := lerpf(walk_swing, run_swing, run_blend)
-	if moving and grounded:
-		_phase = fmod(_phase + delta * cadence, TAU)
-	else:
-		_phase = lerp_angle(_phase, 0.0, minf(delta * 7.0, 1.0))
+	if moving:
+		# 真实速度、体型和步幅共同决定步频；被挡住、腾空、击退都不原地跑步。
+		var body_scale := maxf(_model.global_basis.get_scale().y, 0.1)
+		cadence *= speed_ratio * sqrt(0.55 / maxf(swing_amount, 0.15)) / pow(body_scale, 0.35)
+		_phase = fmod(_phase + delta * minf(cadence, 18.0), TAU)
+		var travel := Vector2(local_velocity.x, -local_velocity.z)
+		if not travel.is_zero_approx():
+			_travel = _travel.lerp(travel.normalized(), settle)
 	var swing := sin(_phase) * swing_amount * _motion_weight
 	var bob := absf(sin(_phase)) * bob_height * _motion_weight
 
@@ -126,25 +171,28 @@ func update(delta: float, horizontal_speed: float, max_speed: float, grounded: b
 		_pose_leg(index, swing if index == 0 else -swing, settle)
 
 	# ---- 躯干 ----
-	var chest_pitch := deg_to_rad(move_lean_degrees) * run_blend * _motion_weight
-	var chest_yaw := 0.0
+	var chest_pitch := deg_to_rad(lerpf(idle_lean_degrees, move_lean_degrees, _motion_weight))
+	var turn_offset := clampf(-turn_rate * turn_lag, -0.3, 0.3) * _motion_weight
+	var chest_yaw := -sin(_phase) * shoulder_sway * _motion_weight + turn_offset
 	if _attack_duration > 0.0:
-		chest_yaw = _attack_twist(attack_progress)
-	_apply(_chest, Vector3(chest_pitch, chest_yaw, sin(_phase) * 0.03 * _motion_weight), settle)
-	_apply(_head, Vector3(0.0, -chest_yaw * 0.6, 0.0), settle)
+		chest_yaw += _attack_twist(attack_progress)
+	_apply(_chest, Vector3(chest_pitch, chest_yaw, -sin(_phase) * shoulder_sway * _motion_weight - turn_offset * 0.25), settle)
+	_apply(_head, Vector3(-chest_pitch * 0.35, -chest_yaw * 0.6, 0.0), settle)
 	if _hips:
-		_apply(_hips, Vector3(0.0, sin(_phase) * 0.06 * _motion_weight, 0.0), settle)
-	_model.position.y = lerp(_model.position.y, _rest_position.y + bob, settle)
+		_apply(_hips, Vector3(0.0, sin(_phase) * hip_sway * _motion_weight, sin(_phase) * hip_sway * 0.4 * _motion_weight), settle)
+	_model.position.y = lerp(_model.position.y, _rest_position.y - crouch_height + bob, settle)
+	_model.position.x = lerp(_model.position.x, _rest_position.x + sin(_phase) * weight_shift * _motion_weight, settle)
 
 	# 受击反馈必须"叠加"而不是当作平滑插值的目标：只有零点几秒的冲击
 	# 经 pose_smoothing 抹平后只剩几度，等于看不见。这里在姿态解算之后
 	# 直接叠加偏移，并用平方衰减让它前重后轻、够脆。
 	if _flinch > 0.0:
 		var impact := _flinch * _flinch
-		_chest.rotation.x += 0.44 * impact
-		_chest.rotation.z += sin(_flinch * 30.0) * 0.11 * impact
+		_chest_impact = Vector3(0.44 * impact, 0.0, sin(_flinch * 30.0) * 0.11 * impact)
+		_chest.rotation += _chest_impact
 		if _head:
-			_head.rotation.x += 0.32 * impact
+			_head_impact = Vector3(0.32 * impact, 0.0, 0.0)
+			_head.rotation += _head_impact
 		# 整身被向后推一点（敌人正面是 -Z，所以后退方向是 +Z）
 		_model.position.z = _rest_position.z + 0.1 * impact
 	elif not is_zero_approx(_model.position.z - _rest_position.z):
@@ -159,10 +207,12 @@ func _pose_leg(index: int, hip_angle: float, settle: float) -> void:
 	var foot := _feet[index]
 	if not hip or not knee or not foot:
 		return
-	_apply(hip, Vector3(hip_angle, 0.0, 0.0), settle)
+	var forward_angle := hip_angle * _travel.y
+	var side_angle := hip_angle * _travel.x
+	_apply(hip, Vector3(forward_angle, 0.0, side_angle), settle)
 	var bend := knee_base_bend + knee_swing_bend * maxf(hip_angle, 0.0)
 	_apply(knee, Vector3(bend, 0.0, 0.0), settle)
-	_apply(foot, Vector3(-(hip_angle + bend) * 0.7, 0.0, 0.0), settle)
+	_apply(foot, Vector3(-(forward_angle + bend) * 0.7, 0.0, -side_angle * 0.7), settle)
 
 
 func _pose_arms(swing: float, attack_progress: float, delta: float) -> void:
@@ -191,23 +241,23 @@ func _pose_arms(swing: float, attack_progress: float, delta: float) -> void:
 
 ## 挥砍的手臂角度：先抬起蓄力，再快速劈下，最后收回。
 func _attack_arm_angle(progress: float) -> float:
-	if progress < 0.32:
-		return lerpf(0.0, ATTACK_RAISE_ANGLE, ease(progress / 0.32, 0.5))
-	if progress < 0.62:
-		return lerpf(ATTACK_RAISE_ANGLE, ATTACK_STRIKE_ANGLE, ease((progress - 0.32) / 0.3, 2.6))
-	if progress < 0.85:
-		return lerpf(ATTACK_STRIKE_ANGLE, 0.0, (progress - 0.62) / 0.23)
+	if progress < ATTACK_LOCK_PROGRESS:
+		return lerpf(0.0, ATTACK_RAISE_ANGLE, ease(progress / ATTACK_LOCK_PROGRESS, 0.5))
+	if progress < ATTACK_HIT_PROGRESS:
+		return lerpf(ATTACK_RAISE_ANGLE, ATTACK_STRIKE_ANGLE, ease((progress - ATTACK_LOCK_PROGRESS) / (ATTACK_HIT_PROGRESS - ATTACK_LOCK_PROGRESS), 2.6))
+	if progress < ATTACK_RELAX_PROGRESS:
+		return lerpf(ATTACK_STRIKE_ANGLE, 0.0, (progress - ATTACK_HIT_PROGRESS) / (ATTACK_RELAX_PROGRESS - ATTACK_HIT_PROGRESS))
 	return 0.0
 
 
 ## 挥砍时躯干的反向拧腰，给动作带重量。
 func _attack_twist(progress: float) -> float:
-	if progress < 0.32:
-		return lerpf(0.0, 0.42, progress / 0.32)
-	if progress < 0.62:
-		return lerpf(0.42, -0.5, (progress - 0.32) / 0.3)
-	if progress < 0.85:
-		return lerpf(-0.5, 0.0, (progress - 0.62) / 0.23)
+	if progress < ATTACK_LOCK_PROGRESS:
+		return lerpf(0.0, 0.42, progress / ATTACK_LOCK_PROGRESS)
+	if progress < ATTACK_HIT_PROGRESS:
+		return lerpf(0.42, -0.5, (progress - ATTACK_LOCK_PROGRESS) / (ATTACK_HIT_PROGRESS - ATTACK_LOCK_PROGRESS))
+	if progress < ATTACK_RELAX_PROGRESS:
+		return lerpf(-0.5, 0.0, (progress - ATTACK_HIT_PROGRESS) / (ATTACK_RELAX_PROGRESS - ATTACK_HIT_PROGRESS))
 	return 0.0
 
 

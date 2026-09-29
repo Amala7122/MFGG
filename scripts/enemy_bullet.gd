@@ -38,6 +38,8 @@ func setup(
 	direction = new_direction.normalized()
 	shooter = source
 	fired_by_player = source.is_in_group("player")
+	# 池化时覆盖来源快照；发射者死亡后弹丸仍能正确归属。
+	set_meta(&"combat_source", preload("res://scripts/combat_telemetry.gd").source_info(source, "弹幕"))
 	damage = new_damage
 	speed = new_speed
 	turn_rate = new_turn_rate
@@ -95,7 +97,8 @@ func _physics_process(delta: float) -> void:
 			if hit_player:
 				# 玩家额外接收一个"伤害来源坐标"，供 HUD 画受击方向指示。
 				# 敌人版本没有这个参数，所以必须分开调用，不能统一传两个参数。
-				collider.call("take_damage", damage, global_position)
+				preload("res://scripts/combat_telemetry.gd").hurt_player(collider_node,
+					damage, global_position, 1.0, get_meta(&"combat_source", {}))
 			else:
 				collider.call("take_damage", damage)
 		_spawn_hit_feedback(hit, valid_target and hit_player)

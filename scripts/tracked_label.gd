@@ -60,7 +60,7 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	# _font 在属性 setter 跑的时候还是 null（那些 setter 往往在 add_child 之前被调用），
 	# 所以那一刻算出来的最小尺寸是 0。拿到字体后必须重算一次，否则控件被排成 0 宽。
-	_font = ThemeDB.fallback_font
+	_font = UiThemeUtil.get_font()
 	update_minimum_size()
 
 

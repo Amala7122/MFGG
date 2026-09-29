@@ -25,6 +25,7 @@ const TerrainUtil := preload("res://scripts/terrain_field.gd")
 const LowPolyMeshUtil := preload("res://scripts/lowpoly_mesh.gd")
 const TREE_SCENE := preload("res://scenes/stylized_tree.tscn")
 const PINE_SCENE := preload("res://scenes/stylized_pine.tscn")
+const ValleyArt := preload("res://scripts/valley_art.gd")
 
 ## legacy 节点名：hyrule_field.tscn 里那几组写死的地面内容。
 const LEGACY_NODES := ["Roads", "Lake", "AncientRuins", "EnemyCamp", "Forest"]
@@ -78,6 +79,10 @@ func _ready() -> void:
 	_build_props()
 	_build_lights()
 	_build_grove()
+	if String(_arena.get("_id", "")) == "sanctum":
+		var art := ValleyArt.new()
+		art.name = "ValleyArt"
+		add_child(art)
 	_retire_legacy()
 
 
@@ -134,6 +139,10 @@ func _build_roads() -> void:
 		var curve_start := float(spec.get("curve_start", 0.0))
 		var curve_end := float(spec.get("curve_end", 0.0))
 		var seed := 131 + road_index * 977 + int(absf(at.x) * 17.0 + absf(at.y) * 31.0)
+		if String(_arena.get("_id", "")) == "sanctum" and edge > 0:
+			add_child(_valley_road(size, at, yaw, lift, seed, curve_start, curve_end))
+			road_index += 1
+			continue
 		if edge > 0.0:
 			add_child(_road_strip(
 				"RoadOuterEdge_%.0f_%.0f" % [at.x, at.y], size, at, yaw,
@@ -158,8 +167,61 @@ func _build_roads() -> void:
 		road_index += 1
 
 
-## 生成一条不完全笔直的道路带。轮廓变化刻意控制在几十厘米，
-## 只负责消除人工直线感，不会改变玩家对主路方向和宽度的判断。
+## 路宽按入口、路口和门前空间变化；轮廓与颜色均属于贴地网格。
+func _valley_road(size: Vector2, at: Vector2, yaw: float, lift: float, seed: int, curve_start: float, curve_end: float) -> MeshInstance3D:
+	var builder := LowPolyMeshUtil.begin()
+	var count := maxi(ceili(size.y / 1.5), 8)
+	var columns := [-1.0, -0.72, -0.35, 0.0, 0.35, 0.72, 1.0]
+	var rows: Array = []
+	var turn := Basis(Vector3.UP, yaw)
+	for i in range(count + 1):
+		var u := float(i) / count
+		var phase := float(seed % 29) * 0.37
+		var center := lerpf(curve_start, curve_end, smoothstep(0, 1, u)) + sin(u * TAU + phase) * 1.2 * sin(PI * u)
+		var station := (turn * Vector3(center, 0, (u - 0.5) * size.y) + Vector3(at.x, 0, at.y))
+		var width: float
+		if absf(yaw) < 0.1:
+			# Narrow approach, broad meeting place, constricted gate passage.
+			width = 2.7 + 2.0 * exp(-pow((station.z - 64.0) / 17.0, 2.0))
+			width += 4.4 * exp(-pow((station.z - 2.0) / 13.0, 2.0))
+			width += 3.5 * exp(-pow((station.z + 24.0) / 9.0, 2.0))
+		else:
+			width = 1.65 + 1.3 * pow(sin(PI * u), 2.0)
+		width += sin(u * 17.0 + phase) * 0.23
+		var points: Array[Vector3] = []
+		for j in columns.size():
+			var col: float = columns[j]
+			# A crisp irregular silhouette, not a wide interpolated green halo.
+			var edge_offset := sin(i * 2.17 + j * 1.31 + phase) * 0.13
+			var along_offset := sin(i * 1.71 + j * 2.19 + phase) * 0.38 * sin(PI * u)
+			var local := Vector3(center + col * width + edge_offset, 0, (u - 0.5) * size.y + along_offset)
+			var point := turn * local + Vector3(at.x, 0, at.y)
+			point.y = _ground(point.x, point.z) + lift + 0.025
+			points.append(point)
+		rows.append(points)
+	for i in count:
+		for j in range(columns.size() - 1):
+			# Flat, restrained earth facets: all vertices of a patch share one color.
+			var tone := 0.98 + 0.032 * sin(i * 0.79 + j * 2.31 + seed)
+			var shade := Color(0.53, 0.343, 0.183) * Color(tone, tone, tone)
+			# 携带每顶点颜色，正面朝上；道路不创建独立碰撞。
+			for pair in [[i, j], [i, j + 1], [i + 1, j], [i, j + 1], [i + 1, j + 1], [i + 1, j]]:
+				var p: Vector3 = rows[pair[0]][pair[1]]
+				builder.verts.append(p)
+				builder.normals.append(TerrainUtil.normal_at(p.x, p.z))
+				builder.colors.append(shade)
+	var node := MeshInstance3D.new()
+	node.name = "ValleyRoad_%d" % seed
+	node.mesh = LowPolyMeshUtil.commit(builder)
+	var material := StandardMaterial3D.new()
+	material.vertex_color_use_as_albedo = true
+	material.vertex_color_is_srgb = true
+	material.roughness = 1.0
+	node.material_override = material
+	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return node
+
+
 func _road_strip(
 	name: String, size: Vector2, at: Vector2, yaw: float,
 	material_key: String, lift: float, extra: float, seed: int,
@@ -237,7 +299,35 @@ func _build_water() -> void:
 ## 只在需要站上去时才建碰撞体（solid），其余一律纯视觉 ——
 ## 迁移前那几根遗迹立柱本来就是没有碰撞的，这里保持同样的可走性。
 func _build_props() -> void:
-	for entry in _list("props"):
+	var props := _list("props").duplicate(true)
+	if String(_arena.get("_id", "")) == "sanctum":
+		props = _sanctum_ruin_plan(props)
+		# 主门前后有三个尺度层：低墙、原门廊、后部高门。所有新增实体走相同碰撞路径。
+		for x in [-2.0, 8.0]:
+			props.append({"shape":"box", "pos":[x, -35.5], "size":[3.2, 0.35, 3.5], "material":"stone_light", "bevel":0.10, "solid":true})
+		for x in [-4.0, 10.0]:
+			props.append({"shape":"box", "pos":[x, -58.0], "size":[3.0, 11.8, 3.3], "material":"stone", "bevel":0.12, "solid":true})
+			props.append({"shape":"box", "pos":[x, -58.0], "size":[4.0, 0.45, 4.2], "material":"stone_light", "bevel":0.10, "solid":true})
+			props.append({"shape":"box", "pos":[x, -58.0], "size":[3.6, 0.48, 3.8], "y":11.5, "material":"stone_light", "bevel":0.09, "solid":true})
+		props.append({"shape":"box", "pos":[3.0, -58.0], "size":[17.0, 1.6, 3.5], "y":12.25, "material":"stone", "bevel":0.12, "solid":true})
+		# 同组矮墙加略挑出的压顶，让石墙的顶面、正面、基部有明确层级。
+		var caps: Array = []
+		for entry in props:
+			var source := entry as Dictionary
+			if source.get("shape", "") != "box" or source.has("y"):
+				continue
+			var size := _vector3(source, "size", Vector3.ONE)
+			if size.y < 1.5 or size.y > 4.1 or maxf(size.x, size.z) < 5.0:
+				continue
+			var cap := source.duplicate(true)
+			cap["size"] = [size.x + 0.20, 0.22, size.z + 0.20]
+			cap["y"] = size.y - 0.025
+			cap["bevel"] = 0.055
+			cap["material"] = "stone_light"
+			cap["solid"] = false
+			caps.append(cap)
+		props.append_array(caps)
+	for entry in props:
 		var spec := entry as Dictionary
 		var at := _point(spec, "pos", Vector2.ZERO)
 		var shape := String(spec.get("shape", "box"))
@@ -272,9 +362,56 @@ func _build_props() -> void:
 
 ## 把网格包成可站立的静态碰撞体。碰撞盒取网格 AABB ——
 ## 这样"画面与碰撞同源"，不会出现看不见的台阶或踩空的边。
+func _sanctum_ruin_plan(original: Array) -> Array:
+	var result: Array = []
+	for entry in original:
+		var p := _point(entry, "pos", Vector2.ZERO)
+		# Replace scattered northern wall pieces and the western room, keep altar and gates.
+		if (absf(p.x) > 10.0 and p.y < -10.0) or (p.x < -25.0 and p.y < 12.0):
+			continue
+		result.append(entry)
+	# Two former roofed galleries: matching foundations and column spacing make
+	# the absent roof readable. East retains a beam; west exposes fallen masonry.
+	for side in [-1.0, 1.0]:
+		var x: float = 3.0 + side * 19.0
+		result.append(_ruin_block(Vector2(x, -24), Vector3(12, 0.18, 22), 0.09))
+		for index in 4:
+			var z: float = -33.0 + index * 6.0
+			var height: float = 5.6 if (index < 2 and side > 0) else [4.6, 2.1, 3.4, 1.2][index]
+			result.append(_ruin_block(Vector2(x - side * 4.5, z), Vector3(2.1, 0.3, 2.1), 0.15))
+			result.append(_ruin_block(Vector2(x - side * 4.5, z), Vector3(1.35, height, 1.35), height * 0.5 + 0.3))
+		# Rear enclosure survives at decreasing heights; gaps are breaches, not random rotations.
+		for index in 3:
+			var height: float = [3.8, 2.6, 1.2][index]
+			result.append(_ruin_block(Vector2(x + side * 5.2, -31.0 + index * 6), Vector3(1.25, height, 5.6), height * 0.5))
+		result.append(_ruin_block(Vector2(x, -34), Vector3(10, 2.8, 1.2), 1.4))
+		if side > 0:
+			result.append(_ruin_block(Vector2(x - side * 4.5, -30), Vector3(1.8, 0.7, 7.5), 6.0))
+		else:
+			for index in 5:
+				var block := _ruin_block(Vector2(x + 1.5 + sin(index * 2.0), -30 + index * 2.4), Vector3(1.7, 0.65, 1.3), 0.34)
+				block["rotation"] = [0, index * 23, 0]
+				result.append(block)
+	# Western votive chapel: coherent U-plan with a doorway facing the junction.
+	result.append(_ruin_block(Vector2(-34, 2), Vector3(11, 0.18, 12), 0.09))
+	result.append(_ruin_block(Vector2(-39, 2), Vector3(1.2, 3.8, 12), 1.9))
+	result.append(_ruin_block(Vector2(-35, -3.5), Vector3(8, 2.6, 1.2), 1.3))
+	result.append(_ruin_block(Vector2(-35, 7.5), Vector3(8, 1.4, 1.2), 0.7))
+	result.append(_ruin_block(Vector2(-34, 2), Vector3(2.7, 0.7, 2.7), 0.35))
+	result.append({"shape":"diamond", "pos":[-34,2], "radius":0.72, "height":2.0, "y":2.0, "material":"stone_light", "emissive":[1.0,0.78,0.06], "emissive_energy":3.0})
+	return result
+
+
+func _ruin_block(at: Vector2, size: Vector3, level: float) -> Dictionary:
+	return {"shape":"box", "pos":[at.x,at.y], "size":[size.x,size.y,size.z], "y":level, "material":"stone", "bevel":0.09, "solid":true}
+
+
 func _wrap_solid(mesh_node: MeshInstance3D, bounds: AABB) -> StaticBody3D:
 	var body := StaticBody3D.new()
 	body.name = mesh_node.name
+	# 这批配置生成的实体障碍必须参与导航烘焙。只建物理碰撞会让导航路径
+	# 直接穿过石柱/墙体，角色到了现场才被碰撞挡住。
+	body.add_to_group("nav_source")
 	body.position = mesh_node.position
 	body.rotation = mesh_node.rotation
 	var shape: Shape3D
@@ -463,6 +600,8 @@ func _make_mesh(shape: String, spec: Dictionary) -> Mesh:
 			var box_size := _vector3(spec, "size", Vector3.ONE)
 			var bevel := maxf(float(spec.get("bevel", 0.0)), 0.0)
 			if bevel > 0.0001:
+				if String(_arena.get("_id", "")) == "sanctum" and String(spec.get("material", "")).begins_with("stone") and box_size.y > 1.2:
+					return ValleyArt.masonry(box_size, bevel)
 				return LowPolyMeshUtil.chamfered_box(box_size, bevel)
 			var box := BoxMesh.new()
 			box.size = box_size

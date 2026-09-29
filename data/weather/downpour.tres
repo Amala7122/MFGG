@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/rain_weather_profile.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+label = "暴雨"
+streak_density = 1
+streak_speed = 1
+streak_width = 1.95
+streak_length = 1.62
+streak_length_power = 1.24
+streak_brightness = 1.12
+impact_rate = 1
+impact_size_min = 0.4
+impact_size_max = 0.95
+impact_brightness = 1.72
+impact_lifetime = 1.45
+storm_strength = 1
+cloud_cover = 1
+wind_band_response = 1
+wetness = 1

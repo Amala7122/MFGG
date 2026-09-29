@@ -53,7 +53,7 @@ func _ready() -> void:
 	# 按两侧信息栏的留白算（PlayerHUD._center_half_width）—— 在这里再声明一个
 	# 半宽就成了第二份真相：改了它不会有任何效果，反而让人以为改这里能改宽度。
 	set_process(true)
-	_font = ThemeDB.fallback_font
+	_font = UiThemeUtil.get_font()
 
 
 func _process(delta: float) -> void:

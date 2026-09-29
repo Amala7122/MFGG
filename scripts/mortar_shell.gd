@@ -30,6 +30,7 @@ var _arc := 7.0
 var _elapsed := 0.0
 var _color := Color(1.0, 0.5, 0.15, 1.0)
 var _visual: Node3D
+var warning_owner: WeakRef
 
 
 ## landing 是【落点】而不是"目标" —— 它应该正好是地面 X 的中心。
@@ -50,7 +51,12 @@ func setup(start: Vector3, landing: Vector3, duration: float, color: Color) -> v
 	AudioUtil.play_at("mortar", landing, -4.0)
 
 
-func _process(delta: float) -> void:
+func _physics_process(delta: float) -> void:
+	if warning_owner != null:
+		var warning := warning_owner.get_ref() as Node
+		if not is_instance_valid(warning) or warning.is_queued_for_deletion():
+			queue_free()
+			return
 	_elapsed += delta
 	var t := clampf(_elapsed / _duration, 0.0, 1.0)
 	var previous := global_position

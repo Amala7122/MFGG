@@ -21,7 +21,7 @@ const UiThemeUtil := preload("res://scripts/ui_theme.gd")
 
 ## 面板尺寸。PlayerHUD 用它来排布（不想让两处各写一份坐标）。
 const PANEL_WIDTH := 272.0
-const PANEL_HEIGHT := 70.0
+const PANEL_HEIGHT := 48.0
 
 ## 分段刻度数。10 段对应"每段 10 点生命"，比一根连续条更容易估出还剩几成。
 const SEGMENTS := 10
@@ -34,15 +34,15 @@ const LOW_RATIO := 0.3
 
 # ---------------------------------------------------------------- 版面度量
 # 全部相对面板左上角，画的时候只读这些常量，不在 _draw 里现算。
-const ROW_HEIGHT := 32.0
-const ROW_GAP := 6.0
+const ROW_HEIGHT := 22.0
+const ROW_GAP := 4.0
 const ICON_WIDTH := 36.0
 const VALUE_WIDTH := 82.0
 const BAR_LEFT := ICON_WIDTH + VALUE_WIDTH + 6.0
 const BAR_RIGHT_PAD := 8.0
 const BAR_TOP_INSET := 7.0
 const BAR_HEIGHT := 18.0
-const FONT_VALUE := 14
+const FONT_VALUE := 11
 
 var _font: Font
 
@@ -68,7 +68,7 @@ var _shown_shield_max := -1
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_process(true)
-	_font = ThemeDB.fallback_font
+	_font = UiThemeUtil.get_font()
 
 
 func _process(delta: float) -> void:
@@ -192,49 +192,21 @@ func _draw_stat_row(
 	top: float, text: String, value_color: Color, fill: Color,
 	ratio: float, ghost: float, heart: bool, accent: Color
 ) -> void:
-	var row := Rect2(Vector2(0.0, top), Vector2(size.x, ROW_HEIGHT))
-	var plate_variant := UiThemeUtil.PLATE_HEALTH if heart else UiThemeUtil.PLATE_SHIELD
-	UiThemeUtil.draw_plate(self, row, accent, plate_variant)
-
-	var icon_rect := Rect2(row.position + Vector2(2.0, 2.0), Vector2(ICON_WIDTH - 4.0, ROW_HEIGHT - 4.0))
-	var icon_outer := UiThemeUtil.bevel_points(icon_rect, 7.0)
-	draw_colored_polygon(icon_outer, UiThemeUtil.COLOR_EDGE_DARK)
-	draw_polyline(UiThemeUtil.closed(icon_outer), UiThemeUtil.COLOR_EDGE_LIGHT, 1.0, true)
-	var icon_rim := UiThemeUtil.bevel_points(icon_rect.grow(-1.5), 5.5)
-	draw_colored_polygon(icon_rim, UiThemeUtil.COLOR_EDGE)
-	var icon_inner := UiThemeUtil.bevel_points(icon_rect.grow(-3.5), 4.0)
-	draw_colored_polygon(icon_inner, UiThemeUtil.with_alpha(accent, 0.32))
-	draw_polyline(UiThemeUtil.closed(icon_inner), UiThemeUtil.with_alpha(accent, 0.80), 1.0, true)
-	var center := icon_rect.get_center()
+	var row := Rect2(Vector2(0, top), Vector2(size.x, ROW_HEIGHT))
+	draw_rect(row, Color(0.025, 0.045, 0.055, 0.38))
+	var center := Vector2(12, top + ROW_HEIGHT * 0.5)
+	draw_set_transform(center, 0, Vector2(0.52, 0.52))
 	if heart:
-		_draw_heart(center, fill)
+		_draw_heart(Vector2.ZERO, fill)
 	else:
-		_draw_shield_icon(center, fill)
-
-	var value_rect := Rect2(
-		Vector2(ICON_WIDTH, top + 3.0), Vector2(VALUE_WIDTH, ROW_HEIGHT - 6.0)
-	)
-	var value_points := UiThemeUtil.bevel_points(value_rect, 5.0)
-	draw_colored_polygon(value_points, Color(0.16, 0.15, 0.10, 0.88))
-	draw_polyline(UiThemeUtil.closed(value_points), UiThemeUtil.with_alpha(UiThemeUtil.COLOR_EDGE, 0.72), 1.0, true)
-	draw_line(
-		value_rect.position + Vector2(5.0, 1.0),
-		Vector2(value_rect.end.x - 5.0, value_rect.position.y + 1.0),
-		UiThemeUtil.with_alpha(UiThemeUtil.COLOR_EDGE_LIGHT, 0.42), 1.0, true
-	)
-	var text_w := UiThemeUtil.tracked_width(_font, text, FONT_VALUE, 0.35)
-	UiThemeUtil.draw_tracked(
-		self, _font,
-		Vector2(value_rect.get_center().x - text_w * 0.5, top + 21.0),
-		text, FONT_VALUE, value_color, 0.35
-	)
-	UiThemeUtil.draw_bar(
-		self, Rect2(
-			Vector2(BAR_LEFT, top + BAR_TOP_INSET),
-			Vector2(size.x - BAR_LEFT - BAR_RIGHT_PAD, BAR_HEIGHT)
-		), ratio, fill, 0, ghost
-	)
-
+		_draw_shield_icon(Vector2.ZERO, fill)
+	draw_set_transform(Vector2.ZERO)
+	draw_string(_font, Vector2(26, top + 15), text, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_VALUE, Color(0.94, 0.96, 0.94))
+	var bar := Rect2(101, top + 5, size.x - 107, 12)
+	draw_rect(bar, Color(1, 1, 1, 0.13))
+	if ghost > ratio:
+		draw_rect(Rect2(bar.position, Vector2(bar.size.x * clampf(ghost, 0, 1), bar.size.y)), Color(1, 0.89, 0.8, 0.48))
+	draw_rect(Rect2(bar.position, Vector2(bar.size.x * clampf(ratio, 0, 1), bar.size.y)), fill)
 
 func _draw_heart(center: Vector2, color: Color) -> void:
 	var points := PackedVector2Array([
@@ -245,7 +217,7 @@ func _draw_heart(center: Vector2, color: Color) -> void:
 		center + Vector2(11.0, -7.0), center + Vector2(12.0, -1.0),
 	])
 	draw_colored_polygon(points, color)
-	draw_polyline(UiThemeUtil.closed(points), UiThemeUtil.shade(color, -0.30), 1.2, true)
+	draw_polyline(UiThemeUtil.closed(points), UiThemeUtil.shade(color, -0.30), UiThemeUtil.HAIRLINE_WIDTH, true)
 
 
 func _draw_shield_icon(center: Vector2, color: Color) -> void:
@@ -255,7 +227,7 @@ func _draw_shield_icon(center: Vector2, color: Color) -> void:
 		center + Vector2(-9.0, 3.0),
 	])
 	draw_colored_polygon(points, color)
-	draw_polyline(UiThemeUtil.closed(points), UiThemeUtil.shade(color, -0.30), 1.2, true)
+	draw_polyline(UiThemeUtil.closed(points), UiThemeUtil.shade(color, -0.30), UiThemeUtil.HAIRLINE_WIDTH, true)
 	draw_colored_polygon(PackedVector2Array([
 		center + Vector2(0.0, -7.0), center + Vector2(7.0, -7.0),
 		center + Vector2(5.0, 1.0), center + Vector2(0.0, 7.0),

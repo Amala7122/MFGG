@@ -17,6 +17,7 @@ uniform float u_sway_amplitude: hint_range(0.0, 1.0) = 0.13;
 uniform float u_sway_frequency: hint_range(0.0, 30.0) = 6.5;
 // 常态风。默认 0 —— 没人在附近时草地必须是静的。
 uniform float u_wind: hint_range(0.0, 1.0) = 0.0;
+uniform vec2 u_wind_direction = vec2(1.0, 0.0);
 
 uniform float u_time = 0.0;
 // 叶高。弯曲权重 = (局部高度 / 叶高)^1.6：叶根不动、叶尖动得最多。
@@ -27,6 +28,9 @@ uniform float u_tuft_height: hint_range(0.05, 3.0) = 0.55;
 // MAX_TRAMPLERS 一致，多余的槽位由 CPU 填零并用 u_trample_count 截断。
 uniform int u_trample_count = 0;
 uniform vec4 u_trample[8];
+uniform int u_ground_impulse_count = 0;
+// x/z 世界中心、作用半径、短暂冲击包络；根部不动，事件消失后自然回弹。
+uniform vec4 u_ground_impulse[8];
 
 varying vec3 v_color;
 varying float v_fade;
@@ -81,9 +85,28 @@ void vertex() {
 		offset.y -= abs(sway) * 0.35;
 	}
 
+	for (int i = 0; i < 8; i++) {
+		if (i >= u_ground_impulse_count) { break; }
+		vec4 pulse = u_ground_impulse[i];
+		vec2 away = world.xz - pulse.xy;
+		float dist = length(away);
+		float influence = 1.0 - smoothstep(pulse.z * 0.2, max(pulse.z, 0.01), dist);
+		vec2 direction = away / max(dist, 0.001);
+		float push = influence * pulse.w * bend_weight * shape * 0.55;
+		offset.xz += direction * push;
+		offset.y -= push * 0.3;
+	}
+
 	if (u_wind > 0.0) {
-		offset.x += sin(u_time * 1.3 + world.z * 0.45) * u_wind * bend_weight * shape;
-		offset.z += cos(u_time * 1.1 + world.x * 0.40) * u_wind * bend_weight * shape;
+		// 统一沿天气风向倾倒；两个不同尺度的波叠出阵风内的局部起伏，但振幅完全
+		// 由 CPU 阵风包络控制，静风时不会偷偷保留“呼吸摆动”。
+		vec2 wind_dir = normalize(u_wind_direction + vec2(0.0001, 0.0));
+		float phase = dot(world.xz, vec2(-wind_dir.y, wind_dir.x));
+		float gust_shape = 0.72
+			+ sin(u_time * 3.1 + phase * 0.42) * 0.20
+			+ sin(u_time * 6.7 + world.x * 0.19 + world.z * 0.23) * 0.08;
+		offset.xz += wind_dir * u_wind * gust_shape * bend_weight * shape;
+		offset.y -= abs(u_wind * gust_shape) * 0.16 * bend_weight * shape;
 	}
 
 	// 【位移必须收敛，不能被人数线性放大】

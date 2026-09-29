@@ -9,6 +9,7 @@ extends RefCounted
 ## 音频走静态入口，autoload 未注册时自动降级为空操作。
 const AudioUtil := preload("res://scripts/audio_manager.gd")
 const EventBusUtil := preload("res://scripts/event_bus.gd")
+const Telemetry := preload("res://scripts/combat_telemetry.gd")
 
 ## 爆头时的特效配色，也会传给伤害飘字。
 const HEADSHOT_COLOR := Color(1.0, 0.45, 0.12, 1.0)
@@ -95,8 +96,12 @@ static func is_headshot(
 		return false
 	var half_height := 0.95
 	var capsule := enemy.get_node_or_null("CollisionShape3D") as CollisionShape3D
-	if capsule and capsule.shape is CapsuleShape3D:
-		half_height = (capsule.shape as CapsuleShape3D).height * 0.5
+	if capsule and (capsule.shape is CapsuleShape3D or capsule.shape is CylinderShape3D):
+		half_height = float(capsule.shape.height) * 0.5
+	elif capsule and capsule.shape is BoxShape3D:
+		half_height = (capsule.shape as BoxShape3D).size.y * 0.5
+	elif capsule and capsule.shape is SphereShape3D:
+		half_height = (capsule.shape as SphereShape3D).radius
 	var scale_y := maxf(enemy.global_basis.get_scale().y, 0.01)
 	var local_y := (hit_y - enemy.global_position.y) / scale_y
 	return local_y >= half_height * (height_ratio * 2.0 - 1.0)
@@ -135,11 +140,17 @@ static func resolve_hit(
 ## 只施加伤害，返回是否击杀。
 ## 击杀判定必须放在 take_damage 之后：敌人是在 die() 里 queue_free 的。
 static func apply_damage(
-	collider: Object, amount: float, position: Vector3, headshot: bool
+	collider: Object, amount: float, position: Vector3, headshot: bool, context: Dictionary = {}
 ) -> bool:
 	var target := collider as Node
 	if target == null or not target.is_in_group("enemies"):
 		return false
+	var observing := Telemetry.recorder(target) != null
+	var previous: Variant = target.get_meta(Telemetry.CONTEXT) if observing and target.has_meta(Telemetry.CONTEXT) else null
+	if observing:
+		var hit_context := context.duplicate()
+		hit_context["headshot"] = headshot
+		target.set_meta(Telemetry.CONTEXT, hit_context)
 	# 声明了 take_damage_at 的目标可以按命中点细分伤害（Boss 用它判弱点）。
 	# 普通敌人没有这个方法，继续走单一参数那条路 —— 所以这次改动对它们
 	# 是完全透明的，不需要逐个去改 take_damage 的签名。
@@ -147,6 +158,11 @@ static func apply_damage(
 		target.call("take_damage_at", amount, position, headshot)
 	elif target.has_method("take_damage"):
 		target.call("take_damage", amount)
+	if observing:
+		if previous == null:
+			target.remove_meta(Telemetry.CONTEXT)
+		else:
+			target.set_meta(Telemetry.CONTEXT, previous)
 	return target.is_queued_for_deletion()
 
 

@@ -26,6 +26,10 @@ extends Node
 ## ────────
 ## 点号查找每次都会 split 字符串并走一遍字典，**不要放在每帧路径上**。
 ## 需要频繁读取的值请在 _ready()/setup() 里读进成员变量缓存一次。
+##
+## 程序化敌人的独立调参入口：data/enemies/*.json，数值由 enemy_tuning.gd 读取；
+## 测试面板的命名方案保存在 data/enemy_presets，导出版本使用 user://enemy_presets。
+## 这两类敌人不在本文件重复维护默认值，技能时间和范围也统一来自独立配置。
 
 const CONFIG_PATH := "res://data/game_config.json"
 

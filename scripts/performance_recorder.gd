@@ -239,6 +239,10 @@ func _finish_benchmark() -> void:
 	var low_5: float = 1.0 / float(sorted[p95_index]) if frames > 0 else 0.0
 	var divisor := maxf(float(frames), 1.0)
 	var summary := {
+		"window_width": DisplayServer.window_get_size().x,
+		"window_height": DisplayServer.window_get_size().y,
+		"viewport_texture_width": get_viewport().get_texture().get_width(),
+		"viewport_texture_height": get_viewport().get_texture().get_height(),
 		"mode": _benchmark_mode,
 		"tier": ConfigUtil.get_string("graphics.active", "high"),
 		"frames": frames,

@@ -9,13 +9,8 @@ extends RefCounted
 ## 烘焙是异步的（选敌人大批生成时网格可能还没好），而且烘焙本身也可能失败；
 ## 任何情况下都不能让敌人原地发呆，所以拿不到有效路径就退回直线。
 ##
-## 关于 is_target_reachable() 偶发为 false：
-## 实测过 3 个敌人里有 1 个报 false。逐项排查后确认**不是 bug，也不需要在
-## 生成点做落点吸附** —— 那个敌人离导航网格只有 0.73 米，与两个正常的
-## （0.45 / 0.46 米）完全同一量级，说明它并没有站在不可导航的位置。
-## 真正原因是调用方会跳过路径更新：melee_enemy 被手雷/脉冲击退时
-## （_stagger_time > 0）会提前 return，此代理缓存的仍是上一次较旧的结果。
-## 因为已有直线兜底，行为不受影响，所以这里只记录现象、不做补偿。
+## 导航起点与目标都按网格表面高度对齐。本体原点在胶囊中心，直接用它
+## 推进路径会让第一个地面路径点始终无法抵达，敌人不断回头，形成运动抖动。
 ##
 ## ── 防卡死 ─────────────────────────────────────────────────────
 ##
@@ -67,7 +62,7 @@ const UNSTICK_SIDE_RATIO := 0.75
 ## 换路状态的最长持续时间；走到中间点会提前结束。
 const REROUTE_DURATION := 4.0
 ## 中间点相对"自己→目标"直线的横向偏移量（米）。
-## 必须明显大于导航网格的 agent_radius（0.9），否则算出来还是同一条路径。
+## 必须明显大于导航网格的 agent_radius（1.2），否则算出来还是同一条路径。
 const REROUTE_OFFSET := 4.5
 ## 中间点取在"自己→目标"直线上的比例：0.5 = 中点。太靠近目标就起不到绕路作用。
 const REROUTE_ALONG_RATIO := 0.5
@@ -77,6 +72,8 @@ const REROUTE_ARRIVE := 2.0
 enum State { NORMAL, UNSTICKING, REROUTING }
 
 var _agent: NavigationAgent3D
+var _nav_origin: Node3D
+var _body_height := 2.0
 var _body: Node3D
 ## 敌人本体若是 CharacterBody3D，就能读到上一帧的接触法线（预防层的输入）。
 var _character: CharacterBody3D
@@ -87,8 +84,11 @@ var _state_time := 0.0
 var _stuck_tries := 0
 ## 脱困 / 换路时朝哪一侧绕。每次进入都翻转，保证连续两次不会挤同一个死角。
 var _side_sign := 1.0
-## 卡死检测窗口内累计的水平位移与时长。
-var _window_move := 0.0
+## 卡死检测窗口的起点与时长。
+##
+## 不能累计每帧位移：敌人在树干边左右抖动时，虽然始终没离开原地，累计路程
+## 仍会不断增长，最终被误判为“正在前进”。窗口首尾的净位移才代表真的脱困。
+var _window_origin := Vector3.ZERO
 var _window_time := 0.0
 var _prev_position := Vector3.ZERO
 var _has_prev := false
@@ -96,25 +96,39 @@ var _has_prev := false
 var _expects := true
 ## 换路用的中间点。
 var _detour_point := Vector3.ZERO
-## 最近一次传入的真实目标（玩家位置）。换路时要基于它算中间点，
-## 而那时 _detour_point 正在被当作导航目标用，不能拿它当"最终目标"。
+## 最近一次由调用方传入的真实目标（近战是玩家，远程是短程移动目标）。换路时
+## 要基于它算中间点，而那时 _detour_point 正在被当作导航目标用，不能拿它当
+## “最终目标”。
 var _last_goal := Vector3.ZERO
+## 一次脱困固定横移方向；不能每帧跟着重算的路径旋转，否则会左右互顶。
+var _last_direction := Vector3.FORWARD
+var _unstick_heading := Vector3.ZERO
 
 
 func setup(body: Node3D, radius: float, height: float) -> void:
 	_body = body
 	_character = body as CharacterBody3D
+	_body_height = height
+	# Agent 使用父节点的位置推进路径。敌人原点在胶囊中心，路径点却在地面；
+	# 若直接挂在本体下，0.3 米到达容差永远覆盖不到脚下的第一个路径点。
+	_nav_origin = Node3D.new()
+	_nav_origin.name = "NavOrigin"
+	body.add_child(_nav_origin)
+	_nav_origin.position.y = -height * 0.5
 	var agent := NavigationAgent3D.new()
 	agent.name = "NavAgent"
+	# 这里只是局部避让代理尺寸；普通寻路的实际通行宽度由烘焙网格的
+	# NavigationMesh.agent_radius 决定，不能靠这里的 radius 缩小窄缝。
 	agent.radius = radius
 	agent.height = height
 	# 保持关闭：开启避障后必须每帧回写 set_velocity，否则代理会以为静止不动。
 	# 敌人之间刻意不互相碰撞（collision_mask 不含自身层），分离交给下面这套
 	# 防卡死逻辑，避免为 RVO 付出每帧的额外物理开销。
 	agent.avoidance_enabled = false
-	agent.path_desired_distance = 0.7
+	# 拐点容差过大时会提前跳过转角，角色从导航网格边缘抄近路撞上实体障碍。
+	agent.path_desired_distance = 0.3
 	agent.target_desired_distance = 0.7
-	body.add_child(agent)
+	_nav_origin.add_child(agent)
 	_agent = agent
 
 
@@ -133,27 +147,52 @@ func direction_to(
 	var position := _body.global_position
 	if not _has_prev:
 		_prev_position = position
+		_window_origin = position
 		_has_prev = true
+	if not expects_movement:
+		_state = State.NORMAL
+		_state_time = 0.0
+		_stuck_tries = 0
+		_window_origin = position
+		_window_time = 0.0
+		_prev_position = position
+		_timer = 0.0
+		return Vector3.ZERO
 
 	# ── 导航路径 ──
+	var nav_map := _agent.get_navigation_map()
+	var map_ready := NavigationServer3D.map_get_iteration_id(nav_map) > 0
+	if map_ready:
+		# 地图已同步但还没有可走面时，closest_point 会返回原点；不能把它当目标。
+		map_ready = NavigationServer3D.map_get_closest_point_owner(nav_map, position).is_valid()
+	if map_ready:
+		# 烘焙网格有栅格高度误差，胶囊在坡上也有离地间隙。按脚下网格的高度
+		# 对齐起点，并保留实际水平位置；体型缩放和坡面都不会妨碍路径点推进。
+		var feet := _body.to_global(Vector3(0.0, -_body_height * 0.5, 0.0))
+		var surface := NavigationServer3D.map_get_closest_point(nav_map, feet)
+		_nav_origin.global_position = Vector3(position.x, surface.y, position.z)
 	# 换路期间把目标换成中间点：这是"走另一条线路"的全部实现。
 	_timer -= delta
 	var nav_goal := _detour_point if _state == State.REROUTING else goal
-	if _timer <= 0.0:
+	if not map_ready:
+		_timer = 0.0
+	elif _timer <= 0.0:
 		_timer = REPATH_INTERVAL
-		# 目标点必须压到与自身同一水平面。
-		# 玩家节点的原点在胶囊中心（离地约 1 米），直接拿来当导航目标会超出
-		# target_desired_distance 而被判为"不可达"，路径被截断在玩家脚下 ——
-		# 表现就是敌人明明在追，is_target_reachable() 却一直是 false。
-		# 导航网格自带高度，压平不会丢任何信息。
-		_agent.target_position = Vector3(nav_goal.x, position.y, nav_goal.z)
-	var next := _agent.get_next_path_position()
-	var flat := Vector3(next.x - position.x, 0.0, next.z - position.z)
+		# 目标同样取导航表面高度，不能用敌人的高度去覆盖远处坡面的高度。
+		var surface_goal := nav_goal
+		if map_ready:
+			surface_goal = NavigationServer3D.map_get_closest_point(nav_map, nav_goal)
+		_agent.target_position = surface_goal
 	var desired := fallback
-	if flat.length_squared() >= MIN_DIRECTION_SQR:
-		desired = flat.normalized()
+	if map_ready:
+		var next := _agent.get_next_path_position()
+		var flat := Vector3(next.x - position.x, 0.0, next.z - position.z)
+		if flat.length_squared() >= MIN_DIRECTION_SQR:
+			desired = flat.normalized()
 
 	# ── 卡死状态机 ──
+	if _state != State.UNSTICKING and not desired.is_zero_approx():
+		_last_direction = desired.normalized()
 	_update_stuck_state(position, delta)
 	if _state == State.UNSTICKING:
 		desired = _unstick_direction(desired)
@@ -175,16 +214,17 @@ func _update_stuck_state(position: Vector3, delta: float) -> void:
 	).length()
 	_prev_position = position
 	if moved > TELEPORT_MOVE:
-		_window_move = 0.0
+		_window_origin = position
 		_window_time = 0.0
 	else:
-		_window_move += moved
 		_window_time += delta
 	if _window_time < STUCK_WINDOW:
 		return
 
-	var progress := _window_move
-	_window_move = 0.0
+	var progress := Vector3(
+		position.x - _window_origin.x, 0.0, position.z - _window_origin.z
+	).length()
+	_window_origin = position
 	_window_time = 0.0
 
 	match _state:
@@ -224,6 +264,10 @@ func _enter_unstick() -> void:
 	_state = State.UNSTICKING
 	_state_time = 0.0
 	_side_sign = -_side_sign
+	var side := Vector3(-_last_direction.z, 0.0, _last_direction.x) * _side_sign
+	_unstick_heading = (
+		side * UNSTICK_SIDE_RATIO + _last_direction * (1.0 - UNSTICK_SIDE_RATIO)
+	).normalized()
 
 
 func _leave_to_normal() -> void:
@@ -263,13 +307,7 @@ func _enter_reroute(position: Vector3, goal: Vector3) -> void:
 
 ## 脱困：走期望方向的垂直分量，从夹角里横向蹭出来。
 func _unstick_direction(desired: Vector3) -> Vector3:
-	var side := Vector3(-desired.z, 0.0, desired.x) * _side_sign
-	if side.is_zero_approx():
-		return desired
-	var blended := side * UNSTICK_SIDE_RATIO + desired * (1.0 - UNSTICK_SIDE_RATIO)
-	if blended.is_zero_approx():
-		return side.normalized()
-	return blended.normalized()
+	return desired if _unstick_heading.is_zero_approx() else _unstick_heading
 
 
 ## 预防：顶着障碍时沿接触法线的切向偏出去，而不是继续硬顶。
@@ -286,6 +324,10 @@ func _contact_push(desired: Vector3) -> Vector3:
 	var away := Vector3.ZERO
 	for index in range(count):
 		var normal := _character.get_slide_collision(index).get_normal()
+		# 地面的水平法线在斜坡上并不为零；归一化后会变成完整的“墙壁推力”。
+		# 只绕不可行走的表面，避免坡面三角形切换时不断改变前进方向。
+		if normal.dot(_character.up_direction) >= cos(_character.floor_max_angle):
+			continue
 		away += Vector3(normal.x, 0.0, normal.z)
 	if away.is_zero_approx():
 		return desired

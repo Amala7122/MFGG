@@ -36,6 +36,7 @@ const ArenaUtil := preload("res://scripts/arena.gd")
 ## 【加载失败一律退回场景自带材质】—— 天空坏掉不该让游戏打不开，
 ## 更不该留一块粉色（shader 编译失败时的占位色）在画面上。
 const SKY_SHADER_PATH := "res://shaders/procedural_sky.gdshader"
+const SKY3D_SCRIPT_PATH := "res://addons/sky_3d/src/Sky3D.gd"
 static var _sky_shader: Shader
 static var _sky_shader_loaded := false
 
@@ -84,7 +85,10 @@ func apply_to_scene() -> void:
 	var world_env := _find_environment(scene)
 	if world_env != null and world_env.environment != null:
 		_apply_quality(world_env.environment)
-		_apply_arena(world_env.environment, scene)
+		if _is_sky3d(world_env):
+			_apply_sky3d_arena(world_env, scene)
+		else:
+			_apply_arena(world_env.environment, scene)
 
 
 # ---------------------------------------------------------------- 画质档位
@@ -159,6 +163,65 @@ func _apply_arena(env: Environment, scene: Node) -> void:
 	_apply_fog(env, preset)
 	_apply_grading(env, preset)
 	_apply_lights(scene, preset)
+
+
+## Sky3D 场景的职责边界：Sky3D 独占天空材质、天体和时间，
+## Graphics 只继续提供项目统一的画质档位、竞技场色调与低模补光。
+##
+## 不能让它走上面的普通路径：_apply_sky() 会把 Sky3D 自带 Shader 换成项目旧
+## Shader，月亮、银河和大气散射会因此一起失效；_apply_fog() 还会叠加第二层雾。
+func _apply_sky3d_arena(world_env: WorldEnvironment, scene: Node) -> void:
+	var env := world_env.environment
+	var preset := ConfigUtil.get_dictionary("lighting.arenas.%s" % ArenaUtil.resolve_id())
+	var dome := world_env.get_node_or_null("SkyDome")
+	# 只允许手电筒的局部 FogVolume 形成光柱，不恢复曾洗白全场景的全局体积雾。
+	env.volumetric_fog_enabled = true
+	env.volumetric_fog_density = 0.0
+	env.volumetric_fog_length = 38.0
+	env.volumetric_fog_ambient_inject = 0.0
+	env.volumetric_fog_sky_affect = 0.0
+
+	# 有 WeatherSystem 时，距离雾由它合成。画质管理器不能在场景加载后
+	# 再把雨雾关掉；没有天气层的 Sky3D 场景仍使用天幕自身的雾。
+	var weather := scene.find_child("WeatherSystem", true, false)
+	if weather == null:
+		env.fog_enabled = false
+	if dome != null:
+		if weather == null:
+			dome.set("fog_visible", true)
+		# 默认云的写实噪声与低多边形语言差异过大；银河和独立星点保持启用。
+		dome.set("cirrus_visible", false)
+		dome.set("cumulus_visible", false)
+		if preset.has("sky_ground"):
+			dome.set("ground_color", _color(preset.get("sky_ground"), Color(0.4, 0.52, 0.46)))
+		if preset.has("sky_horizon"):
+			dome.set("atm_day_tint", _color(preset.get("sky_horizon"), Color(0.76, 0.87, 0.96)))
+		if preset.has("sun_color"):
+			var sun_color := _color(preset.get("sun_color"), Color(1.0, 0.89, 0.7))
+			dome.set("sun_light_color", sun_color)
+		if preset.has("sun_energy"):
+			dome.set("sun_light_energy", maxf(float(preset.get("sun_energy")), 0.0))
+
+	if preset.has("ambient_energy"):
+		# 原预设面向白天固定天空；动态夜景给低模切面留出最低可读环境光。
+		env.ambient_light_energy = maxf(float(preset.get("ambient_energy")), 0.6)
+	if preset.has("exposure"):
+		env.tonemap_exposure = maxf(float(preset.get("exposure")), 0.01)
+	_apply_grading(env, preset)
+
+	var sun := world_env.get_node_or_null("SunLight") as DirectionalLight3D
+	if sun != null:
+		_apply_shadow_settings(sun)
+	var moon := world_env.get_node_or_null("MoonLight") as DirectionalLight3D
+	if moon != null:
+		_apply_shadow_settings(moon)
+	var fill := _find_light(scene, "FillLight")
+	if fill != null and preset.has("fill_energy"):
+		fill.light_energy = maxf(float(preset.get("fill_energy")), 0.0)
+	# 场景初始化与画质设置完成后，按 Inspector 当前天气重算一次；
+	# 主菜单可能暂停游戏，此时不能等天气节点的 _process 来纠正环境。
+	if weather != null:
+		weather.call_deferred("_update_environment")
 
 
 ## 环境光：整体"底色"的冷暖。它决定阴影里是什么颜色 —— 沙丘的阴影偏橙、
@@ -412,6 +475,11 @@ func _find_environment(node: Node) -> WorldEnvironment:
 		if found != null:
 			return found
 	return null
+
+
+func _is_sky3d(world_env: WorldEnvironment) -> bool:
+	var attached: Script = world_env.get_script() as Script
+	return attached != null and attached.resource_path == SKY3D_SCRIPT_PATH
 
 
 func _find_light(node: Node, wanted: String) -> DirectionalLight3D:

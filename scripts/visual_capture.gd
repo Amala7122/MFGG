@@ -25,11 +25,13 @@ extends Node
 ## 掩体高度 / 导航多边形数打印并写进报告，让"视觉变了但玩法没坏"有据可查。
 
 const ConfigUtil := preload("res://scripts/game_config.gd")
+const CapturePaths := preload("res://scripts/capture_paths.gd")
 const ArenaUtil := preload("res://scripts/arena.gd")
 const TerrainUtil := preload("res://scripts/terrain_field.gd")
 
 const CAPTURE_ARG := "--vis-capture"
 const DISPLAY_SETTINGS_ARG := "--vis-display-settings"
+const GAME_OVER_ARG := "--vis-game-over"
 const SHOW_UI_ARG := "--vis-show-ui"
 const PLAY_ARG := "--vis-play"
 const ROSTER_ARG := "--vis-roster"
@@ -37,6 +39,10 @@ const ROSTER_STRIP_ARG := "--vis-roster-strip"
 const HIDE_PREFIX := "--vis-hide="
 const ROUND_PREFIX := "--vis-round="
 const ARENA_PREFIX := "--vis-arena="
+const RESOLUTION_PREFIX := "--vis-resolution="
+const ONLY_PREFIX := "--vis-only="
+const RENDER_SCALE_PREFIX := "--vis-render-scale="
+const UPSCALER_PREFIX := "--vis-upscaler="
 const SLOPE_SAMPLES := 60
 
 ## 截图取样的条数：沿画面正中竖线从上到下取这么多点。
@@ -92,6 +98,11 @@ func _display_settings_requested() -> bool:
 		or OS.get_cmdline_args().has(DISPLAY_SETTINGS_ARG)
 
 
+func _game_over_requested() -> bool:
+	return OS.get_cmdline_user_args().has(GAME_OVER_ARG) \
+		or OS.get_cmdline_args().has(GAME_OVER_ARG)
+
+
 ## 锁定要拍的竞技场。必须在场景进树【之前】做 —— 地形是在 scene 的
 ## _ready() 里按当时的 ArenaUtil.current_id 建出来的。
 func _pin_arena() -> void:
@@ -106,8 +117,13 @@ func _pin_arena() -> void:
 func _run() -> void:
 	while get_tree().current_scene == null:
 		await get_tree().process_frame
+	_apply_capture_render_scale()
 	if _display_settings_requested():
 		await _capture_display_settings()
+		get_tree().quit()
+		return
+	if _game_over_requested():
+		await _capture_game_over()
 		get_tree().quit()
 		return
 	if _play_requested():
@@ -135,7 +151,7 @@ func _run() -> void:
 		_hide_ui(get_tree().root)
 
 	_hide_requested_nodes(scene)
-	_set_window_size()
+	await _set_window_size()
 	var shots := await _capture_all(scene)
 	var report := _build_report(shots)
 	var text := _render_report(report)
@@ -153,26 +169,30 @@ func _capture_display_settings() -> void:
 	if flow == null or not flow.has_method("_on_open_display_settings"):
 		push_error("[显示验收] 找不到显示设置页面")
 		return
+	var resolution := _capture_resolution()
+	var settings := get_node_or_null("/root/DisplaySettings")
+	if settings != null:
+		# 验收进程不会存盘；让设置项如实显示当前模拟窗口尺寸。
+		settings.set("window_resolution", resolution)
 	flow.call("_on_open_display_settings")
-	DisplayServer.window_set_size(Vector2i(1920, 1080))
+	DisplayServer.window_set_size(resolution)
 	# 不能按“若干帧”计时：项目不锁帧时 20 帧可能只有二十几毫秒，按钮的
 	# 80ms 错峰淡入尚未开始。按真实时间等完完整入场动画再验收。
 	await get_tree().create_timer(0.65, true, false, true).timeout
 	await RenderingServer.frame_post_draw
-	var output_dir := ProjectSettings.globalize_path("res://visual_captures/ui")
-	DirAccess.make_dir_recursive_absolute(output_dir)
-	_save_display_capture(output_dir.path_join("display_settings_1080.png"))
+	var output_dir := CapturePaths.ensure_dir("ui")
+	var tag := "%d_%d" % [resolution.x, resolution.y]
+	_save_display_capture(output_dir.path_join("display_settings_%s.png" % tag))
 	# 最大 UI 档位是最容易溢出的情况；不写入个人配置，只在本次验收进程中放大。
-	var settings := get_node_or_null("/root/DisplaySettings")
 	if settings != null:
 		settings.set("ui_scale", 1.3)
 		settings.call("_apply_ui_scale")
-		flow.call("_enter_display_settings", 2)
+		flow.call("_enter_display_settings", 3)
 	else:
 		get_tree().root.content_scale_factor = 1.3
 	await get_tree().create_timer(0.65, true, false, true).timeout
 	await RenderingServer.frame_post_draw
-	_save_display_capture(output_dir.path_join("display_settings_130pct_1080.png"))
+	_save_display_capture(output_dir.path_join("display_settings_130pct_%s.png" % tag))
 
 
 func _save_display_capture(path: String) -> void:
@@ -182,6 +202,33 @@ func _save_display_capture(path: String) -> void:
 		print("[显示验收] %s（%d×%d）" % [path, image.get_width(), image.get_height()])
 	else:
 		push_error("[显示验收] 截图保存失败：%d" % error)
+
+
+## 不调用成绩提交，只显示与真实阵亡页同一套排版；同时验收最大 UI 缩放。
+func _capture_game_over() -> void:
+	for _frame in range(4):
+		await get_tree().process_frame
+	var flow := get_node_or_null("/root/GameFlow")
+	if flow == null or not flow.has_method("_preview_game_over"):
+		push_error("[结算验收] 找不到阵亡页预览入口")
+		return
+	flow.call("_preview_game_over")
+	var resolution := _capture_resolution()
+	DisplayServer.window_set_size(resolution)
+	var output_dir := CapturePaths.ensure_dir("ui")
+	var tag := "%d_%d" % [resolution.x, resolution.y]
+	await get_tree().create_timer(0.65, true, false, true).timeout
+	await RenderingServer.frame_post_draw
+	_save_display_capture(output_dir.path_join("game_over_%s.png" % tag))
+	var settings := get_node_or_null("/root/DisplaySettings")
+	if settings != null:
+		settings.set("ui_scale", 1.3)
+		settings.call("_apply_ui_scale")
+	else:
+		get_tree().root.content_scale_factor = 1.3
+	await get_tree().create_timer(0.35, true, false, true).timeout
+	await RenderingServer.frame_post_draw
+	_save_display_capture(output_dir.path_join("game_over_130pct_%s.png" % tag))
 
 
 ## 隐藏所有 CanvasLayer（菜单蒙层 / HUD / 准星都会盖住画面）。
@@ -197,14 +244,7 @@ func _hide_ui(node: Node) -> void:
 ## 固定窗口尺寸。分辨率不同会改变构图、透视与拉伸强度，不锁死就
 ## 又回到"两张图没法比"的状态。
 func _set_window_size() -> void:
-	var raw := ConfigUtil.get_float_array("visual.resolution", [1600.0, 900.0])
-	if raw.size() < 2:
-		return
-	var width := int(float(raw[0]))
-	var height := int(float(raw[1]))
-	if width < 64 or height < 64:
-		return
-	DisplayServer.window_set_size(Vector2i(width, height))
+	DisplayServer.window_set_size(_capture_resolution())
 	for _frame in range(4):
 		await get_tree().process_frame
 	await RenderingServer.frame_post_draw
@@ -225,13 +265,24 @@ func _capture_all(scene: Node) -> Array:
 		if spec.is_empty():
 			continue
 		var shot_name := String(spec.get("name", "shot"))
+		var only := _arg_value(ONLY_PREFIX)
+		if not only.is_empty() and shot_name != only:
+			continue
 		var position := _read_vec3(spec.get("pos", null), Vector3(0.0, 5.0, 20.0))
+		# 地形重构后旧的低机位可能埋入坡地，按实际地面保留最低眼高。
+		if absf(position.x) <= TerrainUtil.get_extent() and absf(position.z) <= TerrainUtil.get_extent():
+			position.y = maxf(position.y, TerrainUtil.height_at(position.x, position.z) + 1.7)
 		var target := _read_vec3(spec.get("look_at", null), Vector3.ZERO)
 		camera.global_position = position
 		# 视点与 target 重合时 look_at 会退化出 NaN 基向量。
 		if target.distance_to(position) > 0.01:
 			camera.look_at(target, Vector3.UP)
 		camera.fov = float(spec.get("fov", 60.0))
+		# 拍摄时场景树暂停，草地不会自动跑距离刷新；用当前镜头更新静态 LOD。
+		var grass := scene.get_node_or_null("Grass")
+		if grass != null and grass.has_method("_update_visibility"):
+			grass.set("_observer_points", [Vector2(position.x, position.z)])
+			grass.call("_update_visibility")
 
 		await RenderingServer.frame_post_draw
 		await RenderingServer.frame_post_draw
@@ -248,6 +299,38 @@ func _capture_all(scene: Node) -> Array:
 			"column": _sample_column(image),
 		})
 	return shots
+
+
+func _capture_resolution() -> Vector2i:
+	var raw := _arg_value(RESOLUTION_PREFIX).to_lower().split("x")
+	if raw.size() == 2 and raw[0].is_valid_int() and raw[1].is_valid_int():
+		var width := int(raw[0])
+		var height := int(raw[1])
+		if width >= 640 and height >= 480:
+			return Vector2i(width, height)
+	var configured := ConfigUtil.get_float_array("visual.resolution", [1920.0, 1080.0])
+	if configured.size() < 2:
+		return Vector2i(1920, 1080)
+	return Vector2i(int(configured[0]), int(configured[1]))
+
+
+func _apply_capture_render_scale() -> void:
+	var raw := _arg_value(RENDER_SCALE_PREFIX)
+	if raw.is_empty():
+		return
+	var percentage := clampf(raw.to_float(), 50.0, 100.0)
+	var viewport := get_tree().root
+	viewport.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR \
+		if _arg_value(UPSCALER_PREFIX) == "bilinear" else Viewport.SCALING_3D_MODE_FSR
+	viewport.scaling_3d_scale = percentage / 100.0
+	print("[拍摄] 3D %d%%，模式 %s" % [roundi(percentage), _arg_value(UPSCALER_PREFIX)])
+
+
+func _arg_value(prefix: String) -> String:
+	for arg in OS.get_cmdline_user_args() + OS.get_cmdline_args():
+		if arg.begins_with(prefix):
+			return arg.substr(prefix.length()).strip_edges()
+	return ""
 
 
 ## 沿画面正中竖线取样，返回每行的 "y  颜色  V  S" 文本。
@@ -295,18 +378,25 @@ func _round_name() -> String:
 	return "0"
 
 
-## 输出目录先试 res://，写不了再退 user://（导出版本的 res:// 是只读的）。
+## 开发版写到项目同级目录；导出版使用可写的 user:// 目录。
 func _ensure_output_dir() -> String:
-	var wanted := ConfigUtil.get_string("visual.output_dir", "res://visual_captures")
-	for candidate in [wanted, "user://visual_captures"]:
-		var absolute := ProjectSettings.globalize_path(candidate)
+	var wanted := ConfigUtil.get_string("visual.output_dir", "../visual_captures")
+	var configured := CapturePaths.root()
+	if not OS.has_feature("standalone") and wanted != "../visual_captures":
+		if wanted.begins_with("res://") or wanted.begins_with("user://"):
+			configured = ProjectSettings.globalize_path(wanted)
+		elif wanted.is_absolute_path():
+			configured = wanted
+		else:
+			configured = ProjectSettings.globalize_path("res://").path_join(wanted).simplify_path()
+	for absolute in [configured, CapturePaths.root(), ProjectSettings.globalize_path("user://visual_captures")]:
 		var error := DirAccess.make_dir_recursive_absolute(absolute)
 		if error != OK and error != ERR_ALREADY_EXISTS:
 			continue
 		if DirAccess.open(absolute) != null:
-			return candidate
+			return absolute
 	push_error("[拍摄] 输出目录创建失败，仍尝试写入 %s" % wanted)
-	return wanted
+	return configured
 
 
 # ---------------------------------------------------------------- 图鉴陈列

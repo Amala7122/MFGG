@@ -44,7 +44,7 @@ const BUTTON_WIDTH := 300.0
 ## "仍然好点"与"四个按钮排得下"的交点。
 const BUTTON_HEIGHT := 44.0
 ## 统计读数板的尺寸。
-const STAT_WIDTH := 168.0
+const STAT_WIDTH := 180.0
 const STAT_HEIGHT := 34.0
 
 var state: State = State.MENU
@@ -189,12 +189,15 @@ func _make_label(variation: String) -> Label:
 ## （以前三个 _enter_* 各写四五行动画代码的那种分叉，正是要避免的）。
 func _present(caption: String, accent: Color, hint: String, stats: Array = []) -> void:
 	_caption.text = caption
+	_caption.visible = not caption.is_empty()
 	_caption.color = UiThemeUtil.with_alpha(accent, 0.72)
 	_hint.text = hint
 	_hint.color = UiThemeUtil.with_alpha(UiThemeUtil.COLOR_DIM, 0.7)
 	# 标题跟着强调色走：阵亡是红的、肃清是金的、常态是青的 ——
 	# 一眼就能分清"现在是哪种中断"，不需要读文字。
 	_title.add_theme_color_override("font_color", accent)
+	# 阵亡页的统计卡紧邻标题；通用分隔线会横穿卡片上沿，在此页隐藏。
+	_panel.rule_anchor = null if state == State.GAME_OVER else _title
 	_panel.configure(accent)
 	_set_stats(stats)
 	_set_overlay_visible(true)
@@ -209,7 +212,8 @@ func _set_stats(entries: Array) -> void:
 	_stats_row.visible = not entries.is_empty()
 	for entry in entries:
 		var plate := ReadoutPlateScript.new()
-		plate.custom_minimum_size = Vector2(STAT_WIDTH, STAT_HEIGHT)
+		var has_sub := not String(entry.get("sub", "")).is_empty()
+		plate.custom_minimum_size = Vector2(STAT_WIDTH, STAT_HEIGHT + (12.0 if has_sub else 0.0))
 		plate.configure(UiThemeUtil.COLOR_ACCENT)
 		plate.set_readout(
 			String(entry.get("label", "")),
@@ -268,7 +272,7 @@ func _set_overlay_visible(enabled: bool) -> void:
 
 func _enter_menu() -> void:
 	state = State.MENU
-	_title.text = "海 拉 鲁 生 存"
+	_title.text = "遗迹星球"
 	# 只有一张图时，地图名从"选择行"挪进正文 —— 玩家仍然要知道自己站在哪。
 	var arena_name := String(
 		ArenaUtil.get_params(_first_arena_id()).get("label", _first_arena_id())
@@ -352,7 +356,7 @@ func _enter_display_settings(focus_index: int = 0) -> void:
 			if int(settings.get("display_mode")) == DisplaySettingsUtil.MODE_BORDERLESS
 			else "窗口分辨率立即生效；无边框全屏会使用桌面原生分辨率。"
 		)
-		_set_body(fullscreen_note + "\nUI 缩放只改变界面尺寸，不降低 3D 清晰度。")
+		_set_body(fullscreen_note)
 		_set_actions([
 			{
 				"text": "显示模式　< %s >" % settings.call("mode_label"),
@@ -363,12 +367,16 @@ func _enter_display_settings(focus_index: int = 0) -> void:
 				"callback": _on_cycle_resolution,
 			},
 			{
+				"text": "3D 渲染比例　< %s >" % settings.call("render_scale_label"),
+				"callback": _on_cycle_render_scale,
+			},
+			{
 				"text": "界面缩放　< %s >" % settings.call("ui_scale_label"),
 				"callback": _on_cycle_ui_scale,
 			},
 			{"text": "返回", "callback": _on_display_settings_back},
 		], focus_index)
-	_present("DISPLAY", UiThemeUtil.COLOR_ACCENT, "Enter 切换　·　ESC 返回")
+	_present("", UiThemeUtil.COLOR_ACCENT, "Enter 切换　·　ESC 返回")
 	get_tree().paused = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
@@ -387,11 +395,18 @@ func _on_cycle_resolution() -> void:
 	_enter_display_settings(1)
 
 
+func _on_cycle_render_scale() -> void:
+	AudioUtil.play("ui")
+	if DisplaySettingsUtil.instance != null:
+		DisplaySettingsUtil.instance.call("cycle_render_scale")
+	_enter_display_settings(2)
+
+
 func _on_cycle_ui_scale() -> void:
 	AudioUtil.play("ui")
 	if DisplaySettingsUtil.instance != null:
 		DisplaySettingsUtil.instance.call("cycle_ui_scale")
-	_enter_display_settings(2)
+	_enter_display_settings(3)
 
 
 func _on_display_settings_back() -> void:
@@ -524,6 +539,11 @@ func _enter_game_over(survival: float, kills: int) -> void:
 	# "再来一局"会重新 begin_run()。
 	RunStateUtil.end_run()
 	var improved := SaveUtil.submit_run(survival, kills)
+	_show_game_over(survival, kills, SaveUtil.get_best_survival(), SaveUtil.get_best_kills(), improved)
+
+
+## 绘制与成绩提交分开，截图验收真实结算布局时不必改写玩家存档。
+func _show_game_over(survival: float, kills: int, best_survival: float, best_kills: int, improved: bool) -> void:
 	_title.text = "阵 亡"
 	_clear_arena_row()
 	# "★ 新纪录"单独一行且只在真的刷新时才占位 —— 它是一句祝贺，
@@ -540,12 +560,17 @@ func _enter_game_over(survival: float, kills: int) -> void:
 		{"label": "本局击杀", "value": "%d" % kills},
 		{
 			"label": "最好成绩",
-			"value": _format_time(SaveUtil.get_best_survival()),
-			"sub": "最佳击杀 %d" % SaveUtil.get_best_kills(),
+			"value": _format_time(best_survival),
+			"sub": "最佳击杀 %d" % best_kills,
 		},
 	])
 	get_tree().paused = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func _preview_game_over() -> void:
+	state = State.GAME_OVER
+	_show_game_over(219.57, 47, 373.58, 228, false)
 
 
 ## 一个阶段的 Boss 被击败。与阵亡不同之处在于"还有下一张图"，
@@ -610,6 +635,21 @@ func _notification(what: int) -> void:
 
 func _input(event: InputEvent) -> void:
 	if not event.is_action_pressed("ui_cancel"):
+		return
+	# 实验场景只需要冻结画面来截图，不需要暂停菜单遮住构图。该元数据仅由
+	# experiment_quickstart.gd 在实验场景生命周期内设置，正式游戏行为不变。
+	if bool(get_meta(&"experiment_silent_pause", false)):
+		if state == State.PLAYING:
+			state = State.PAUSED
+			_set_overlay_visible(false)
+			get_tree().paused = true
+			# 截图时通常还要切到截图工具或其它窗口；暂停后释放鼠标，移出游戏
+			# 窗口即可操作桌面。继续游戏时 _resume_play() 会重新捕获。
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+			get_viewport().set_input_as_handled()
+		elif state == State.PAUSED:
+			_resume_play()
+			get_viewport().set_input_as_handled()
 		return
 	if state == State.PLAYING:
 		_enter_pause()

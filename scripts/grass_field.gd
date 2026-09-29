@@ -82,6 +82,7 @@ var _sway_frequency := 6.5
 var _idle_strength := 0.55
 var _trample_ref_speed := 4.6
 var _wind := 0.0
+var _weather_wind_direction := Vector2.RIGHT
 var _lod_interval := 0.12
 
 ## 三级 LOD 共用一份材质：uniform 只更新一次就对整个草地生效。
@@ -104,6 +105,7 @@ func _ready() -> void:
 	if Engine.is_editor_hint() and not editor_preview_enabled:
 		return
 	_load_params()
+	add_to_group("weather_wind_receiver")
 	_build()
 	# 【进树的第一帧之前就把 LOD 摆到与真实距离一致的状态】
 	# 否则要等 _lod_interval（0.12 秒）后第一次 _update_visibility() 才纠偏，
@@ -121,11 +123,39 @@ func _process(delta: float) -> void:
 		return
 	_time += delta
 	_material.set_shader_parameter("u_time", _time)
+	_update_ground_impulses()
 	_update_trample(delta)
 	_lod_timer += delta
 	if _lod_timer >= _lod_interval:
 		_lod_timer = 0.0
 		_update_visibility()
+
+
+func _update_ground_impulses() -> void:
+	# 最多处理八个接触事件，与草株数量无关；事件本身随场景和暂停管理。
+	var pulses := PackedVector4Array()
+	for effect in get_tree().get_nodes_in_group("ground_impulse"):
+		if pulses.size() >= 8:
+			break
+		if effect.has_method("impulse"):
+			var sample: Vector4 = effect.call("impulse")
+			if sample.w > 0.001:
+				pulses.append(sample)
+	var count := pulses.size()
+	pulses.resize(8)
+	_material.set_shader_parameter("u_ground_impulse", pulses)
+	_material.set_shader_parameter("u_ground_impulse_count", count)
+
+
+## 天气系统是整张地图唯一的风源。strength 在静风期会严格回到 0；这里不自行
+## 生成常态摆动，避免天气说“无风”时草仍在持续摇晃。
+func set_weather_wind(direction: Vector2, strength: float) -> void:
+	if direction.length_squared() > 0.0001:
+		_weather_wind_direction = direction.normalized()
+	_wind = clampf(strength, 0.0, 1.0) * 0.16
+	if is_instance_valid(_material):
+		_material.set_shader_parameter("u_wind", _wind)
+		_material.set_shader_parameter("u_wind_direction", _weather_wind_direction)
 
 
 # ---------------------------------------------------------------- 参数
@@ -501,6 +531,7 @@ func _make_material() -> ShaderMaterial:
 	material.set_shader_parameter("u_sway_amplitude", _sway_amplitude)
 	material.set_shader_parameter("u_sway_frequency", _sway_frequency)
 	material.set_shader_parameter("u_wind", _wind)
+	material.set_shader_parameter("u_wind_direction", _weather_wind_direction)
 	material.set_shader_parameter("u_tuft_height", TUFT_HEIGHT)
 	material.set_shader_parameter("u_time", 0.0)
 	material.set_shader_parameter("u_trample_count", 0)

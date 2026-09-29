@@ -1,0 +1,44 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/prototypes/lab_beast_target.gd" id="1_target"]
+[ext_resource type="PackedScene" path="res://scenes/prototypes/fast_beast_prototype.tscn" id="2_visual"]
+
+[sub_resource type="CapsuleShape3D" id="TargetShape"]
+radius = 0.62
+height = 2.75
+
+[sub_resource type="StandardMaterial3D" id="ShadowMaterial"]
+transparency = 1
+shading_mode = 0
+albedo_color = Color(0.02, 0.025, 0.03, 0.24)
+
+[sub_resource type="CylinderMesh" id="ShadowMesh"]
+material = SubResource("ShadowMaterial")
+top_radius = 0.72
+bottom_radius = 0.72
+height = 0.015
+radial_segments = 12
+
+[node name="LabBeastTarget" type="CharacterBody3D" groups=["lab_melee_target"]]
+collision_layer = 4
+collision_mask = 7
+script = ExtResource("1_target")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0.78, 0)
+rotation = Vector3(1.5708, 0, 0)
+shape = SubResource("TargetShape")
+
+[node name="Shadow" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.025, 0)
+scale = Vector3(1, 1, 1.45)
+mesh = SubResource("ShadowMesh")
+
+[node name="DeathPivot" type="Node3D" parent="."]
+position = Vector3(0, 0.78, 0)
+
+[node name="Visual" type="Node3D" parent="DeathPivot"]
+position = Vector3(0, -0.78, 0)
+scale = Vector3(0.78, 0.78, 0.78)
+
+[node name="FastBeastPrototype" parent="DeathPivot/Visual" instance=ExtResource("2_visual")]

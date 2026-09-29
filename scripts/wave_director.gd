@@ -154,6 +154,14 @@ func _start_waves() -> void:
 	_enter_prepare(true)
 
 
+## 场景在所有节点 ready 后才切入 PLAYING 时补启动（例如实验场景快速开始）。
+## 正式流程仍由 _ready 自动启动；重复调用由 _started 保证幂等。
+func start_for_active_run() -> void:
+	if not GameFlowUtil.is_playing():
+		return
+	_start_waves()
+
+
 func _on_weapon_level_changed(level: int) -> void:
 	_weapon_level = level
 

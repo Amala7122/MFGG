@@ -92,12 +92,17 @@ static var best_survival_time: float
 @onready var camera_pivot: Node3D = $CameraPivot
 @onready var spring_arm: SpringArm3D = get_node_or_null("CameraPivot/SpringArm3D")
 @onready var camera: Camera3D = get_node_or_null("CameraPivot/SpringArm3D/Camera3D")
+@onready var _flashlight: PlayerFlashlight = get_node_or_null("CameraPivot/FlashlightRig")
 @onready var player_model: Node3D = get_node_or_null("PlayerModel")
 @onready var aim_ui: CanvasLayer = get_node_or_null("AimUI")
 
 var _rig: PlayerRig
 var _weapon: PlayerWeapon
 var _hud: PlayerHUD
+## -1 跟随天气自动开关；按 F 后以玩家选择为准，直到本局结束。
+var _flashlight_override := -1
+var _flashlight_weather: Node
+var _flashlight_sun: DirectionalLight3D
 
 var _aiming := false
 var _sprinting := false
@@ -146,6 +151,7 @@ func _ready() -> void:
 	_has_safe_position = true
 	shield = max_shield
 	_setup_components()
+	_update_flashlight()
 	_refresh_hud()
 
 
@@ -302,7 +308,12 @@ func _input(event: InputEvent) -> void:
 	# ESC 也统一交给 GameFlow 处理，避免两边各切一次状态。
 	if not GameFlowUtil.is_playing():
 		return
-	if event is InputEventMouseMotion and _is_aim_captured():
+	if event.is_action_pressed("flashlight") and not event.is_echo():
+		_flashlight_override = 0 if _flashlight != null and _flashlight.is_light_enabled() else 1
+		_update_flashlight()
+		if _hud:
+			_hud.show_notice("手电筒已开启" if _flashlight_override == 1 else "手电筒已关闭")
+	elif event is InputEventMouseMotion and _is_aim_captured():
 		var sensitivity := mouse_sensitivity * (sniper_sensitivity_multiplier if _aiming else 1.0)
 		target_yaw -= event.relative.x * sensitivity
 		target_pitch -= event.relative.y * sensitivity
@@ -314,6 +325,7 @@ func _input(event: InputEvent) -> void:
 # ---------------------------------------------------------------- 主循环
 
 func _physics_process(delta: float) -> void:
+	_update_flashlight()
 	if _dying:
 		_update_death(delta)
 		return
@@ -334,6 +346,22 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	_try_step_up(move_start, requested_horizontal, started_on_floor)
 	_update_landing(delta)
+
+
+func _update_flashlight() -> void:
+	if _flashlight == null:
+		return
+	if not is_instance_valid(_flashlight_weather):
+		_flashlight_weather = get_tree().root.find_child("WeatherSystem", true, false)
+		if _flashlight_weather != null:
+			_flashlight_sun = _flashlight_weather.get_node_or_null("../Sky3D/SunLight") as DirectionalLight3D
+	var automatic := false
+	if is_instance_valid(_flashlight_weather) and is_instance_valid(_flashlight_sun):
+		var rain := float(_flashlight_weather.get("_rain_intensity"))
+		var sun_height := _flashlight_sun.global_basis.z.normalized().y
+		automatic = rain >= 0.68 and sun_height < 0.12
+	var enabled := automatic if _flashlight_override < 0 else _flashlight_override == 1
+	_flashlight.set_light_enabled(enabled)
 
 
 ## Godot 的 CharacterBody3D 不会自动跨过垂直小边，即使它只有半米高。
@@ -541,6 +569,7 @@ func _handle_grenade() -> void:
 	var forward := -camera_pivot.global_basis.z
 	var origin := global_position + Vector3.UP * 1.35 + forward * 0.7
 	var grenade := Grenade.new()
+	grenade.set_meta(&"combat_context", preload("res://scripts/combat_telemetry.gd").begin_attack(self, "E"))
 	scene.add_child(grenade)
 	grenade.launch(origin, forward + Vector3.UP * 0.16, grenade_throw_speed)
 
@@ -553,6 +582,7 @@ func _handle_skill() -> void:
 		return
 	_skill_cooldown = skill_cooldown_time
 	var wave := Shockwave.new()
+	wave.set_meta(&"combat_context", preload("res://scripts/combat_telemetry.gd").begin_attack(self, "Q"))
 	scene.add_child(wave)
 	wave.global_position = global_position + Vector3.UP * 0.15
 	wave.perform(skill_radius, skill_damage, skill_push)
@@ -659,6 +689,12 @@ func _recover_if_below_world() -> bool:
 func take_damage(
 	amount: float, source_position: Vector3 = Vector3.ZERO, shield_damage_scale: float = 1.0
 ) -> void:
+	# 实验关可在玩家实例上加这个元数据；正式关卡没有它，受伤规则完全不变。
+	if bool(get_meta(&"experiment_invincible", false)):
+		# 测试无敌只免扣血；翻滚免伤仍算成功躲避，不播放命中闪白。
+		if amount > 0.0 and health > 0.0 and _damage_invulnerability <= 0.0 and _rig:
+			_rig.flash_hit()
+		return
 	if _damage_invulnerability > 0.0 or health <= 0.0:
 		return
 	amount = maxf(amount, 0.0)
@@ -687,6 +723,8 @@ func take_damage(
 	_damage_invulnerability = hit_invulnerability
 	AudioUtil.play("hurt")
 	if _rig:
+		if amount > 0.0:
+			_rig.flash_hit()
 		_rig.flinch()
 	if _hud:
 		_hud.set_health(health, max_health)

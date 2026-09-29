@@ -53,6 +53,9 @@ var _vitals: VitalsPanelScript
 var _damage_direction: DamageDirectionIndicatorScript
 var _weapon_panel: WeaponPanelScript
 var _minimap: MinimapScript
+var _game_time_plate: ReadoutPlateScript
+var _sky_time: Node
+var _has_sky_time := false
 var _fps_label: Label
 var _low_health: LowHealthOverlayScript
 var _kill_plate: ReadoutPlateScript
@@ -155,6 +158,8 @@ const VITALS_TOP := 16.0
 ## 击杀读数板的宽度（右上角，与小地图同宽对齐右边界）。
 const KILL_PLATE_WIDTH := 108.0
 const KILL_PLATE_HEIGHT := 26.0
+## 游戏时钟独立放在小地图上方，避免重新占用地图内容区。
+const GAME_TIME_PLATE_HEIGHT := 24.0
 ## 生存读数板的宽度。它是"当前局"最核心的一个数，所以给得比击杀宽。
 const SURVIVAL_PLATE_WIDTH := 220.0
 const SURVIVAL_PLATE_HEIGHT := 26.0
@@ -166,9 +171,9 @@ const LAYOUT_GAP := 4.0
 ## 顶部中央那一列与左右两栏之间的留白。比 LAYOUT_GAP 宽：这一列是"插在"
 ## 两栏之间的，4 像素看着像贴上了，8 像素才读得出是两块独立的板。
 const TOP_ROW_GAP := 8.0
-const WAVE_LABEL_TOP := 48.0
-const WAVE_LABEL_HEIGHT := 28.0
-const BOSS_BAR_TOP := 82.0
+const WAVE_LABEL_TOP := 22.0
+const WAVE_LABEL_HEIGHT := 42.0
+const BOSS_BAR_TOP := 76.0
 const BOSS_BAR_HEIGHT := 40.0
 
 ## 阶段/波次横幅与 Boss 血条。都挂在屏幕顶部中央 ——
@@ -224,6 +229,7 @@ func setup(aim_ui: CanvasLayer, camera: Camera3D = null, player: Node3D = null) 
 	_build_wave_readout()
 	_build_boss_bar()
 	_build_death_overlay()
+	_bind_sky_time()
 	# 最后统一落位：各 _build_* 里写的只是初值。
 	# 【这里不做两遍】原先先调一次 _layout_top_hud() 再调 relayout_for_width()，
 	# 两处都在摆右上角那一列，改一处忘一处就会出现"某个宽度下才对"的错位。
@@ -298,7 +304,7 @@ func _center_half_width(width: float) -> float:
 	return maxf(width * 0.5 - guard, 80.0)
 
 
-## 右上角那一列：小地图 → 击杀读数 → 帧数读数，自上而下依次排开。
+## 右上角那一列：游戏时钟 → 小地图 → 击杀读数 → 帧数读数，自上而下排开。
 ##
 ## player.tscn 里 KillLabel 在 24..56（右上角），而小地图占 26..194 ——
 ## 两者重叠，击杀数被压在地图上面看不清。这里把它们串成一列。
@@ -307,6 +313,13 @@ func _center_half_width(width: float) -> float:
 ## 高度由字体撑到 26，压不住 22 的槽位 —— 实际矩形会向下长到 28，
 ## 于是压进小地图 2 像素。挂在击杀读数下面就没有这个"最小高度顶出去"的问题。
 func _place_right_column() -> void:
+	if _fps_label != null:
+		_fps_label.offset_top = _below_minimap()
+		_fps_label.offset_bottom = _below_minimap() + FPS_PLATE_HEIGHT
+	if _minimap != null:
+		var minimap_top := _minimap_top()
+		_minimap.offset_top = minimap_top
+		_minimap.offset_bottom = minimap_top + MinimapScript.PANEL_SIZE
 	if _kill_plate != null:
 		var top := _below_minimap()
 		_kill_plate.offset_top = top
@@ -319,7 +332,13 @@ func _place_right_column() -> void:
 
 ## 小地图下沿再留一点缝的位置。
 func _below_minimap() -> float:
-	return MinimapScript.MARGIN + MinimapScript.PANEL_SIZE + LAYOUT_GAP * 2.0
+	return _minimap_top() + MinimapScript.PANEL_SIZE + LAYOUT_GAP * 2.0
+
+
+func _minimap_top() -> float:
+	if _has_sky_time:
+		return MinimapScript.MARGIN + GAME_TIME_PLATE_HEIGHT + LAYOUT_GAP
+	return MinimapScript.MARGIN
 
 
 ## 波次横幅。内容由 wave_director 的快照字典决定，HUD 只负责转发 ——
@@ -396,12 +415,11 @@ func _build_damage_direction(camera: Camera3D) -> void:
 func _build_vitals() -> void:
 	_vitals = VitalsPanelScript.new()
 	_vitals.name = "VitalsPanel"
-	_vitals.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	_vitals.offset_left = VITALS_LEFT
-	_vitals.offset_right = VITALS_LEFT + VitalsPanelScript.PANEL_WIDTH
-	_vitals.offset_top = VITALS_TOP
-	_vitals.offset_bottom = VITALS_TOP + VitalsPanelScript.PANEL_HEIGHT
-	_vitals.scale = Vector2(0.88, 0.88)
+	_vitals.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_vitals.offset_left = -VitalsPanelScript.PANEL_WIDTH * 0.5
+	_vitals.offset_right = VitalsPanelScript.PANEL_WIDTH * 0.5
+	_vitals.offset_top = -26.0 - VitalsPanelScript.PANEL_HEIGHT
+	_vitals.offset_bottom = -26.0
 	_aim_ui.add_child(_vitals)
 
 
@@ -413,39 +431,13 @@ func _build_vitals() -> void:
 func _build_extra_readouts() -> void:
 	_ability_bar = AbilityBarScript.new()
 	_ability_bar.name = "AbilityBar"
-	_ability_bar.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	_ability_bar.offset_left = 18.0
-	_ability_bar.offset_top = -49.0
-	_ability_bar.offset_right = 18.0 + AbilityBarScript.PANEL_WIDTH
-	_ability_bar.offset_bottom = -13.0
-	_ability_bar.scale = Vector2(0.85, 0.85)
+	_ability_bar.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	_ability_bar.offset_left = -26.0 - AbilityBarScript.PANEL_WIDTH
+	_ability_bar.offset_right = -26.0
+	_ability_bar.offset_top = -26.0 - AbilityBarScript.PANEL_HEIGHT
+	_ability_bar.offset_bottom = -26.0
 	_aim_ui.add_child(_ability_bar)
-
-	# 生存读数：顶部中央，落位见 relayout_for_width 与 _center_half_width。
-	_survival_plate = ReadoutPlateScript.new()
-	_survival_plate.name = "SurvivalPlate"
-	_survival_plate.configure(UiThemeUtil.COLOR_ACCENT, UiThemeUtil.PLATE_SHIELD)
-	_survival_plate.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	_survival_plate.offset_left = -SURVIVAL_PLATE_WIDTH * 0.5
-	_survival_plate.offset_right = SURVIVAL_PLATE_WIDTH * 0.5
-	_survival_plate.offset_top = SURVIVAL_PLATE_TOP
-	_survival_plate.offset_bottom = SURVIVAL_PLATE_TOP + SURVIVAL_PLATE_HEIGHT
-	_aim_ui.add_child(_survival_plate)
-
-	# 击杀读数：贴右上角，右边界与小地图对齐（落位见 _place_right_column）。
-	_kill_plate = ReadoutPlateScript.new()
-	_kill_plate.name = "KillPlate"
-	# 击杀用暖色而不是青色：它是"战绩"，与"当前状态"那套青色要分开，
-	# 而全场唯一的暖色本来就是弹药 —— 两者语义也接近（都是打出来的东西）。
-	_kill_plate.configure(UiThemeUtil.COLOR_AMMO, UiThemeUtil.PLATE_GOLD)
-	# 击杀数是整屏唯一"偶尔跳一下"的读数，所以只有它开闪光。
-	# 生存时间每秒变几十次，开了会一直抖。
-	_kill_plate.pulse_on_change = true
-	_kill_plate.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	_kill_plate.offset_right = -MinimapScript.MARGIN
-	_kill_plate.offset_left = -MinimapScript.MARGIN - KILL_PLATE_WIDTH
-	_aim_ui.add_child(_kill_plate)
-
+	# 战斗画面仅保留行动所需的信息；战绩仍由 GameFlow 记录并在结算展示。
 
 func _build_notifications() -> void:
 	_notifications = NotificationStackScript.new()
@@ -498,9 +490,54 @@ func _build_minimap(player: Node3D, camera: Camera3D) -> void:
 	_minimap.anchor_right = 1.0
 	_minimap.offset_left = -MinimapScript.PANEL_SIZE - MinimapScript.MARGIN
 	_minimap.offset_right = -MinimapScript.MARGIN
-	_minimap.offset_top = MinimapScript.MARGIN
-	_minimap.offset_bottom = MinimapScript.PANEL_SIZE + MinimapScript.MARGIN
+	_minimap.offset_top = _minimap_top()
+	_minimap.offset_bottom = _minimap_top() + MinimapScript.PANEL_SIZE
 	_aim_ui.add_child(_minimap)
+
+
+func _bind_sky_time() -> void:
+	if _aim_ui == null or _game_time_plate == null:
+		return
+	var tree := _aim_ui.get_tree()
+	var scene := tree.current_scene
+	var time_node := scene.find_child("TimeOfDay", true, false) if scene != null else null
+	if _is_sky_time_node(time_node):
+		_attach_sky_time(time_node)
+		return
+	# 实验场景会在运行时补建 Sky3D。等节点出现再绑定，期间不显示假时间，
+	# 小地图也保持原来的顶部位置。
+	if not tree.node_added.is_connected(_on_sky_time_node_added):
+		tree.node_added.connect(_on_sky_time_node_added)
+
+
+func _on_sky_time_node_added(node: Node) -> void:
+	if _is_sky_time_node(node):
+		_attach_sky_time(node)
+
+
+func _is_sky_time_node(node: Node) -> bool:
+	if node == null or not node.has_signal("time_changed"):
+		return false
+	var script := node.get_script() as Script
+	return script != null and script.resource_path == "res://addons/sky_3d/src/TimeOfDay.gd"
+
+
+func _attach_sky_time(time_node: Node) -> void:
+	_sky_time = time_node
+	_has_sky_time = true
+	_game_time_plate.visible = true
+	_on_sky_time_changed(float(_sky_time.get("current_time")))
+	if not _sky_time.is_connected("time_changed", _on_sky_time_changed):
+		_sky_time.connect("time_changed", _on_sky_time_changed)
+	var tree := _aim_ui.get_tree()
+	if tree.node_added.is_connected(_on_sky_time_node_added):
+		tree.node_added.disconnect(_on_sky_time_node_added)
+	_place_right_column()
+
+
+func _on_sky_time_changed(current_time: float) -> void:
+	if _game_time_plate != null:
+		_game_time_plate.set_readout("时刻", format_game_time(current_time))
 
 
 ## 性能探索阶段常驻帧数。它是 Label 而不是自绘控件，所以【不能】自己算槽位：
@@ -691,6 +728,12 @@ func flash_damage() -> void:
 
 
 # ---------------------------------------------------------------- 工具
+
+## Sky3D TimeOfDay.current_time 使用 0..24 的浮点小时；HUD 只显示小时与分钟。
+static func format_game_time(hours: float) -> String:
+	var wrapped := fposmod(hours, 24.0)
+	return "%02d:%02d" % [floori(wrapped), floori(fmod(wrapped, 1.0) * 60.0)]
+
 
 func _format_time(seconds: float) -> String:
 	return "%02d:%05.2f" % [floori(seconds / 60.0), fmod(seconds, 60.0)]

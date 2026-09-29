@@ -14,6 +14,7 @@ extends RefCounted
 const PoolUtil := preload("res://scripts/object_pool.gd")
 const ImpactSparkUtil := preload("res://scripts/impact_spark.gd")
 const DamageNumberUtil := preload("res://scripts/damage_number.gd")
+const Telemetry := preload("res://scripts/combat_telemetry.gd")
 
 const COLOR_ENEMY_HIT := Color(1.0, 0.78, 0.24, 1.0)
 const COLOR_PLAYER_HIT := Color(1.0, 0.26, 0.22, 1.0)
@@ -95,7 +96,7 @@ static func apply_radial_damage(
 				continue
 		var falloff := clampf(1.0 - distance / maxf(radius, 0.01), 0.25, 1.0)
 		if enemy.has_method("take_damage"):
-			enemy.call("take_damage", damage * falloff)
+			Telemetry.hurt_enemy(enemy, damage * falloff, source.get_meta(Telemetry.CONTEXT, {}))
 			hits += 1
 		if push_force > 0.0 and enemy.has_method("apply_push"):
 			var direction := offset

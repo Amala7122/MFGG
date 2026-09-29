@@ -7,6 +7,7 @@ extends Node
 ## 构造，wave_director 只管"什么时候、在哪、出什么"。改数值规则只动这里。
 
 const ConfigUtil := preload("res://scripts/game_config.gd")
+const GaitUtil := preload("res://scripts/enemy_gait.gd")
 const BallisticsUtil := preload("res://scripts/ballistics.gd")
 const BossUtil := preload("res://scripts/boss.gd")
 
@@ -124,14 +125,19 @@ func _apply_enemy_config(enemy: Node3D, info: Dictionary) -> void:
 		"configure_stats", float(entry.get("scale", 1.0)), health, speed, damage,
 		_resolve_attrs(entry)
 	)
+	enemy.call("configure_gait", GaitUtil.resolve(entry))
 
 
-## 合并『重量』属性：先取 enemy_roster.attrs_default（全部等于旧行为），
-## 再用本条 entry 的 attrs 覆盖。逐条启用时只有被覆盖的那几项会改变行为。
+## 合并重量属性：默认 → 步态的转向/起停 → 兵种显式 attrs。
+## 步态不会覆盖护甲、击退抗性等战斗重量属性。
 func _resolve_attrs(entry: Dictionary) -> Dictionary:
 	# 必须 duplicate：get_dictionary 返回的是配置内部字典的【引用】，
 	# 直接写入会把这条覆盖污染到全局，之后所有敌人都跟着变。
 	var attrs := ConfigUtil.get_dictionary("enemy_roster.attrs_default").duplicate(true)
+	var gait := GaitUtil.resolve(entry)
+	for field in GaitUtil.MOTION_FIELDS:
+		if gait.has(field):
+			attrs[field] = gait[field]
 	var overrides: Variant = entry.get("attrs", null)
 	if overrides is Dictionary:
 		for key in (overrides as Dictionary):

@@ -1,8 +1,14 @@
 [gd_scene format=3 uid="uid://lvxpbpgln3x1"]
 
 [ext_resource type="Script" uid="uid://cgachp1vvj4eg" path="res://scripts/player.gd" id="1_player"]
+[ext_resource type="Script" path="res://scripts/player_flashlight.gd" id="2_flashlight"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
+
+[sub_resource type="FogMaterial" id="FogMaterial_flashlight"]
+albedo = Color(0.68, 0.76, 0.83, 1)
+density = 0.006
+edge_fade = 0.75
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_cloth"]
 albedo_color = Color(0.15, 0.17, 0.21, 1)
@@ -558,6 +564,28 @@ omni_range = 3.0
 
 [node name="CameraPivot" type="Node3D" parent="." unique_id=2032602998]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+
+[node name="FlashlightRig" type="Node3D" parent="CameraPivot"]
+visible = false
+script = ExtResource("2_flashlight")
+
+[node name="Core" type="SpotLight3D" parent="CameraPivot/FlashlightRig"]
+transform = Transform3D(1, 0, 0, 0, 0.965926, -0.258819, 0, 0.258819, 0.965926, 0.48, 0.74, -1.05)
+light_color = Color(1, 0.96, 0.84, 1)
+light_energy = 28.0
+light_volumetric_fog_energy = 1.2
+light_specular = 0.25
+shadow_enabled = true
+shadow_normal_bias = 0.28
+spot_range = 38.0
+spot_attenuation = 0.42
+spot_angle = 33.0
+spot_angle_attenuation = 1.7
+
+[node name="Beam" type="FogVolume" parent="CameraPivot/FlashlightRig"]
+transform = Transform3D(1, 0, 0, 0, 0.965926, -0.258819, 0, 0.258819, 0.965926, 0.48, -2.20744, -12.05)
+size = Vector3(15, 8, 22)
+material = SubResource("FogMaterial_flashlight")
 
 [node name="SpringArm3D" type="SpringArm3D" parent="CameraPivot" unique_id=1412550222]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.05, 0.12, 0)

@@ -1,0 +1,1159 @@
+{
+  "version": 1,
+  "id": "PrototypeSedimentTitan",
+  "title": "沉积泰坦",
+  "groups": [
+    {
+      "title": "基础属性",
+      "fields": [
+        {
+          "key": "max_health",
+          "label": "最大生命",
+          "value": 450,
+          "min": 1,
+          "max": 100000,
+          "step": 1,
+          "unit": "点",
+          "tip": ""
+        },
+        {
+          "key": "body_size",
+          "label": "基础体型倍率",
+          "value": 1.0,
+          "min": 0.25,
+          "max": 4.0,
+          "step": 0.05,
+          "unit": "倍",
+          "tip": "1 为原始体型，2 为长宽高均放大两倍。实际体型 = 基础倍率 × 随机体型倍率；同步缩放模型、碰撞、避让与近战命中范围。生命、伤害和移动速度由各自参数控制。"
+        },
+        {
+          "key": "move_speed",
+          "label": "移动速度",
+          "value": 1.6,
+          "min": 0,
+          "max": 30,
+          "step": 0.1,
+          "unit": "米/秒",
+          "tip": ""
+        },
+        {
+          "key": "turn_speed",
+          "label": "转向速度",
+          "value": 2,
+          "min": 0,
+          "max": 20,
+          "step": 0.1,
+          "unit": "弧度/秒",
+          "tip": ""
+        },
+        {
+          "key": "acceleration",
+          "label": "移动加速度",
+          "value": 8,
+          "min": 0.1,
+          "max": 100,
+          "step": 0.1,
+          "unit": "米/秒²",
+          "tip": ""
+        },
+        {
+          "key": "gravity",
+          "label": "重力",
+          "value": 20,
+          "min": 0.1,
+          "max": 100,
+          "step": 0.1,
+          "unit": "米/秒²",
+          "tip": ""
+        },
+        {
+          "key": "push_decay",
+          "label": "击退衰减",
+          "value": 8,
+          "min": 0.1,
+          "max": 100,
+          "step": 0.1,
+          "unit": "米/秒²",
+          "tip": ""
+        },
+        {
+          "key": "push_multiplier",
+          "label": "击退倍率",
+          "value": 0.15,
+          "min": 0,
+          "max": 5,
+          "step": 0.05,
+          "unit": "倍",
+          "tip": ""
+        },
+        {
+          "key": "separation_radius",
+          "label": "避让距离",
+          "value": 3,
+          "min": 0.1,
+          "max": 10,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "formation_width",
+          "label": "基础排列占位",
+          "value": 6,
+          "min": 1,
+          "max": 20,
+          "step": 0.1,
+          "unit": "米",
+          "tip": "实际排列宽度 = 此值 × 基础体型倍率。随机体型保留原有占位余量；超出单排空间时无法生成。"
+        }
+      ]
+    },
+    {
+      "title": "出土与动作",
+      "fields": [
+        {
+          "key": "spawn_duration",
+          "label": "出土时长",
+          "value": 2.5,
+          "min": 0,
+          "max": 30,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "spawn_depth",
+          "label": "出土深度",
+          "value": 2.5,
+          "min": 0,
+          "max": 10,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "spawn_ready_delay",
+          "label": "出土后首次攻击等待",
+          "value": 1.5,
+          "min": 0,
+          "max": 30,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "walk_frequency",
+          "label": "步态频率",
+          "value": 4.5,
+          "min": 0.1,
+          "max": 40,
+          "step": 0.1,
+          "unit": "弧度/秒",
+          "tip": ""
+        },
+        {
+          "key": "walk_bob",
+          "label": "走路起伏",
+          "value": 0.1,
+          "min": 0,
+          "max": 0.5,
+          "step": 0.01,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "crystal_spin_speed",
+          "label": "普通晶体旋转速度",
+          "value": 45,
+          "min": 0,
+          "max": 720,
+          "step": 5,
+          "unit": "度/秒",
+          "tip": ""
+        }
+      ]
+    },
+    {
+      "title": "直线砸地",
+      "fields": [
+        {
+          "key": "slam_damage",
+          "label": "伤害",
+          "value": 35,
+          "min": 0,
+          "max": 10000,
+          "step": 1,
+          "unit": "点",
+          "tip": ""
+        },
+        {
+          "key": "slam_distance",
+          "label": "攻击长度",
+          "value": 8,
+          "min": 0.1,
+          "max": 50,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "slam_width",
+          "label": "攻击宽度",
+          "value": 2.6,
+          "min": 0.1,
+          "max": 20,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "slam_offset",
+          "label": "横向偏移",
+          "value": -0.5,
+          "min": -10,
+          "max": 10,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "slam_windup",
+          "label": "前摇 / 蓄力",
+          "value": 0.65,
+          "min": 0,
+          "max": 20,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "slam_swing",
+          "label": "下砸 / 施放",
+          "value": 0.12,
+          "min": 0,
+          "max": 10,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "slam_sink_time",
+          "label": "拳头下沉",
+          "value": 0.08,
+          "min": 0,
+          "max": 10,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "slam_hold",
+          "label": "落地停顿",
+          "value": 0.22,
+          "min": 0,
+          "max": 20,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "slam_recovery",
+          "label": "后摇 / 拔拳",
+          "value": 0.28,
+          "min": 0,
+          "max": 20,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "slam_cooldown",
+          "label": "独立冷却（从蓄力开始）",
+          "value": 2,
+          "min": 0,
+          "max": 60,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": "本招独立计时；收招后可使用其他合适招式或继续追击。"
+        }
+      ]
+    },
+    {
+      "title": "左臂270度横扫",
+      "fields": [
+        {
+          "key": "sweep_damage",
+          "label": "伤害",
+          "value": 25,
+          "min": 0,
+          "max": 10000,
+          "step": 1,
+          "unit": "点",
+          "tip": ""
+        },
+        {
+          "key": "sweep_distance",
+          "label": "攻击半径",
+          "value": 5,
+          "min": 0.1,
+          "max": 50,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "sweep_preferred_distance",
+          "label": "优先施放距离",
+          "value": 4.5,
+          "min": 0.1,
+          "max": 50,
+          "step": 0.1,
+          "unit": "米",
+          "tip": "此距离内优先横扫；不得大于横扫半径。"
+        },
+        {
+          "key": "sweep_angle",
+          "label": "横扫扇形角度",
+          "value": 270,
+          "min": 1,
+          "max": 360,
+          "step": 1,
+          "unit": "度",
+          "tip": ""
+        },
+        {
+          "key": "sweep_windup",
+          "label": "前摇 / 蓄力",
+          "value": 0.65,
+          "min": 0,
+          "max": 20,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "sweep_swing",
+          "label": "横扫 / 施放",
+          "value": 0.45,
+          "min": 0,
+          "max": 10,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "sweep_recovery",
+          "label": "后摇 / 复位",
+          "value": 0.30,
+          "min": 0,
+          "max": 20,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "sweep_cooldown",
+          "label": "独立冷却（从蓄力开始）",
+          "value": 1.5,
+          "min": 0,
+          "max": 60,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": "本招独立计时；收招后可使用其他合适招式或继续追击。"
+        }
+      ]
+    },
+    {
+      "title": "普通泥浆护盾",
+      "fields": [
+        {
+          "key": "mud_shield_enabled",
+          "label": "启用普通泥盾",
+          "value": true,
+          "tip": ""
+        },
+        {
+          "key": "mud_shield_windup",
+          "label": "施盾前摇",
+          "value": 0.0,
+          "min": 0.0,
+          "max": 20.0,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": "三项均为 0 时瞬时释放；前摇和施放结束后护盾生效。"
+        },
+        {
+          "key": "mud_shield_cast",
+          "label": "施放时间",
+          "value": 0.0,
+          "min": 0.0,
+          "max": 20.0,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": "三项均为 0 时瞬时释放；前摇和施放结束后护盾生效。"
+        },
+        {
+          "key": "mud_shield_recovery",
+          "label": "施盾后摇",
+          "value": 0.0,
+          "min": 0.0,
+          "max": 20.0,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": "三项均为 0 时瞬时释放；前摇和施放结束后护盾生效。"
+        },
+        {
+          "key": "shield_reduction",
+          "label": "护盾减伤",
+          "value": 0.8,
+          "min": 0,
+          "max": 0.95,
+          "step": 0.01,
+          "unit": "比例",
+          "tip": ""
+        },
+        {
+          "key": "mud_shield_duration",
+          "label": "持续时间",
+          "value": 6,
+          "min": 0.1,
+          "max": 60,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "mud_shield_first_min",
+          "label": "首次等待下限",
+          "value": 4,
+          "min": 0,
+          "max": 60,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "mud_shield_first_max",
+          "label": "首次等待上限",
+          "value": 8,
+          "min": 0,
+          "max": 60,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "mud_shield_interval_min",
+          "label": "冷却下限",
+          "value": 10,
+          "min": 0.1,
+          "max": 120,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "mud_shield_interval_max",
+          "label": "冷却上限",
+          "value": 16,
+          "min": 0.1,
+          "max": 120,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "mud_shield_break_on_q",
+          "label": "Q 命中解除护盾",
+          "value": true,
+          "tip": ""
+        },
+        {
+          "key": "mud_shield_spin",
+          "label": "护盾旋转速度",
+          "value": 0.65,
+          "min": 0,
+          "max": 10,
+          "step": 0.05,
+          "unit": "弧度/秒",
+          "tip": ""
+        }
+      ]
+    },
+    {
+      "title": "红晶狂暴",
+      "fields": [
+        {
+          "key": "rage_enabled",
+          "label": "启用狂暴",
+          "value": true,
+          "tip": ""
+        },
+        {
+          "key": "rage_health_ratio",
+          "label": "触发剩余生命比例",
+          "value": 0.5,
+          "min": 0.01,
+          "max": 0.99,
+          "step": 0.01,
+          "unit": "比例",
+          "tip": ""
+        },
+        {
+          "key": "rage_range_multiplier",
+          "label": "攻击距离倍率",
+          "value": 2,
+          "min": 1,
+          "max": 10,
+          "step": 0.1,
+          "unit": "倍",
+          "tip": ""
+        },
+        {
+          "key": "rage_damage_multiplier",
+          "label": "攻击伤害倍率",
+          "value": 2,
+          "min": 0,
+          "max": 10,
+          "step": 0.1,
+          "unit": "倍",
+          "tip": ""
+        },
+        {
+          "key": "rage_speed_multiplier",
+          "label": "移动 / 转向倍率",
+          "value": 1.3,
+          "min": 0.1,
+          "max": 5,
+          "step": 0.1,
+          "unit": "倍",
+          "tip": ""
+        },
+        {
+          "key": "rage_incoming_multiplier",
+          "label": "承受伤害倍率",
+          "value": 1.5,
+          "min": 0.1,
+          "max": 10,
+          "step": 0.1,
+          "unit": "倍",
+          "tip": ""
+        },
+        {
+          "key": "rage_crystal_size",
+          "label": "晶体大小倍率",
+          "value": 1.6,
+          "min": 1,
+          "max": 3,
+          "step": 0.1,
+          "unit": "倍",
+          "tip": ""
+        },
+        {
+          "key": "rage_spin_multiplier",
+          "label": "晶体旋转倍率",
+          "value": 3,
+          "min": 1,
+          "max": 10,
+          "step": 0.1,
+          "unit": "倍",
+          "tip": ""
+        },
+        {
+          "key": "rage_transform_time",
+          "label": "变身时长",
+          "value": 0.45,
+          "min": 0,
+          "max": 10,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "rage_ready_delay",
+          "label": "取消旧攻击后的等待",
+          "value": 0.6,
+          "min": 0,
+          "max": 10,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        }
+      ]
+    },
+    {
+      "title": "死亡演出",
+      "fields": [
+        {
+          "key": "debris_lifetime",
+          "label": "散架持续时间",
+          "value": 4.5,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": "结算等待身体碎片清理；不等待悬浮晶体。"
+        },
+        {
+          "key": "core_lifetime",
+          "label": "悬浮晶体保留时间",
+          "value": 10,
+          "min": 0.1,
+          "max": 120,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "core_death_spin",
+          "label": "死亡晶体旋转速度",
+          "value": 120,
+          "min": 1,
+          "max": 720,
+          "step": 1,
+          "unit": "度/秒",
+          "tip": ""
+        },
+        {
+          "key": "debris_mass",
+          "label": "碎片质量",
+          "value": 8,
+          "min": 0.1,
+          "max": 50,
+          "step": 0.1,
+          "unit": "千克",
+          "tip": ""
+        },
+        {
+          "key": "scatter_horizontal",
+          "label": "横向散开速度",
+          "value": 6,
+          "min": 0,
+          "max": 30,
+          "step": 0.1,
+          "unit": "米/秒",
+          "tip": ""
+        },
+        {
+          "key": "scatter_up_min",
+          "label": "向上速度下限",
+          "value": 4,
+          "min": 0,
+          "max": 30,
+          "step": 0.1,
+          "unit": "米/秒",
+          "tip": ""
+        },
+        {
+          "key": "scatter_up_max",
+          "label": "向上速度上限",
+          "value": 9,
+          "min": 0,
+          "max": 30,
+          "step": 0.1,
+          "unit": "米/秒",
+          "tip": ""
+        },
+        {
+          "key": "scatter_torque",
+          "label": "旋转冲量",
+          "value": 12,
+          "min": 0,
+          "max": 100,
+          "step": 0.5,
+          "unit": "",
+          "tip": ""
+        }
+      ]
+    },
+    {
+      "title": "个体差异",
+      "fields": [
+        {
+          "key": "variation_enabled",
+          "label": "启用个体属性差异",
+          "value": true,
+          "tip": "每只出生抽取一次，存活期间固定，不逐帧重抽。"
+        },
+        {
+          "key": "variation_speed",
+          "label": "移动速度浮动",
+          "value": 0.06,
+          "min": 0,
+          "max": 0.5,
+          "step": 0.01,
+          "unit": "±比例",
+          "tip": ""
+        },
+        {
+          "key": "variation_damage",
+          "label": "攻击伤害浮动",
+          "value": 0.08,
+          "min": 0,
+          "max": 0.5,
+          "step": 0.01,
+          "unit": "±比例",
+          "tip": ""
+        },
+        {
+          "key": "variation_size",
+          "label": "体型浮动",
+          "value": 0.06,
+          "min": 0,
+          "max": 0.35,
+          "step": 0.01,
+          "unit": "±比例",
+          "tip": "模型和碰撞同步缩放，血量不因体型随机变化。"
+        },
+        {
+          "key": "variation_timing",
+          "label": "技能节奏浮动",
+          "value": 0.1,
+          "min": 0,
+          "max": 0.5,
+          "step": 0.01,
+          "unit": "±比例",
+          "tip": "各自动作时间使用该个体同一个倍率，保持前后摇规则。"
+        },
+        {
+          "key": "variation_gait",
+          "label": "额外步频浮动",
+          "value": 0.03,
+          "min": 0,
+          "max": 0.3,
+          "step": 0.01,
+          "unit": "±比例",
+          "tip": "步频同时跟随个体移速 / 体型，避免动作整齐。"
+        },
+        {
+          "key": "variation_phase",
+          "label": "错开呼吸与步态相位",
+          "value": true,
+          "tip": ""
+        }
+      ]
+    },
+    {
+      "title": "群体运动",
+      "fields": [
+        {
+          "key": "crowd_enabled",
+          "label": "启用软群体转向",
+          "value": true,
+          "tip": "敌人之间不做实体碰撞；根据邻居位置柔和让路、跟随。"
+        },
+        {
+          "key": "crowd_start_delay",
+          "label": "首次行动延迟上限",
+          "value": 1.1,
+          "min": 0,
+          "max": 5,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "crowd_neighbor_radius",
+          "label": "群体感知半径",
+          "value": 9,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "crowd_separation_weight",
+          "label": "软避让强度",
+          "value": 1.4,
+          "min": 0,
+          "max": 5,
+          "step": 0.05,
+          "unit": "倍",
+          "tip": "避让距离使用基础属性里的同伴避让距离。"
+        },
+        {
+          "key": "crowd_alignment_weight",
+          "label": "邻居方向跟随",
+          "value": 0.04,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "unit": "比例",
+          "tip": ""
+        },
+        {
+          "key": "crowd_cohesion_weight",
+          "label": "同类聚拢强度",
+          "value": 0.04,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "unit": "比例",
+          "tip": ""
+        },
+        {
+          "key": "crowd_flank_width",
+          "label": "接近路径发散宽度",
+          "value": 2.2,
+          "min": 0,
+          "max": 12,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "crowd_flank_distance",
+          "label": "路径偏移收束距离",
+          "value": 18,
+          "min": 0.1,
+          "max": 40,
+          "step": 0.1,
+          "unit": "米",
+          "tip": "越接近目标，侧翼目标偏移越小，保证仍能进入攻击距离。"
+        },
+        {
+          "key": "crowd_sway_strength",
+          "label": "路径平滑摆动强度",
+          "value": 0.035,
+          "min": 0,
+          "max": 0.8,
+          "step": 0.005,
+          "unit": "比例",
+          "tip": ""
+        },
+        {
+          "key": "crowd_sway_period",
+          "label": "路径摆动周期",
+          "value": 7,
+          "min": 0.1,
+          "max": 20,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "crowd_density_brake",
+          "label": "拥挤时减速强度",
+          "value": 0.12,
+          "min": 0,
+          "max": 2,
+          "step": 0.01,
+          "unit": "倍",
+          "tip": ""
+        },
+        {
+          "key": "crowd_surge_strength",
+          "label": "个体推进起伏",
+          "value": 0.025,
+          "min": 0,
+          "max": 0.5,
+          "step": 0.005,
+          "unit": "±比例",
+          "tip": ""
+        },
+        {
+          "key": "crowd_surge_period",
+          "label": "推进起伏周期",
+          "value": 7,
+          "min": 0.1,
+          "max": 20,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "crowd_response",
+          "label": "方向变化响应",
+          "value": 3,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "1/秒",
+          "tip": ""
+        },
+        {
+          "key": "crowd_speed_limit",
+          "label": "群体移动速度上限",
+          "value": 1.08,
+          "min": 1,
+          "max": 2,
+          "step": 0.01,
+          "unit": "倍",
+          "tip": "群体转向修正后的速度不超过个体基础速度乘此倍率。"
+        },
+        {
+          "key": "crowd_attack_fraction",
+          "label": "邻近同类同时攻击比例",
+          "value": 0.6,
+          "min": 0.05,
+          "max": 1,
+          "step": 0.01,
+          "unit": "比例",
+          "tip": "允许多只一起扑击，其他成员继续绕行。单只始终可攻击，1 表示不限制。"
+        },
+        {
+          "key": "crowd_attack_radius",
+          "label": "攻击节奏协调半径",
+          "value": 15,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "crowd_wait_speed",
+          "label": "等待攻击时绕行速度",
+          "value": 0.1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "unit": "比例",
+          "tip": "占个体基础移速的比例；攻击名额已满时柔和绕行，避免整齐排队。"
+        }
+      ]
+    },
+    {
+      "title": "条件选招与蓄力跃击",
+      "fields": [
+        {
+          "key": "leap_enabled",
+          "label": "启用蓄力跃击",
+          "value": true,
+          "tip": "仅在距离拉远或追击持续失败，且落点与飞行路径合法时使用。"
+        },
+        {
+          "key": "leap_min_distance",
+          "label": "跃击最小距离",
+          "value": 8.0,
+          "min": 2,
+          "max": 60,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "leap_far_distance",
+          "label": "远距离触发",
+          "value": 14.0,
+          "min": 2,
+          "max": 60,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "leap_max_distance",
+          "label": "跃击最大距离",
+          "value": 36.0,
+          "min": 2,
+          "max": 80,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "far_confirm_time",
+          "label": "远距离确认",
+          "value": 0.35,
+          "min": 0.05,
+          "max": 5,
+          "step": 0.05,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "chase_failure_time",
+          "label": "未近身触发时间",
+          "value": 3.0,
+          "min": 0.2,
+          "max": 30,
+          "step": 0.1,
+          "unit": "秒",
+          "tip": "只累计有效普通追击；不把技能和暂停计入。"
+        },
+        {
+          "key": "near_enter_distance",
+          "label": "近身进入距离",
+          "value": 4.5,
+          "min": 0.5,
+          "max": 15,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "near_exit_distance",
+          "label": "近身离开距离",
+          "value": 6.0,
+          "min": 0.5,
+          "max": 20,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "near_confirm_time",
+          "label": "稳定近身确认",
+          "value": 0.25,
+          "min": 0.05,
+          "max": 3,
+          "step": 0.05,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "repeat_penalty",
+          "label": "上一招优先级降低",
+          "value": 0.9,
+          "min": 0,
+          "max": 3,
+          "step": 0.05,
+          "unit": "",
+          "tip": "多招合适时倾向变化；只有一招合法仍允许重复。"
+        },
+        {
+          "key": "approach_interval",
+          "label": "共用接近间隔",
+          "value": 5.0,
+          "min": 0,
+          "max": 30,
+          "step": 0.1,
+          "unit": "秒",
+          "tip": "从接近技能进入准备时计时，仅限制跃击及后续沉地；不阻止其他攻击和移动。"
+        },
+        {
+          "key": "leap_cooldown",
+          "label": "跃击独立冷却",
+          "value": 7.0,
+          "min": 0,
+          "max": 60,
+          "step": 0.1,
+          "unit": "秒",
+          "tip": "从进入准备时计时，随动作推进。"
+        },
+        {
+          "key": "leap_windup",
+          "label": "跃击蓄力",
+          "value": 0.85,
+          "min": 0.2,
+          "max": 5,
+          "step": 0.05,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "leap_travel_speed",
+          "label": "跃击水平速度参考",
+          "value": 22.0,
+          "min": 5,
+          "max": 50,
+          "step": 0.5,
+          "unit": "米/秒",
+          "tip": ""
+        },
+        {
+          "key": "leap_min_flight",
+          "label": "最短飞行时间",
+          "value": 0.8,
+          "min": 0.4,
+          "max": 3,
+          "step": 0.05,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "leap_max_flight",
+          "label": "最长飞行时间",
+          "value": 1.5,
+          "min": 0.4,
+          "max": 4,
+          "step": 0.05,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "leap_lead_ratio",
+          "label": "落点运动预判",
+          "value": 0.85,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "unit": "倍",
+          "tip": "起跳时锁死，并显示预判落点；飞行不追踪。"
+        },
+        {
+          "key": "leap_lead_limit",
+          "label": "预判距离上限",
+          "value": 6.0,
+          "min": 0,
+          "max": 15,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "leap_max_elevation",
+          "label": "落点最大高差",
+          "value": 2.5,
+          "min": 0,
+          "max": 8,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "leap_radius",
+          "label": "跃击伤害半径",
+          "value": 4.2,
+          "min": 1,
+          "max": 10,
+          "step": 0.1,
+          "unit": "米",
+          "tip": "预警与伤害半径一致；尘浪属于装饰。"
+        },
+        {
+          "key": "leap_damage",
+          "label": "跃击伤害",
+          "value": 32.0,
+          "min": 0,
+          "max": 1000,
+          "step": 1,
+          "unit": "点",
+          "tip": ""
+        },
+        {
+          "key": "leap_landing_hold",
+          "label": "跃击嵌拳停顿",
+          "value": 0.35,
+          "min": 0.05,
+          "max": 3,
+          "step": 0.05,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "leap_recovery",
+          "label": "跃击拔拳恢复",
+          "value": 0.55,
+          "min": 0.1,
+          "max": 3,
+          "step": 0.05,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "ground_shake_strength",
+          "label": "接触镜头震动",
+          "value": 1.0,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "unit": "倍",
+          "tip": "0 关闭；有距离衰减与叠加强度上限。"
+        }
+      ]
+    }
+  ]
+}

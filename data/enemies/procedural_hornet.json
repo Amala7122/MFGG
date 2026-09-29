@@ -1,0 +1,1008 @@
+{
+  "version": 1,
+  "id": "PrototypeHornet",
+  "title": "晶刺蜂 · 飞行原型",
+  "groups": [
+    {
+      "title": "基础与飞行",
+      "fields": [
+        {
+          "key": "max_health",
+          "label": "生命上限",
+          "value": 65,
+          "min": 1,
+          "max": 100000,
+          "step": 1,
+          "unit": "点"
+        },
+        {
+          "key": "body_size",
+          "label": "基础体型倍率",
+          "value": 1.0,
+          "min": 0.25,
+          "max": 4.0,
+          "step": 0.05,
+          "unit": "倍",
+          "tip": "1 为原始体型，2 为长宽高均放大两倍。实际体型 = 基础倍率 × 随机体型倍率；同步缩放模型、碰撞、避让与近战命中范围。生命、伤害和移动速度由各自参数控制。"
+        },
+        {
+          "key": "armor",
+          "label": "基础减伤",
+          "value": 0,
+          "min": 0,
+          "max": 0.95,
+          "step": 0.01,
+          "unit": "比例"
+        },
+        {
+          "key": "formation_width",
+          "label": "基础排列占位",
+          "value": 3,
+          "min": 1,
+          "max": 12,
+          "step": 0.1,
+          "unit": "米",
+          "tip": "实际排列宽度 = 此值 × 基础体型倍率。随机体型保留原有占位余量；超出单排空间时无法生成。"
+        },
+        {
+          "key": "hover_altitude",
+          "label": "相对玩家悬停高度",
+          "value": 3.2,
+          "min": 1,
+          "max": 12,
+          "step": 0.1,
+          "unit": "米"
+        },
+        {
+          "key": "strafe_distance",
+          "label": "盘旋半径",
+          "value": 8,
+          "min": 2,
+          "max": 30,
+          "step": 0.1,
+          "unit": "米"
+        },
+        {
+          "key": "orbit_band",
+          "label": "盘旋半径容差",
+          "value": 1,
+          "min": 0.1,
+          "max": 5,
+          "step": 0.1,
+          "unit": "米"
+        },
+        {
+          "key": "flight_speed",
+          "label": "飞行速度",
+          "value": 4.8,
+          "min": 0.1,
+          "max": 40,
+          "step": 0.1,
+          "unit": "米/秒"
+        },
+        {
+          "key": "dive_speed",
+          "label": "俯冲速度",
+          "value": 12,
+          "min": 0.1,
+          "max": 80,
+          "step": 0.1,
+          "unit": "米/秒"
+        },
+        {
+          "key": "flight_response",
+          "label": "飞行转向响应",
+          "value": 4,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "/秒"
+        },
+        {
+          "key": "radial_speed",
+          "label": "盘旋径向修正速度",
+          "value": 1.5,
+          "min": 0.1,
+          "max": 20,
+          "step": 0.1,
+          "unit": "米/秒"
+        },
+        {
+          "key": "height_response",
+          "label": "高度追踪响应",
+          "value": 2.5,
+          "min": 0.1,
+          "max": 20,
+          "step": 0.1,
+          "unit": "/秒"
+        },
+        {
+          "key": "vertical_speed_limit",
+          "label": "垂直速度上限",
+          "value": 8,
+          "min": 0.1,
+          "max": 40,
+          "step": 0.1,
+          "unit": "米/秒"
+        },
+        {
+          "key": "turn_speed",
+          "label": "朝向转速",
+          "value": 6,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "/秒"
+        },
+        {
+          "key": "turbulence_strength",
+          "label": "水平气流扰动",
+          "value": 0.8,
+          "min": 0,
+          "max": 5,
+          "step": 0.01,
+          "unit": "米/秒"
+        },
+        {
+          "key": "separation_radius",
+          "label": "群体避让直径",
+          "value": 2,
+          "min": 0,
+          "max": 8,
+          "step": 0.1,
+          "unit": "米"
+        },
+        {
+          "key": "collision_radius",
+          "label": "身体碰撞球半径",
+          "value": 0.75,
+          "min": 0.2,
+          "max": 2,
+          "step": 0.01,
+          "unit": "米",
+          "tip": "球体以胸部为中心；与场景和玩家碰撞，不与其他敌人碰撞。"
+        }
+      ]
+    },
+    {
+      "title": "晶针射击",
+      "fields": [
+        {
+          "key": "needle_count",
+          "label": "初始晶针数量",
+          "value": 3,
+          "min": 0,
+          "max": 3,
+          "step": 1,
+          "unit": "枚"
+        },
+        {
+          "key": "needle_damage",
+          "label": "晶针伤害",
+          "value": 15,
+          "min": 0,
+          "max": 1000,
+          "step": 1,
+          "unit": "点"
+        },
+        {
+          "key": "fire_interval",
+          "label": "射击间隔",
+          "value": 2.5,
+          "min": 0.01,
+          "max": 30,
+          "step": 0.01,
+          "unit": "秒"
+        },
+        {
+          "key": "fire_windup",
+          "label": "射击前摇",
+          "value": 0.6,
+          "min": 0.01,
+          "max": 10,
+          "step": 0.01,
+          "unit": "秒"
+        },
+        {
+          "key": "fire_recovery",
+          "label": "射击后摇",
+          "value": 0,
+          "min": 0,
+          "max": 10,
+          "step": 0.01,
+          "unit": "秒"
+        },
+        {
+          "key": "needle_range",
+          "label": "晶针最大航程",
+          "value": 18,
+          "min": 1,
+          "max": 100,
+          "step": 0.1,
+          "unit": "米"
+        },
+        {
+          "key": "needle_travel_time",
+          "label": "最大航程飞行时间",
+          "value": 0.7,
+          "min": 0.05,
+          "max": 10,
+          "step": 0.01,
+          "unit": "秒"
+        },
+        {
+          "key": "needle_aim_height",
+          "label": "相对玩家瞄准高度",
+          "value": 0.8,
+          "min": -0.8,
+          "max": 0.8,
+          "step": 0.01,
+          "unit": "米"
+        },
+        {
+          "key": "aim_response",
+          "label": "射击姿态响应",
+          "value": 8,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "/秒"
+        },
+        {
+          "key": "fire_drag",
+          "label": "射击减速响应",
+          "value": 5,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "/秒"
+        },
+        {
+          "key": "aim_abdomen_angle",
+          "label": "射击腹部角度",
+          "value": -45,
+          "min": -90,
+          "max": 90,
+          "step": 1,
+          "unit": "度"
+        }
+      ]
+    },
+    {
+      "title": "俯冲撕咬",
+      "fields": [
+        {
+          "key": "bite_damage",
+          "label": "撕咬伤害",
+          "value": 24,
+          "min": 0,
+          "max": 1000,
+          "step": 1,
+          "unit": "点"
+        },
+        {
+          "key": "dive_interval",
+          "label": "俯冲间隔",
+          "value": 1.2,
+          "min": 0.01,
+          "max": 30,
+          "step": 0.01,
+          "unit": "秒"
+        },
+        {
+          "key": "dive_range",
+          "label": "俯冲启动距离",
+          "value": 12,
+          "min": 1,
+          "max": 60,
+          "step": 0.1,
+          "unit": "米"
+        },
+        {
+          "key": "dive_windup",
+          "label": "俯冲前摇",
+          "value": 0.4,
+          "min": 0.01,
+          "max": 10,
+          "step": 0.01,
+          "unit": "秒"
+        },
+        {
+          "key": "dive_max_time",
+          "label": "俯冲最长飞行时间",
+          "value": 1.2,
+          "min": 0.05,
+          "max": 10,
+          "step": 0.01,
+          "unit": "秒"
+        },
+        {
+          "key": "bite_radius",
+          "label": "撕咬命中半径",
+          "value": 1.6,
+          "min": 0.1,
+          "max": 5,
+          "step": 0.1,
+          "unit": "米"
+        },
+        {
+          "key": "dive_aim_height",
+          "label": "俯冲瞄准高度偏移",
+          "value": 0.5,
+          "min": -0.8,
+          "max": 0.8,
+          "step": 0.01,
+          "unit": "米"
+        },
+        {
+          "key": "pull_up_speed",
+          "label": "脱离上升速度",
+          "value": 6,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "米/秒"
+        },
+        {
+          "key": "pull_back_speed",
+          "label": "脱离后撤速度",
+          "value": 3,
+          "min": 0,
+          "max": 20,
+          "step": 0.1,
+          "unit": "米/秒"
+        },
+        {
+          "key": "recovery_pose_time",
+          "label": "拉升姿态复位时间",
+          "value": 0.5,
+          "min": 0.01,
+          "max": 10,
+          "step": 0.01,
+          "unit": "秒"
+        },
+        {
+          "key": "recovery_wait",
+          "label": "拉升后休息时间",
+          "value": 0.6,
+          "min": 0,
+          "max": 10,
+          "step": 0.01,
+          "unit": "秒"
+        },
+        {
+          "key": "dive_lift",
+          "label": "前摇抬升幅度",
+          "value": 0.6,
+          "min": 0,
+          "max": 3,
+          "step": 0.01,
+          "unit": "米"
+        },
+        {
+          "key": "dive_head_angle",
+          "label": "前摇头部后仰",
+          "value": -25,
+          "min": -90,
+          "max": 90,
+          "step": 1,
+          "unit": "度"
+        },
+        {
+          "key": "jaw_open_angle",
+          "label": "前摇大牙张开角度",
+          "value": 45,
+          "min": 0,
+          "max": 90,
+          "step": 1,
+          "unit": "度"
+        },
+        {
+          "key": "bite_frequency",
+          "label": "咬合频率",
+          "value": 25,
+          "min": 1,
+          "max": 80,
+          "step": 0.1,
+          "unit": "弧度/秒"
+        },
+        {
+          "key": "bite_angle",
+          "label": "咬合振幅",
+          "value": 25,
+          "min": 0,
+          "max": 90,
+          "step": 1,
+          "unit": "度"
+        }
+      ]
+    },
+    {
+      "title": "受击与表现",
+      "fields": [
+        {
+          "key": "damage_recoil_speed",
+          "label": "受击后撤速度",
+          "value": 3,
+          "min": 0,
+          "max": 30,
+          "step": 0.1,
+          "unit": "米/秒"
+        },
+        {
+          "key": "stagger_up_speed",
+          "label": "受击上浮速度",
+          "value": 1.5,
+          "min": 0,
+          "max": 20,
+          "step": 0.1,
+          "unit": "米/秒"
+        },
+        {
+          "key": "stagger_drag",
+          "label": "受击速度衰减",
+          "value": 4,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "/秒"
+        },
+        {
+          "key": "stagger_in",
+          "label": "受击倾斜时间",
+          "value": 0.1,
+          "min": 0.01,
+          "max": 10,
+          "step": 0.01,
+          "unit": "秒"
+        },
+        {
+          "key": "stagger_hold",
+          "label": "受击停顿时间",
+          "value": 0.15,
+          "min": 0,
+          "max": 10,
+          "step": 0.01,
+          "unit": "秒"
+        },
+        {
+          "key": "stagger_out",
+          "label": "受击复位时间",
+          "value": 0.2,
+          "min": 0.01,
+          "max": 10,
+          "step": 0.01,
+          "unit": "秒"
+        },
+        {
+          "key": "stagger_angle",
+          "label": "受击倾斜角度",
+          "value": 45,
+          "min": 0,
+          "max": 90,
+          "step": 1,
+          "unit": "度"
+        },
+        {
+          "key": "push_multiplier",
+          "label": "Q 击退倍率",
+          "value": 1,
+          "min": 0,
+          "max": 5,
+          "step": 0.01,
+          "unit": "倍"
+        },
+        {
+          "key": "wing_frequency",
+          "label": "振翅角频率",
+          "value": 45,
+          "min": 1,
+          "max": 100,
+          "step": 0.1,
+          "unit": "弧度/秒"
+        },
+        {
+          "key": "wing_amplitude",
+          "label": "前翼振幅",
+          "value": 35,
+          "min": 0,
+          "max": 80,
+          "step": 1,
+          "unit": "度"
+        },
+        {
+          "key": "wing_rear_amplitude",
+          "label": "后翼振幅",
+          "value": 30,
+          "min": 0,
+          "max": 80,
+          "step": 1,
+          "unit": "度"
+        },
+        {
+          "key": "wing_rest_angle",
+          "label": "双翼静态夹角",
+          "value": 15,
+          "min": 0,
+          "max": 80,
+          "step": 1,
+          "unit": "度"
+        },
+        {
+          "key": "hover_bob_frequency",
+          "label": "悬停浮动角频率",
+          "value": 4,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "弧度/秒"
+        },
+        {
+          "key": "hover_bob_amplitude",
+          "label": "悬停浮动幅度",
+          "value": 0.08,
+          "min": 0,
+          "max": 0.5,
+          "step": 0.01,
+          "unit": "米"
+        },
+        {
+          "key": "bank_angle",
+          "label": "盘旋侧倾角度",
+          "value": 18,
+          "min": 0,
+          "max": 60,
+          "step": 1,
+          "unit": "度"
+        },
+        {
+          "key": "abdomen_frequency",
+          "label": "腹部呼吸角频率",
+          "value": 3.5,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "弧度/秒"
+        },
+        {
+          "key": "abdomen_rest_angle",
+          "label": "腹部下垂角度",
+          "value": 25,
+          "min": -45,
+          "max": 70,
+          "step": 1,
+          "unit": "度"
+        },
+        {
+          "key": "abdomen_amplitude",
+          "label": "腹部呼吸振幅",
+          "value": 6,
+          "min": 0,
+          "max": 30,
+          "step": 1,
+          "unit": "度"
+        },
+        {
+          "key": "leg_frequency",
+          "label": "腿部摆动角频率",
+          "value": 2,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "弧度/秒"
+        },
+        {
+          "key": "leg_amplitude",
+          "label": "腿部摆动振幅",
+          "value": 5,
+          "min": 0,
+          "max": 45,
+          "step": 1,
+          "unit": "度"
+        }
+      ]
+    },
+    {
+      "title": "死亡演出",
+      "fields": [
+        {
+          "key": "death_body_mass",
+          "label": "坠落身体质量",
+          "value": 3.5,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "千克"
+        },
+        {
+          "key": "death_horizontal_impulse",
+          "label": "坠落水平冲量",
+          "value": 2,
+          "min": 0,
+          "max": 30,
+          "step": 0.1,
+          "unit": "牛顿秒"
+        },
+        {
+          "key": "death_up_impulse",
+          "label": "坠落向上冲量",
+          "value": 2,
+          "min": 0,
+          "max": 30,
+          "step": 0.1,
+          "unit": "牛顿秒"
+        },
+        {
+          "key": "death_torque",
+          "label": "坠落旋转冲量",
+          "value": 15,
+          "min": 0,
+          "max": 50,
+          "step": 0.1,
+          "unit": "牛顿米秒"
+        },
+        {
+          "key": "impact_delay",
+          "label": "触地后散架延迟",
+          "value": 1.2,
+          "min": 0,
+          "max": 10,
+          "step": 0.01,
+          "unit": "秒"
+        },
+        {
+          "key": "fall_timeout",
+          "label": "无触地最长等待",
+          "value": 6,
+          "min": 0.1,
+          "max": 20,
+          "step": 0.01,
+          "unit": "秒"
+        },
+        {
+          "key": "debris_mass",
+          "label": "碎片质量",
+          "value": 0.5,
+          "min": 0.01,
+          "max": 10,
+          "step": 0.01,
+          "unit": "千克"
+        },
+        {
+          "key": "scatter_horizontal",
+          "label": "碎片水平初速度",
+          "value": 3,
+          "min": 0,
+          "max": 30,
+          "step": 0.1,
+          "unit": "米/秒"
+        },
+        {
+          "key": "scatter_up_min",
+          "label": "碎片向上最小速度",
+          "value": 2,
+          "min": 0,
+          "max": 30,
+          "step": 0.1,
+          "unit": "米/秒"
+        },
+        {
+          "key": "scatter_up_max",
+          "label": "碎片向上最大速度",
+          "value": 5,
+          "min": 0,
+          "max": 30,
+          "step": 0.1,
+          "unit": "米/秒"
+        },
+        {
+          "key": "scatter_torque",
+          "label": "碎片旋转冲量",
+          "value": 2,
+          "min": 0,
+          "max": 30,
+          "step": 0.1,
+          "unit": "牛顿米秒"
+        },
+        {
+          "key": "debris_lifetime",
+          "label": "碎片保留时间",
+          "value": 2.5,
+          "min": 0.1,
+          "max": 20,
+          "step": 0.01,
+          "unit": "秒"
+        }
+      ]
+    },
+    {
+      "title": "个体差异",
+      "fields": [
+        {
+          "key": "variation_enabled",
+          "label": "启用个体属性差异",
+          "value": true,
+          "tip": "每只出生抽取一次，存活期间固定，不逐帧重抽。"
+        },
+        {
+          "key": "variation_speed",
+          "label": "移动速度浮动",
+          "value": 0.12,
+          "min": 0,
+          "max": 0.5,
+          "step": 0.01,
+          "unit": "±比例",
+          "tip": ""
+        },
+        {
+          "key": "variation_damage",
+          "label": "攻击伤害浮动",
+          "value": 0.12,
+          "min": 0,
+          "max": 0.5,
+          "step": 0.01,
+          "unit": "±比例",
+          "tip": ""
+        },
+        {
+          "key": "variation_size",
+          "label": "体型浮动",
+          "value": 0.1,
+          "min": 0,
+          "max": 0.35,
+          "step": 0.01,
+          "unit": "±比例",
+          "tip": "模型和碰撞同步缩放，血量不因体型随机变化。"
+        },
+        {
+          "key": "variation_timing",
+          "label": "技能节奏浮动",
+          "value": 0.2,
+          "min": 0,
+          "max": 0.5,
+          "step": 0.01,
+          "unit": "±比例",
+          "tip": "各自动作时间使用该个体同一个倍率，保持前后摇规则。"
+        },
+        {
+          "key": "variation_gait",
+          "label": "额外步频浮动",
+          "value": 0.08,
+          "min": 0,
+          "max": 0.3,
+          "step": 0.01,
+          "unit": "±比例",
+          "tip": "步频同时跟随个体移速 / 体型，避免动作整齐。"
+        },
+        {
+          "key": "variation_phase",
+          "label": "错开呼吸与步态相位",
+          "value": true,
+          "tip": ""
+        }
+      ]
+    },
+    {
+      "title": "群体运动",
+      "fields": [
+        {
+          "key": "crowd_enabled",
+          "label": "启用软群体转向",
+          "value": true,
+          "tip": "敌人之间不做实体碰撞；根据邻居位置柔和让路、跟随。"
+        },
+        {
+          "key": "crowd_start_delay",
+          "label": "首次行动延迟上限",
+          "value": 0.8,
+          "min": 0,
+          "max": 5,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "crowd_neighbor_radius",
+          "label": "群体感知半径",
+          "value": 7,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "crowd_separation_weight",
+          "label": "软避让强度",
+          "value": 1.8,
+          "min": 0,
+          "max": 5,
+          "step": 0.05,
+          "unit": "倍",
+          "tip": "避让距离使用基础属性里的同伴避让距离。"
+        },
+        {
+          "key": "crowd_alignment_weight",
+          "label": "邻居方向跟随",
+          "value": 0.12,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "unit": "比例",
+          "tip": ""
+        },
+        {
+          "key": "crowd_cohesion_weight",
+          "label": "同类聚拢强度",
+          "value": 0.06,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "unit": "比例",
+          "tip": ""
+        },
+        {
+          "key": "crowd_flank_width",
+          "label": "接近路径发散宽度",
+          "value": 3,
+          "min": 0,
+          "max": 12,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "crowd_flank_distance",
+          "label": "路径偏移收束距离",
+          "value": 16,
+          "min": 0.1,
+          "max": 40,
+          "step": 0.1,
+          "unit": "米",
+          "tip": "越接近目标，侧翼目标偏移越小，保证仍能进入攻击距离。"
+        },
+        {
+          "key": "crowd_sway_strength",
+          "label": "路径平滑摆动强度",
+          "value": 0.12,
+          "min": 0,
+          "max": 0.8,
+          "step": 0.01,
+          "unit": "比例",
+          "tip": ""
+        },
+        {
+          "key": "crowd_sway_period",
+          "label": "路径摆动周期",
+          "value": 3.3,
+          "min": 0.1,
+          "max": 20,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "crowd_density_brake",
+          "label": "拥挤时减速强度",
+          "value": 0.1,
+          "min": 0,
+          "max": 2,
+          "step": 0.01,
+          "unit": "倍",
+          "tip": ""
+        },
+        {
+          "key": "crowd_surge_strength",
+          "label": "个体推进起伏",
+          "value": 0.08,
+          "min": 0,
+          "max": 0.5,
+          "step": 0.01,
+          "unit": "±比例",
+          "tip": ""
+        },
+        {
+          "key": "crowd_surge_period",
+          "label": "推进起伏周期",
+          "value": 4.1,
+          "min": 0.1,
+          "max": 20,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "crowd_response",
+          "label": "方向变化响应",
+          "value": 8,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "1/秒",
+          "tip": ""
+        },
+        {
+          "key": "crowd_speed_limit",
+          "label": "群体移动速度上限",
+          "value": 1.2,
+          "min": 1,
+          "max": 2,
+          "step": 0.01,
+          "unit": "倍",
+          "tip": "群体转向修正后的速度不超过个体基础速度乘此倍率。"
+        },
+        {
+          "key": "crowd_attack_fraction",
+          "label": "邻近同类同时攻击比例",
+          "value": 0.35,
+          "min": 0.05,
+          "max": 1,
+          "step": 0.01,
+          "unit": "比例",
+          "tip": "允许多只一起扑击，其他成员继续绕行。单只始终可攻击，1 表示不限制。"
+        },
+        {
+          "key": "crowd_attack_radius",
+          "label": "攻击节奏协调半径",
+          "value": 12,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "crowd_wait_speed",
+          "label": "等待攻击时绕行速度",
+          "value": 0.5,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "unit": "比例",
+          "tip": "占个体基础移速的比例；攻击名额已满时柔和绕行，避免整齐排队。"
+        }
+      ]
+    },
+    {
+      "title": "空中蜂群",
+      "fields": [
+        {
+          "key": "crowd_height_spread",
+          "label": "个体悬停高度错层",
+          "value": 1,
+          "min": 0,
+          "max": 4,
+          "step": 0.1,
+          "unit": "米"
+        },
+        {
+          "key": "crowd_vertical_sway",
+          "label": "缓慢升降幅度",
+          "value": 0.35,
+          "min": 0,
+          "max": 3,
+          "step": 0.01,
+          "unit": "米"
+        },
+        {
+          "key": "crowd_vertical_period",
+          "label": "升降周期",
+          "value": 4.5,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.01,
+          "unit": "秒"
+        },
+        {
+          "key": "crowd_vertical_separation",
+          "label": "垂直避让强度",
+          "value": 0.8,
+          "min": 0,
+          "max": 3,
+          "step": 0.01,
+          "unit": "比例"
+        }
+      ]
+    }
+  ]
+}

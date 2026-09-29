@@ -17,6 +17,8 @@ const ConfigUtil := preload("res://scripts/game_config.gd")
 
 const UPPER_ARM_LENGTH := 0.32
 const FOREARM_LENGTH := 0.30
+const HIT_FLASH_DURATION := 0.16
+const HIT_FLASH_FADE := 0.12
 
 @export_category("步态")
 @export var walk_cadence := 7.4
@@ -82,6 +84,10 @@ var _flinch := 0.0
 var _land := 0.0
 ## 空/地状态下的额外屈膝量（由 update 设置）。
 var _leg_knee_extra := 0.0
+var _hit_flash_remaining := 0.0
+var _hit_flash_material: StandardMaterial3D
+var _hit_flash_meshes: Array[MeshInstance3D] = []
+var _hit_flash_overlays: Array[Material] = []
 
 
 func setup(model: Node3D) -> void:
@@ -90,6 +96,15 @@ func setup(model: Node3D) -> void:
 		push_warning("PlayerRig: 未找到 PlayerModel，程序化动画已禁用")
 		return
 	_rest_position = _model.position
+	# 独立叠加材质，不改共享的皮肤/衣物材质；武器保持原色。
+	var weapon_rig := _model.get_node_or_null("WeaponRig")
+	for node in _model.find_children("*", "MeshInstance3D", true, false):
+		if weapon_rig == null or not weapon_rig.is_ancestor_of(node):
+			_hit_flash_meshes.append(node as MeshInstance3D)
+	_hit_flash_material = StandardMaterial3D.new()
+	_hit_flash_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_hit_flash_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_hit_flash_material.albedo_color = Color.WHITE
 	_hips = _model.get_node_or_null("Hips")
 	_chest = _model.get_node_or_null("Chest")
 	_head = _model.get_node_or_null("Chest/Head")
@@ -119,6 +134,32 @@ func flinch() -> void:
 	_flinch = 1.0
 
 
+## 命中确认：短暂闪白后淡出，连续命中只刷新当前效果。
+func flash_hit() -> void:
+	if _hit_flash_material == null:
+		return
+	if _hit_flash_remaining <= 0.0:
+		_hit_flash_overlays.clear()
+		for mesh in _hit_flash_meshes:
+			_hit_flash_overlays.append(mesh.material_overlay)
+			mesh.material_overlay = _hit_flash_material
+	_hit_flash_remaining = HIT_FLASH_DURATION
+	_hit_flash_material.albedo_color = Color.WHITE
+
+
+func _update_hit_flash(delta: float) -> void:
+	if _hit_flash_remaining <= 0.0:
+		return
+	_hit_flash_remaining = maxf(_hit_flash_remaining - delta, 0.0)
+	_hit_flash_material.albedo_color.a = minf(_hit_flash_remaining / HIT_FLASH_FADE, 1.0)
+	if _hit_flash_remaining <= 0.0:
+		for i in range(_hit_flash_meshes.size()):
+			var mesh := _hit_flash_meshes[i]
+			if is_instance_valid(mesh) and mesh.material_overlay == _hit_flash_material:
+				mesh.material_overlay = _hit_flash_overlays[i]
+		_hit_flash_overlays.clear()
+
+
 ## 落地时调用：impact 为 0..1 的落地强度。
 func land(impact: float) -> void:
 	_land = clampf(impact, 0.0, 1.0)
@@ -140,6 +181,7 @@ func update(
 	walk_speed: float,
 	max_speed: float
 ) -> void:
+	_update_hit_flash(delta)
 	if not _model or not _chest:
 		return
 	if dying:

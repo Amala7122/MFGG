@@ -39,6 +39,31 @@ func _ready() -> void:
 		_voices.append(player)
 
 
+func _exit_tree() -> void:
+	_stop_spatial_pool()
+	for player in _voices:
+		if is_instance_valid(player):
+			player.stop()
+			player.stream = null
+	_voices.clear()
+	_bank.clear()
+	instance = null
+
+
+func _stop_spatial_pool() -> void:
+	for player in _spatial:
+		if is_instance_valid(player):
+			player.stop()
+			player.stream = null
+	_spatial.clear()
+	_spatial_host = null
+
+
+func _on_spatial_host_exiting(host: Node) -> void:
+	if host == _spatial_host:
+		_stop_spatial_pool()
+
+
 # ---------------------------------------------------------------- 静态入口
 
 static func play(key: String, volume_db: float = 0.0, pitch: float = 1.0) -> void:
@@ -78,6 +103,10 @@ const BANK_FALLBACK := {
 	"pickup": [0.2, 640.0, 1180.0, 3.0, 0.05, 0.42],
 	"explosion": [0.55, 150.0, 38.0, 2.6, 0.8, 1.0],
 	"shockwave": [0.42, 260.0, 45.0, 2.8, 0.55, 0.95],
+	"titan_charge": [0.8, 72.0, 118.0, 0.6, 0.22, 0.45],
+	"titan_takeoff": [0.3, 145.0, 42.0, 2.4, 0.65, 0.7],
+	"titan_land": [0.65, 92.0, 24.0, 2.5, 0.72, 0.85],
+	"titan_sweep": [0.45, 180.0, 38.0, 1.7, 0.70, 0.68],
 	"ui": [0.09, 880.0, 1200.0, 4.0, 0.0, 0.35],
 	# 低频闷响：低血量时由 LowHealthOverlay 按危险程度加速播放。
 	"heartbeat": [0.2, 88.0, 42.0, 3.2, 0.22, 1.0],
@@ -184,7 +213,7 @@ func _ensure_spatial_pool() -> Array[AudioStreamPlayer3D]:
 		return []
 	if host == _spatial_host and not _spatial.is_empty() and is_instance_valid(_spatial[0]):
 		return _spatial
-	_spatial.clear()
+	_stop_spatial_pool()
 	for _index in range(SPATIAL_VOICE_COUNT):
 		var player := AudioStreamPlayer3D.new()
 		player.max_distance = 70.0
@@ -192,4 +221,7 @@ func _ensure_spatial_pool() -> Array[AudioStreamPlayer3D]:
 		host.add_child(player)
 		_spatial.append(player)
 	_spatial_host = host
+	var on_exit := _on_spatial_host_exiting.bind(host)
+	if not host.tree_exiting.is_connected(on_exit):
+		host.tree_exiting.connect(on_exit, CONNECT_ONE_SHOT)
 	return _spatial

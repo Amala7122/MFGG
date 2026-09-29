@@ -132,7 +132,29 @@ static func get_arena_params() -> Dictionary:
 ## 世界坐标 (x, z) 处的地面高度。
 static func height_at(x: float, z: float) -> float:
 	_ensure_arena()
-	return (_rolling(x, z) + _hills(x, z)) * _flat_mask(x, z)
+	var flatness := _flat_mask(x, z)
+	var height := (_rolling(x, z) + _hills(x, z)) * flatness
+	if _applied_id == "sanctum":
+		# 小于脚踝的连续起伏也进入碰撞与导航，地面不会只在视觉上鼓包。
+		var grain := sin(x * 0.67 + sin(z * 0.19)) * cos(z * 0.58 - x * 0.11)
+		grain += 0.37 * sin(x * 1.07 + z * 0.31) * cos(z * 0.91)
+		height += grain * _sanctum_micro_clearance(x, z) * (0.18 + flatness * 0.04)
+	return height
+
+
+static func _sanctum_micro_clearance(x: float, z: float) -> float:
+	# 铺路、廊道及祭坛下保持绝对平整；清出的草地仍可有真实微地形。
+	var clearance := 1.0
+	clearance = minf(clearance, _outside_detail_rect(x, z, -12, 12, -83, 84, 2.5))
+	clearance = minf(clearance, _outside_detail_rect(x, z, -31, 33, -53, -8, 3.0))
+	clearance = minf(clearance, _outside_detail_rect(x, z, -43, 58, -5, 9, 3.0))
+	return clearance
+
+
+static func _outside_detail_rect(x: float, z: float, x0: float, x1: float, z0: float, z1: float, feather: float) -> float:
+	var dx := maxf(maxf(x0 - x, x - x1), 0.0)
+	var dz := maxf(maxf(z0 - z, z - z1), 0.0)
+	return smoothstep(0.0, feather, sqrt(dx * dx + dz * dz))
 
 
 ## 地表法线。用相邻采样差分而不是网格法线，缓坡上不会出现条纹。
@@ -235,6 +257,7 @@ var _steps := 120
 var _material_color := DEFAULT_GROUND_COLOR
 var _highland_color := Color(0.38, 0.53, 0.24, 1.0)
 var _dry_color := Color(0.46, 0.50, 0.23, 1.0)
+var _surface_material: StandardMaterial3D
 @export var editor_preview_enabled := false
 
 
@@ -244,6 +267,7 @@ func _ready() -> void:
 	# 加入导航源分组：navigation_region.gd 按组递归收集几何来烘焙导航网格。
 	if not Engine.is_editor_hint():
 		add_to_group("nav_source")
+	add_to_group("weather_wetness_receiver")
 	_build_extent = get_extent()
 	_steps = get_steps()
 	_material_color = _resolve_ground_color()
@@ -368,9 +392,11 @@ func _facet_visual_mesh() -> void:
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colors := PackedColorArray()
+	var uvs := PackedVector2Array()
 	vertices.resize(count)
 	normals.resize(count)
 	colors.resize(count)
+	uvs.resize(count)
 	for iz in range(stride):
 		var z := -_build_extent + minf(float(iz) * step, _build_extent * 2.0)
 		for ix in range(stride):
@@ -380,6 +406,7 @@ func _facet_visual_mesh() -> void:
 			vertices[index] = Vector3(x, height, z)
 			normals[index] = normal_at(x, z)
 			colors[index] = _facet_color(x, z, height)
+			uvs[index] = Vector2((x + _build_extent) / (_build_extent * 2.0), (z + _build_extent) / (_build_extent * 2.0))
 	var indices := PackedInt32Array()
 	indices.resize(steps * steps * 6)
 	var cursor := 0
@@ -401,6 +428,7 @@ func _facet_visual_mesh() -> void:
 	arrays[Mesh.ARRAY_VERTEX] = vertices
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
@@ -418,6 +446,9 @@ func _facet_color(x: float, z: float, height: float) -> Color:
 		color = color.lerp(_dry_color, clampf((broad_patch - 0.20) * 0.15, 0.0, 0.09))
 	elif broad_patch < -0.22:
 		color = color.darkened(clampf((-broad_patch - 0.22) * 0.045, 0.0, 0.025))
+	if String(_arena_params.get("_id", "")) == "sanctum":
+		var meadow := sin(x * 0.12 + sin(z * 0.043) * 1.8) * cos(z * 0.09)
+		color = color.lerp(_highland_color, smoothstep(-0.15, 0.8, meadow) * 0.28)
 	return color
 
 
@@ -467,6 +498,7 @@ func _build_collision(heights: PackedFloat32Array) -> void:
 ## 光照本来就正确，所以禁用剔除比赌绕序更稳。
 func _make_material() -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
+	_surface_material = material
 	# 【必须是白色，不能是 _material_color】
 	# vertex_color_use_as_albedo = true 时，最终反照率 = albedo_color × 顶点色。
 	# 两边都填 ground_color 的话，0.13 会被平方成 0.015 再走 sRGB 转线性，
@@ -480,4 +512,66 @@ func _make_material() -> StandardMaterial3D:
 	material.vertex_color_is_srgb = true
 	material.roughness = 0.98
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	if _applied_id == "sanctum":
+		var surface_maps := _sanctum_surface_maps()
+		material.albedo_texture = surface_maps[0]
+		material.normal_enabled = true
+		material.normal_texture = surface_maps[1]
+		material.normal_scale = 0.8
 	return material
+
+
+static var _cached_surface_maps: Array[ImageTexture] = []
+
+static func _sanctum_surface_maps() -> Array[ImageTexture]:
+	if not _cached_surface_maps.is_empty():
+		return _cached_surface_maps
+	var size := 512
+	var broad := FastNoiseLite.new()
+	broad.seed = 250925
+	broad.frequency = 0.016
+	broad.fractal_type = FastNoiseLite.FRACTAL_FBM
+	broad.fractal_octaves = 3
+	var fine := FastNoiseLite.new()
+	fine.seed = 250926
+	fine.frequency = 0.115
+	var grain := FastNoiseLite.new()
+	grain.seed = 250927
+	grain.frequency = 0.32
+	var relief := PackedFloat32Array()
+	relief.resize(size * size)
+	for row in size:
+		for col in size:
+			relief[row * size + col] = broad.get_noise_2d(col, row) * 0.68 \
+				+ fine.get_noise_2d(col, row) * 0.27 + grain.get_noise_2d(col, row) * 0.05
+	var color_image := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	var normal_image := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	for row in size:
+		for col in size:
+			var index := row * size + col
+			var shade := clampf(0.94 + relief[index] * 0.28, 0.76, 1.0)
+			var dry := smoothstep(0.13, 0.36, broad.get_noise_2d(col + 173, row - 81)) * 0.26
+			var grass_tint := Color(shade, shade * 0.995, shade * 0.97)
+			color_image.set_pixel(col, row, grass_tint.lerp(Color(shade * 1.04, shade * 0.91, shade * 0.74), dry))
+			var x0 := maxi(col - 1, 0)
+			var x1 := mini(col + 1, size - 1)
+			var z0 := maxi(row - 1, 0)
+			var z1 := mini(row + 1, size - 1)
+			var slope := Vector3((relief[row * size + x0] - relief[row * size + x1]) * 1.55,
+				(relief[z0 * size + col] - relief[z1 * size + col]) * 1.55, 1.0).normalized()
+			normal_image.set_pixel(col, row, Color(slope.x * 0.5 + 0.5, slope.y * 0.5 + 0.5, slope.z * 0.5 + 0.5))
+	color_image.generate_mipmaps()
+	normal_image.generate_mipmaps()
+	_cached_surface_maps = [ImageTexture.create_from_image(color_image), ImageTexture.create_from_image(normal_image)]
+	return _cached_surface_maps
+
+
+## 第一版湿润只改变地形的明度与粗糙度，不替换材质，也不把低模切面抹平。
+## 接口留在地形自身，天气控制器只广播 0..1，不需要知道地形怎样绘制。
+func set_weather_wetness(amount: float) -> void:
+	if not is_instance_valid(_surface_material):
+		return
+	var wet := clampf(amount, 0.0, 1.0)
+	var value := lerpf(1.0, 0.84, wet)
+	_surface_material.albedo_color = Color(value, value, value, 1.0)
+	_surface_material.roughness = lerpf(0.98, 0.48, wet)

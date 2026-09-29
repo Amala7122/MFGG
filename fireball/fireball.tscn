@@ -1,0 +1,112 @@
+[gd_scene load_steps=20 format=3 uid="uid://bcvcsush1r0h5"]
+
+[ext_resource type="Shader" uid="uid://dsrpdsmc75wyv" path="res://aObjs/aBuilding/Tower/aMageTower/mage_/projectile/ball.gdshader" id="1_rcyb6"]
+[ext_resource type="Shader" uid="uid://cfkeyb2juvjff" path="res://aObjs/aBuilding/Tower/aMageTower/mage_/projectile/fireballBig.gdshader" id="2_50i6b"]
+[ext_resource type="Shader" uid="uid://dcvf4v5fe2eqh" path="res://aObjs/aBuilding/Tower/aMageTower/mage_/projectile/fbTrail.gdshader" id="3_af0fl"]
+[ext_resource type="ArrayMesh" uid="uid://ceo0at6x5wa6u" path="res://aObjs/aBuilding/Tower/aMageTower/mage_/projectile/fbTrail.res" id="4_khn5v"]
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_6utmw"]
+frequency = 0.005
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_5r1cs"]
+seamless = true
+noise = SubResource("FastNoiseLite_6utmw")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_5r1cs"]
+render_priority = 0
+shader = ExtResource("1_rcyb6")
+shader_parameter/noise1 = SubResource("NoiseTexture2D_5r1cs")
+shader_parameter/color = Color(0.35, 0, 0, 1)
+shader_parameter/overlayColor = Color(1, 0.576333, 0.18, 1)
+
+[sub_resource type="SphereMesh" id="SphereMesh_43qer"]
+material = SubResource("ShaderMaterial_5r1cs")
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_nsusq"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_288td"]
+render_priority = 0
+shader = ExtResource("2_50i6b")
+shader_parameter/noise1 = SubResource("NoiseTexture2D_nsusq")
+shader_parameter/color = Color(0.21, 0.10766, 0.0672, 1)
+shader_parameter/overlayColor = Color(0.5, 0.241, 0.08, 1)
+
+[sub_resource type="SphereMesh" id="SphereMesh_0e2sg"]
+material = SubResource("ShaderMaterial_288td")
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_nsusq"]
+noise_type = 3
+frequency = 0.004
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_288td"]
+seamless = true
+noise = SubResource("FastNoiseLite_nsusq")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_0e2sg"]
+render_priority = 0
+shader = ExtResource("3_af0fl")
+shader_parameter/noise1 = SubResource("NoiseTexture2D_288td")
+shader_parameter/color = Color(0.53, 0.321092, 0.2385, 1)
+shader_parameter/overlayColor = Color(0.74, 0.35039, 0.1406, 1)
+
+[sub_resource type="Curve" id="Curve_43qer"]
+_data = [Vector2(0, 1), 0.0, 0.120639, 0, 0, Vector2(1, 0), -0.0218298, 0.0, 0, 0]
+point_count = 2
+
+[sub_resource type="CurveTexture" id="CurveTexture_uewso"]
+curve = SubResource("Curve_43qer")
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_43qer"]
+direction = Vector3(0, 0, -1)
+spread = 5.0
+initial_velocity_min = 4.0
+initial_velocity_max = 4.0
+gravity = Vector3(0, 0, 0)
+scale_min = 1.1
+scale_max = 1.1
+scale_curve = SubResource("CurveTexture_uewso")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_43qer"]
+render_priority = 0
+shader = ExtResource("3_af0fl")
+shader_parameter/noise1 = SubResource("NoiseTexture2D_288td")
+shader_parameter/color = Color(0.23, 0.1104, 0.1104, 1)
+shader_parameter/overlayColor = Color(0.42, 0.23093, 0.1134, 1)
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_uewso"]
+direction = Vector3(0, 0, -1)
+spread = 5.0
+initial_velocity_min = 4.0
+initial_velocity_max = 4.0
+gravity = Vector3(0, 0, 0)
+scale_min = 0.7
+scale_max = 0.9
+scale_curve = SubResource("CurveTexture_uewso")
+
+[node name="Fireball" type="Node3D"]
+
+[node name="ball" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.369196, 0, 0, 0, 0.369196, 0, 0, 0, 0.369196, 0.00179014, 0.0117791, -0.103734)
+mesh = SubResource("SphereMesh_43qer")
+
+[node name="big" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.28241, 0, 0, 0, 0.28241, 0, 0, 0, 0.619305, 0.00503304, 0.011779, -0.373423)
+mesh = SubResource("SphereMesh_0e2sg")
+
+[node name="GPUParticles3D" type="GPUParticles3D" parent="."]
+transform = Transform3D(0.524077, 0, 0, 0, 0.524077, 0, 0, 0, 0.284592, 0.014, 0.102789, -0.770373)
+material_override = SubResource("ShaderMaterial_0e2sg")
+amount = 3
+fixed_fps = 60
+local_coords = true
+process_material = SubResource("ParticleProcessMaterial_43qer")
+draw_pass_1 = ExtResource("4_khn5v")
+
+[node name="GPUParticles3D2" type="GPUParticles3D" parent="."]
+transform = Transform3D(0.869092, 0, 0, 0, 0.869092, 0, 0, 0, 0.433114, 0.014, 0.102789, -0.770373)
+material_override = SubResource("ShaderMaterial_43qer")
+amount = 1
+fixed_fps = 60
+local_coords = true
+process_material = SubResource("ParticleProcessMaterial_uewso")
+draw_pass_1 = ExtResource("4_khn5v")

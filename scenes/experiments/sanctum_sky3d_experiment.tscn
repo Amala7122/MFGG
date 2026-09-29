@@ -1,0 +1,764 @@
+[gd_scene format=3 uid="uid://c5gcxjhok41va"]
+
+[ext_resource type="PackedScene" path="res://scenes/stylized_tree.tscn" id="2_tree"]
+[ext_resource type="Shader" uid="uid://cvd0x7lon1ur6" path="res://addons/sky_3d/shaders/SkyMaterial.gdshader" id="2_tvosd"]
+[ext_resource type="Texture2D" uid="uid://cfqk60lpl5ljv" path="res://addons/sky_3d/assets/resources/SNoise.tres" id="3_0pjws"]
+[ext_resource type="PackedScene" path="res://scenes/ranged_enemy.tscn" id="3_ranged"]
+[ext_resource type="Texture2D" uid="uid://cecwdqjol0ckd" path="res://addons/sky_3d/assets/textures/noiseClouds.png" id="4_8fisf"]
+[ext_resource type="PackedScene" path="res://scenes/melee_enemy.tscn" id="4_melee"]
+[ext_resource type="Texture2D" uid="uid://2r8ylu6rg5dp" path="res://addons/sky_3d/assets/thirdparty/textures/moon/MoonMap.png" id="5_aum1s"]
+[ext_resource type="Script" uid="uid://cltea6a0weien" path="res://scripts/world_decor.gd" id="5_decor"]
+[ext_resource type="Texture2D" uid="uid://djpfuyxkryegn" path="res://addons/sky_3d/assets/textures/noise.jpg" id="6_hh6df"]
+[ext_resource type="Script" uid="uid://dlcyndlfdyhlg" path="res://scripts/enemy_spawn_point.gd" id="6_spawner"]
+[ext_resource type="Texture2D" uid="uid://bm7dot7t7u1q4" path="res://addons/sky_3d/assets/thirdparty/textures/milkyway/StarField.jpg" id="7_0bx30"]
+[ext_resource type="Script" uid="uid://w4kpf1rafq6d" path="res://scripts/survival_director.gd" id="7_director"]
+[ext_resource type="Texture2D" uid="uid://c1vwcdcdvb74a" path="res://addons/sky_3d/assets/thirdparty/textures/milkyway/Milkyway.jpg" id="8_qsd4r"]
+[ext_resource type="Script" uid="uid://dmerpogagqcde" path="res://scripts/terrain_field.gd" id="8_terrain"]
+[ext_resource type="Script" uid="uid://dqmpjawimhq5g" path="res://scripts/field_cover.gd" id="9_cover"]
+[ext_resource type="Script" uid="uid://d0ohvtegilxkd" path="res://scripts/terrain_snap.gd" id="10_snap"]
+[ext_resource type="Script" uid="uid://4ykqqp58fhw2" path="res://scripts/navigation_region.gd" id="11_nav"]
+[ext_resource type="Script" uid="uid://bsg24av6x8ekd" path="res://scripts/wave_director.gd" id="12_wave"]
+[ext_resource type="Script" uid="uid://cqyyr5kue6vuv" path="res://scripts/player_spawner.gd" id="13_spawner"]
+[ext_resource type="Script" uid="uid://b8tv5aogle5bh" path="res://scripts/enemy_spawner.gd" id="14_enemy_spawner"]
+[ext_resource type="Script" uid="uid://bloban6gwlou8" path="res://scripts/editor_world_preview.gd" id="16_preview"]
+[ext_resource type="Script" uid="uid://c00g3qsxniqas" path="res://scripts/grass_field.gd" id="17_grass"]
+[ext_resource type="Script" uid="uid://deo0gxkmk2ahd" path="res://addons/sky_3d/src/Sky3D.gd" id="18_sky3d"]
+[ext_resource type="Script" uid="uid://b4tkplvh7fq40" path="res://addons/sky_3d/src/SkyDome.gd" id="19_skydome"]
+[ext_resource type="Script" uid="uid://cjmkcj8hwm7ts" path="res://addons/sky_3d/src/TimeOfDay.gd" id="20_time"]
+[ext_resource type="Script" uid="uid://rolxgc2l3jsk" path="res://scripts/sky3d_experiment_controller.gd" id="21_sky_controller"]
+[ext_resource type="Script" uid="uid://dyb0t1ywkxpiw" path="res://scripts/weather_system.gd" id="22_rain_controller"]
+[ext_resource type="Script" uid="uid://ddtf6168msjcv" path="res://scripts/experiment_quickstart.gd" id="23_quickstart"]
+[ext_resource type="Script" uid="uid://dc8k25q6dxj1q" path="res://scripts/weather_snow_layer.gd" id="41_snow_layer"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_7jmfh"]
+shader = ExtResource("2_tvosd")
+shader_parameter/sky_visible = true
+shader_parameter/weather_overcast = 0.0
+shader_parameter/weather_horizon = Color(0.4, 0.44, 0.48, 1)
+shader_parameter/color_correction = Vector2(0, 0.805)
+shader_parameter/ground_color = Color(0.4, 0.52, 0.46, 1)
+shader_parameter/horizon_offset = 0.0
+shader_parameter/atm_darkness = 0.48
+shader_parameter/atm_sun_intensity = 18.0
+shader_parameter/atm_day_tint = Color(0.76, 0.87, 0.96, 1)
+shader_parameter/atm_horizon_light_tint = Color(0.96, 0.7, 0.52, 1)
+shader_parameter/atm_night_tint = Color(0.0006251516, 0.0009377274, 0.001719167, 0.007814395)
+shader_parameter/atm_level_params = Vector3(1, 0, 0)
+shader_parameter/atm_thickness = 0.78
+shader_parameter/atm_beta_ray = Vector3(5.804544e-06, 1.3562913e-05, 3.311258e-05)
+shader_parameter/atm_beta_mie = Vector3(3.038e-08, 3.038e-08, 3.038e-08)
+shader_parameter/sun_light_color = Color(1, 0.77362394, 0.5669988, 1)
+shader_parameter/sun_disk_color = Color(1, 0.82, 0.58, 1)
+shader_parameter/sun_disk_intensity = 24.0
+shader_parameter/sun_disk_size = 0.078
+shader_parameter/atm_sun_mie_tint = Color(1, 1, 1, 1)
+shader_parameter/atm_sun_mie_intensity = 1.0
+shader_parameter/atm_sun_partial_mie_phase = Vector3(0.36, 1.64, 1.6)
+shader_parameter/moon_color = Color(0.86, 0.91, 1, 1)
+shader_parameter/moon_texture = ExtResource("5_aum1s")
+shader_parameter/moon_texture_alignment = Vector3(7, 1.4, 4.8)
+shader_parameter/moon_texture_flip_u = false
+shader_parameter/moon_texture_flip_v = false
+shader_parameter/moon_size = 0.055
+shader_parameter/atm_moon_mie_tint = Color(0.137255, 0.184314, 0.292196, 1)
+shader_parameter/atm_moon_mie_intensity = 0.0
+shader_parameter/atm_moon_partial_mie_phase = Vector3(0.36, 1.64, 1.6)
+shader_parameter/starmap_color = Color(0.72, 0.75, 0.88, 0.72)
+shader_parameter/starmap_texture = ExtResource("8_qsd4r")
+shader_parameter/starmap_flip_u = false
+shader_parameter/starmap_flip_v = false
+shader_parameter/starmap_alignment = Vector3(2.68288, -0.25891, 0.40101)
+shader_parameter/star_rotation_offset = 9.38899
+shader_parameter/star_rotation = -8.187684425908056
+shader_parameter/star_tilt = -1.0297443267948965
+shader_parameter/star_field_color = Color(0.84, 0.9, 1, 0.9)
+shader_parameter/star_field_texture = ExtResource("7_0bx30")
+shader_parameter/star_scintillation = 0.42
+shader_parameter/star_scintillation_speed = 0.006
+shader_parameter/noise_tex = ExtResource("6_hh6df")
+shader_parameter/clouds_night_color = Color(0.090196, 0.094118, 0.129412, 1)
+shader_parameter/cirrus_visible = false
+shader_parameter/cirrus_intensity = 2.0
+shader_parameter/cirrus_coverage = 0.5
+shader_parameter/cirrus_thickness = 1.7
+shader_parameter/cirrus_absorption = 2.0
+shader_parameter/cirrus_sky_tint_fade = 0.5
+shader_parameter/cirrus_size = 1.0
+shader_parameter/cirrus_uv = Vector2(0.16, 0.11)
+shader_parameter/cirrus_position1 = Vector2(0.08824703, 0.08824703)
+shader_parameter/cirrus_position2 = Vector2(0.08824703, 0.08824703)
+shader_parameter/cirrus_texture = ExtResource("3_0pjws")
+shader_parameter/cumulus_visible = false
+shader_parameter/cumulus_intensity = 0.6
+shader_parameter/cumulus_coverage = 0.55
+shader_parameter/cumulus_thickness = 0.0243
+shader_parameter/cumulus_absorption = 2.0
+shader_parameter/cumulus_noise_freq = 2.7
+shader_parameter/cumulus_sky_tint_fade = 0.0
+shader_parameter/cumulus_size = 0.5
+shader_parameter/cumulus_position = Vector2(0.44123524, 0.44123524)
+shader_parameter/cumulus_texture = ExtResource("4_8fisf")
+shader_parameter/cumulus_partial_mie_phase = Vector3(0.957564, 1.042436, 0.412)
+shader_parameter/cumulus_mie_intensity = 1.0
+shader_parameter/show_azimuthal_grid = false
+shader_parameter/azimuthal_grid_color = Color(0.87058824, 0.72156864, 0.5294118, 1)
+shader_parameter/azimuthal_grid_rotation_offset = 0.03
+shader_parameter/show_equatorial_grid = false
+shader_parameter/equatorial_grid_color = Color(0, 0.75, 1, 1)
+shader_parameter/equatorial_grid_rotation_offset = 0.03
+shader_parameter/moon_matrix = Basis(-0.93672895, 0.3000564, 0.18029206, -0.12211828, 0.2025756, -0.9716226, -0.32806432, -0.93216383, -0.15311606)
+
+[sub_resource type="Sky" id="Sky_sgn5p"]
+sky_material = SubResource("ShaderMaterial_7jmfh")
+
+[sub_resource type="Environment" id="Environment_world"]
+background_mode = 2
+sky = SubResource("Sky_sgn5p")
+ambient_light_source = 3
+ambient_light_color = Color(0.69237804, 0.53578, 0.3929976, 1)
+reflected_light_source = 2
+tonemap_mode = 3
+tonemap_white = 6.0
+glow_enabled = true
+volumetric_fog_density = 0.0
+volumetric_fog_albedo = Color(0.82, 0.84, 0.86, 1)
+volumetric_fog_anisotropy = 0.0
+volumetric_fog_length = 65.0
+volumetric_fog_ambient_inject = 0.35
+volumetric_fog_sky_affect = 0.0
+
+[sub_resource type="CameraAttributesPractical" id="CameraAttributes_sky3d"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_path"]
+albedo_color = Color(0.19, 0.18, 0.155, 1)
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_unit"]
+size = Vector2(1, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_sand"]
+albedo_color = Color(0.3, 0.28, 0.22, 1)
+roughness = 0.95
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_water"]
+transparency = 1
+albedo_color = Color(0.05, 0.1, 0.15, 0.82)
+metallic = 0.1
+roughness = 0.22
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_unit"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_wood"]
+albedo_color = Color(0.15, 0.105, 0.07, 1)
+roughness = 0.95
+
+[sub_resource type="BoxMesh" id="BoxMesh_unit"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_stone_dark"]
+albedo_color = Color(0.16, 0.17, 0.17, 1)
+roughness = 0.9
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_stone"]
+albedo_color = Color(0.23, 0.235, 0.225, 1)
+roughness = 0.88
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_ruin"]
+top_radius = 0.45
+bottom_radius = 0.55
+height = 5.0
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_shrine"]
+shading_mode = 0
+albedo_color = Color(0.1, 0.85, 0.95, 1)
+
+[sub_resource type="SphereMesh" id="SphereMesh_landscape"]
+radius = 1.0
+height = 2.0
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_log"]
+top_radius = 0.12
+bottom_radius = 0.14
+height = 1.5
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_fire"]
+shading_mode = 0
+albedo_color = Color(1, 0.36, 0.03, 1)
+
+[sub_resource type="SphereMesh" id="SphereMesh_fire"]
+radius = 0.32
+height = 0.58
+
+[node name="SanctumSky3DExperiment" type="Node3D" unique_id=20188834]
+script = ExtResource("16_preview")
+
+[node name="Sky3D" type="WorldEnvironment" parent="." unique_id=1502289054]
+environment = SubResource("Environment_world")
+camera_attributes = SubResource("CameraAttributes_sky3d")
+script = ExtResource("18_sky3d")
+clouds_enabled = false
+editor_time_enabled = false
+current_time = 7.13
+skydome_energy = 0.805
+sun_energy = 2.06
+moon_energy = 0.5
+night_sky_contribution = 0.38
+contribution_tween_time = 2.0
+wind_speed = 23.4
+wind_direction = 2.35619451204804
+
+[node name="SunLight" type="DirectionalLight3D" parent="Sky3D" unique_id=1669123254]
+transform = Transform3D(0.17771512, -0.2875346, 0.94113827, 0, 0.9563617, 0.2921856, -0.984082, -0.0519258, 0.16995993, 0.94113827, 0.2921856, 0.16995993)
+light_color = Color(1, 0.77362394, 0.5669988, 1)
+light_energy = 2.06
+light_volumetric_fog_energy = 0.0
+shadow_enabled = true
+shadow_normal_bias = 0.15
+directional_shadow_blend_splits = true
+directional_shadow_max_distance = 80.0
+
+[node name="MoonLight" type="DirectionalLight3D" parent="Sky3D" unique_id=487357045]
+transform = Transform3D(0, -0.9446554, -0.3280643, -0.16208664, 0.32372615, -0.9321638, 0.98677653, 0.05317484, -0.15311602, -0.3280643, -0.9321638, -0.15311602)
+light_color = Color(0.53, 0.68, 0.92, 1)
+light_energy = 0.0
+shadow_bias = 0.12
+shadow_normal_bias = 0.18
+directional_shadow_blend_splits = true
+directional_shadow_max_distance = 70.0
+
+[node name="SkyDome" type="Node" parent="Sky3D" unique_id=2009320672]
+script = ExtResource("19_skydome")
+exposure = 0.805
+ground_color = Color(0.4, 0.52, 0.46, 1)
+sun_disk_size = 0.078
+sun_azimuth = -1.7494605
+sun_altitude = -1.274285
+sun_disk_color = Color(1, 0.82, 0.58, 1)
+sun_disk_intensity = 24.0
+sun_light_color = Color(1, 0.89, 0.7, 1)
+sun_horizon_light_color = Color(1, 0.61, 0.38, 1)
+sun_light_energy = 2.06
+moon_azimuth = -5.1490645
+moon_altitude = -2.7711406
+moon_color = Color(0.86, 0.91, 1, 1)
+moon_size = 0.055
+moon_light_color = Color(0.53, 0.68, 0.92, 1)
+moon_light_energy = 0.5
+atm_darkness = 0.48
+atm_day_tint = Color(0.76, 0.87, 0.96, 1)
+atm_horizon_light_tint = Color(0.96, 0.7, 0.52, 1)
+atm_night_tint = Color(0.08, 0.12, 0.22, 1)
+atm_thickness = 0.78
+fog_start = 85.0
+fog_end = 820.0
+wind_speed = 23.4
+wind_direction = 2.35619451204804
+cirrus_visible = false
+cumulus_visible = false
+starmap_color = Color(0.72, 0.75, 0.88, 0.72)
+star_field_color = Color(0.84, 0.9, 1, 0.9)
+star_scintillation = 0.42
+star_scintillation_speed = 0.006
+
+[node name="TimeOfDay" type="Node" parent="Sky3D" unique_id=313974012]
+script = ExtResource("20_time")
+editor_time_enabled = false
+dome_path = NodePath("../SkyDome")
+current_time = 7.13
+day = 22
+month = 9
+year = 2026
+latitude = 0.541052
+longitude = 2.11185
+utc = 8.0
+
+[node name="Sky3DExperimentController" type="Node" parent="." unique_id=1964413319]
+script = ExtResource("21_sky_controller")
+weather_darkening = 0.08
+
+[node name="WeatherSystem" type="Node3D" parent="." unique_id=714604810]
+script = ExtResource("22_rain_controller")
+fog_amount = 0.17
+rain_preset = 0
+maximum_streaks = 14000
+fall_speed = 38.0
+impact_pool_size = 1024
+impact_radius = 24.0
+
+[node name="SnowLayer" type="Node3D" parent="WeatherSystem" unique_id=169558255]
+script = ExtResource("41_snow_layer")
+
+[node name="ExperimentQuickStart" type="Node" parent="." unique_id=474539508]
+script = ExtResource("23_quickstart")
+
+[node name="FillLight" type="DirectionalLight3D" parent="." unique_id=2003871144]
+transform = Transform3D(-0.58850116, 0.489291, 0.64363086, 0, 0.7960838, -0.6051864, -0.80849636, -0.3561529, -0.46849623, 0, 0, 0)
+light_color = Color(0.5292, 0.6444, 0.788, 1)
+light_energy = 0.4832
+light_volumetric_fog_energy = 0.0
+light_specular = 0.0
+
+[node name="NightSkyLight" type="DirectionalLight3D" parent="." unique_id=1120473704]
+transform = Transform3D(-0.7071036, 0.57923055, -0.40558168, 0, 0.5735765, 0.819152, 0.70711, 0.57922536, -0.40557802, 0, 0, 0)
+light_color = Color(0.46, 0.56, 0.82, 1)
+light_energy = 0.5058434
+light_volumetric_fog_energy = 0.0
+light_specular = 0.0
+
+[node name="Ground" type="StaticBody3D" parent="." unique_id=271098666]
+visible = false
+script = ExtResource("8_terrain")
+
+[node name="Roads" type="Node3D" parent="." unique_id=384994603]
+visible = false
+
+[node name="MainRoad" type="MeshInstance3D" parent="Roads" unique_id=132273789]
+transform = Transform3D(6.5, 0, 0, 0, 1, 0, 0, 0, 86, 0, 0.012, -8)
+material_override = SubResource("StandardMaterial3D_path")
+mesh = SubResource("PlaneMesh_unit")
+
+[node name="LakeRoad" type="MeshInstance3D" parent="Roads" unique_id=1953994032]
+transform = Transform3D(2.9858367, 0, -22.50494, 0, 1, 0, 2.9537733, 0, 22.749233, 11, 0.014, 10)
+material_override = SubResource("StandardMaterial3D_path")
+mesh = SubResource("PlaneMesh_unit")
+
+[node name="RuinRoad" type="MeshInstance3D" parent="Roads" unique_id=597040803]
+transform = Transform3D(2.728885, 0, -27.78354, 0, 1, 0, 2.9245832, 0, 25.924406, -14, 0.016, -19)
+material_override = SubResource("StandardMaterial3D_path")
+mesh = SubResource("PlaneMesh_unit")
+
+[node name="Lake" type="Node3D" parent="." unique_id=45268982]
+visible = false
+
+[node name="LakeBed" type="MeshInstance3D" parent="Lake" unique_id=1679228978]
+transform = Transform3D(34, 0, 0, 0, 1, 0, 0, 0, 22, 25, 0.018, 20)
+material_override = SubResource("StandardMaterial3D_sand")
+mesh = SubResource("PlaneMesh_unit")
+
+[node name="Water" type="MeshInstance3D" parent="Lake" unique_id=2060874634]
+transform = Transform3D(29, 0, 0, 0, 1, 0, 0, 0, 17, 25, 0.04, 20)
+material_override = SubResource("StandardMaterial3D_water")
+mesh = SubResource("PlaneMesh_unit")
+
+[node name="Pier" type="StaticBody3D" parent="Lake" unique_id=1596399988]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13.5, 0.23, 20)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Lake/Pier" unique_id=1718437433]
+transform = Transform3D(8, 0, 0, 0, 0.35, 0, 0, 0, 2.4, 0, 0, 0)
+shape = SubResource("BoxShape3D_unit")
+
+[node name="Mesh" type="MeshInstance3D" parent="Lake/Pier" unique_id=30886261]
+transform = Transform3D(8, 0, 0, 0, 0.35, 0, 0, 0, 2.4, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_wood")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="AncientRuins" type="Node3D" parent="." unique_id=1381980084]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -29, 0, -29)
+visible = false
+
+[node name="RuinFloor" type="StaticBody3D" parent="AncientRuins" unique_id=744029933]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.18, 0)
+
+[node name="Collision" type="CollisionShape3D" parent="AncientRuins/RuinFloor" unique_id=1093371140]
+transform = Transform3D(12, 0, 0, 0, 0.35, 0, 0, 0, 10, 0, 0, 0)
+shape = SubResource("BoxShape3D_unit")
+
+[node name="Mesh" type="MeshInstance3D" parent="AncientRuins/RuinFloor" unique_id=1024407148]
+transform = Transform3D(12, 0, 0, 0, 0.35, 0, 0, 0, 10, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_stone_dark")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Pillar01" type="MeshInstance3D" parent="AncientRuins" unique_id=1195432453]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.5, 2.5, -3.5)
+material_override = SubResource("StandardMaterial3D_stone")
+mesh = SubResource("CylinderMesh_ruin")
+
+[node name="Pillar02" type="MeshInstance3D" parent="AncientRuins" unique_id=56143479]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.5, 2.5, -3.5)
+material_override = SubResource("StandardMaterial3D_stone")
+mesh = SubResource("CylinderMesh_ruin")
+
+[node name="Pillar03" type="MeshInstance3D" parent="AncientRuins" unique_id=379940298]
+transform = Transform3D(1, 0, 0, 0, 0.68, 0, 0, 0, 1, -4.5, 1.7, 3.5)
+material_override = SubResource("StandardMaterial3D_stone")
+mesh = SubResource("CylinderMesh_ruin")
+
+[node name="Pillar04" type="MeshInstance3D" parent="AncientRuins" unique_id=934745170]
+transform = Transform3D(1, 0, 0, 0, 0.84, 0, 0, 0, 1, 4.5, 2.1, 3.5)
+material_override = SubResource("StandardMaterial3D_stone")
+mesh = SubResource("CylinderMesh_ruin")
+
+[node name="Lintel" type="MeshInstance3D" parent="AncientRuins" unique_id=888666138]
+transform = Transform3D(9.5, 0, 0, 0, 0.55, 0, 0, 0, 0.7, 0, 4.55, -3.5)
+material_override = SubResource("StandardMaterial3D_stone")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="ShrineBase" type="MeshInstance3D" parent="AncientRuins" unique_id=2091708904]
+transform = Transform3D(2.4, 0, 0, 0, 1.25, 0, 0, 0, 2.4, 0, 0.75, 0)
+material_override = SubResource("StandardMaterial3D_stone")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="ShrineCore" type="MeshInstance3D" parent="AncientRuins" unique_id=488149008]
+transform = Transform3D(0.58, 0, 0, 0, 0.85, 0, 0, 0, 0.58, 0, 1.75, 0)
+material_override = SubResource("StandardMaterial3D_shrine")
+mesh = SubResource("SphereMesh_landscape")
+
+[node name="ShrineLight" type="OmniLight3D" parent="AncientRuins" unique_id=940328528]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
+light_color = Color(0.12, 0.75, 1, 1)
+light_energy = 3.5
+omni_range = 9.0
+
+[node name="EnemyCamp" type="Node3D" parent="." unique_id=1541449912]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0, -11)
+visible = false
+
+[node name="Log01" type="MeshInstance3D" parent="EnemyCamp" unique_id=684969187]
+transform = Transform3D(-3.6199901e-06, -1, 0, 1, -3.6199901e-06, 0, 0, 0, 1, 0, 0.18, 0)
+material_override = SubResource("StandardMaterial3D_wood")
+mesh = SubResource("CylinderMesh_log")
+
+[node name="Log02" type="MeshInstance3D" parent="EnemyCamp" unique_id=1197298594]
+transform = Transform3D(1, 0, 0, 0, -3.6199901e-06, -1, 0, 1, -3.6199901e-06, 0, 0.18, 0)
+material_override = SubResource("StandardMaterial3D_wood")
+mesh = SubResource("CylinderMesh_log")
+
+[node name="Fire" type="MeshInstance3D" parent="EnemyCamp" unique_id=2037027269]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.45, 0)
+material_override = SubResource("StandardMaterial3D_fire")
+mesh = SubResource("SphereMesh_fire")
+
+[node name="FireLight" type="OmniLight3D" parent="EnemyCamp" unique_id=1146373845]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+light_color = Color(1, 0.32, 0.06, 1)
+light_energy = 3.0
+omni_range = 8.0
+
+[node name="Forest" type="Node3D" parent="." unique_id=2082198695]
+visible = false
+script = ExtResource("10_snap")
+
+[node name="Tree01" parent="Forest" unique_id=718456942 instance=ExtResource("2_tree")]
+transform = Transform3D(1.15, 0, 0, 0, 1.15, 0, 0, 0, 1.15, -12, 0, 18)
+
+[node name="Tree02" parent="Forest" unique_id=258021308 instance=ExtResource("2_tree")]
+transform = Transform3D(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9, -19, 0, 22)
+
+[node name="Tree03" parent="Forest" unique_id=1461012798 instance=ExtResource("2_tree")]
+transform = Transform3D(1.3, 0, 0, 0, 1.3, 0, 0, 0, 1.3, -26, 0, 16)
+
+[node name="Tree04" parent="Forest" unique_id=279595074 instance=ExtResource("2_tree")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -34, 0, 22)
+
+[node name="Tree05" parent="Forest" unique_id=164951474 instance=ExtResource("2_tree")]
+transform = Transform3D(1.2, 0, 0, 0, 1.2, 0, 0, 0, 1.2, -42, 0, 13)
+
+[node name="Tree06" parent="Forest" unique_id=1689137719 instance=ExtResource("2_tree")]
+transform = Transform3D(0.85, 0, 0, 0, 0.85, 0, 0, 0, 0.85, -30, 0, 32)
+
+[node name="Tree07" parent="Forest" unique_id=1649320685 instance=ExtResource("2_tree")]
+transform = Transform3D(1.1, 0, 0, 0, 1.1, 0, 0, 0, 1.1, -18, 0, 36)
+
+[node name="Tree08" parent="Forest" unique_id=1343917825 instance=ExtResource("2_tree")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7, 0, 40)
+
+[node name="Tree09" parent="Forest" unique_id=1977969671 instance=ExtResource("2_tree")]
+transform = Transform3D(1.25, 0, 0, 0, 1.25, 0, 0, 0, 1.25, 7, 0, 40)
+
+[node name="Tree10" parent="Forest" unique_id=2088587434 instance=ExtResource("2_tree")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 39, 0, 36)
+
+[node name="Tree11" parent="Forest" unique_id=1640406819 instance=ExtResource("2_tree")]
+transform = Transform3D(1.2, 0, 0, 0, 1.2, 0, 0, 0, 1.2, 46, 0, 29)
+
+[node name="Tree12" parent="Forest" unique_id=1304367245 instance=ExtResource("2_tree")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 44, 0, 9)
+
+[node name="Tree13" parent="Forest" unique_id=495756805 instance=ExtResource("2_tree")]
+transform = Transform3D(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9, 39, 0, -4)
+
+[node name="Tree14" parent="Forest" unique_id=1009955894 instance=ExtResource("2_tree")]
+transform = Transform3D(1.15, 0, 0, 0, 1.15, 0, 0, 0, 1.15, 34, 0, -18)
+
+[node name="Tree15" parent="Forest" unique_id=1787788399 instance=ExtResource("2_tree")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 24, 0, -31)
+
+[node name="Tree16" parent="Forest" unique_id=686467105 instance=ExtResource("2_tree")]
+transform = Transform3D(1.25, 0, 0, 0, 1.25, 0, 0, 0, 1.25, 12, 0, -39)
+
+[node name="Tree17" parent="Forest" unique_id=1571155488 instance=ExtResource("2_tree")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5, 0, -44)
+
+[node name="Tree18" parent="Forest" unique_id=1791083386 instance=ExtResource("2_tree")]
+transform = Transform3D(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9, -18, 0, -43)
+
+[node name="Tree19" parent="Forest" unique_id=627712284 instance=ExtResource("2_tree")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -42, 0, -12)
+
+[node name="Tree20" parent="Forest" unique_id=136718822 instance=ExtResource("2_tree")]
+transform = Transform3D(1.2, 0, 0, 0, 1.2, 0, 0, 0, 1.2, -45, 0, 1)
+
+[node name="Tree21" parent="Forest" unique_id=2129012972 instance=ExtResource("2_tree")]
+transform = Transform3D(0.85, 0, 0, 0, 0.85, 0, 0, 0, 0.85, 18, 0, 33)
+
+[node name="Tree22" parent="Forest" unique_id=1497541844 instance=ExtResource("2_tree")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 31, 0, 36)
+
+[node name="Grass" type="Node3D" parent="." unique_id=1004261835]
+visible = false
+script = ExtResource("17_grass")
+
+[node name="WorldDecor" type="Node3D" parent="." unique_id=502388631]
+visible = false
+script = ExtResource("5_decor")
+
+[node name="Cover" type="Node3D" parent="." unique_id=1120520866]
+visible = false
+script = ExtResource("9_cover")
+
+[node name="NavRegion" type="NavigationRegion3D" parent="." unique_id=150477537]
+script = ExtResource("11_nav")
+
+[node name="Players" type="Node3D" parent="." unique_id=1971367536]
+
+[node name="PlayerSpawner" type="Node" parent="." unique_id=471679608]
+script = ExtResource("13_spawner")
+
+[node name="Enemies" type="Node3D" parent="." unique_id=1179921532]
+
+[node name="SurvivalDirector" type="Node3D" parent="Enemies" unique_id=2098994779]
+script = ExtResource("7_director")
+
+[node name="WaveDirector" type="Node" parent="Enemies" unique_id=2024960027]
+script = ExtResource("12_wave")
+
+[node name="EnemySpawner" type="Node" parent="Enemies" unique_id=134921016]
+script = ExtResource("14_enemy_spawner")
+
+[node name="L1ScoutGunner" type="Node3D" parent="Enemies" unique_id=497542401]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 1, -14)
+script = ExtResource("6_spawner")
+enemy_scene = ExtResource("3_ranged")
+random_spawn_radius = 11.0
+minimum_player_distance = 11.0
+enemy_scale = 0.78
+enemy_move_speed = 3.8
+enemy_damage = 7.0
+ranged_pattern = 0
+enemy_title = "侦察射手"
+armor_color = Color(0.68, 0.08, 0.1, 1)
+bullet_color = Color(1, 0.03, 0.15, 1)
+ranged_health_tier = 0
+
+[node name="L1SmallHunter" type="Node3D" parent="Enemies" unique_id=81515884]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 1, -7)
+script = ExtResource("6_spawner")
+enemy_scene = ExtResource("4_melee")
+random_spawn_radius = 10.0
+minimum_player_distance = 9.0
+enemy_scale = 0.72
+enemy_health = 40.0
+enemy_move_speed = 5.4
+enemy_damage = 10.0
+enemy_title = "小型追猎者"
+armor_color = Color(0.7, 0.2, 0.08, 1)
+
+[node name="L1MeleeSoldier" type="Node3D" parent="Enemies" unique_id=317969989]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -16, 1, -15)
+script = ExtResource("6_spawner")
+enemy_scene = ExtResource("4_melee")
+respawn_delay = 6.0
+random_spawn_radius = 11.0
+enemy_health = 90.0
+enemy_move_speed = 4.0
+enemy_damage = 16.0
+enemy_title = "近战士兵"
+armor_color = Color(0.4, 0.1, 0.56, 1)
+
+[node name="L2BurstRanger" type="Node3D" parent="Enemies" unique_id=791554678]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -14, 1, -12)
+script = ExtResource("6_spawner")
+enemy_scene = ExtResource("3_ranged")
+respawn_delay = 6.0
+random_spawn_radius = 15.0
+minimum_player_distance = 11.0
+required_weapon_level = 2
+enemy_scale = 0.9
+enemy_move_speed = 4.0
+enemy_damage = 8.0
+ranged_pattern = 1
+movement_style = 2
+enemy_title = "点射游骑兵"
+armor_color = Color(0.08, 0.25, 0.68, 1)
+bullet_color = Color(1, 0.3, 0.03, 1)
+preferred_distance = 17.0
+ranged_health_tier = 1
+
+[node name="L2SwiftBlade" type="Node3D" parent="Enemies" unique_id=363795439]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 1, -4)
+script = ExtResource("6_spawner")
+enemy_scene = ExtResource("4_melee")
+random_spawn_radius = 12.0
+required_weapon_level = 2
+enemy_scale = 0.82
+enemy_health = 65.0
+enemy_move_speed = 5.1
+enemy_damage = 14.0
+enemy_title = "迅捷刀手"
+armor_color = Color(0.72, 0.26, 0.04, 1)
+
+[node name="L2HeavyWarrior" type="Node3D" parent="Enemies" unique_id=591405879]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -22, 1, 2)
+script = ExtResource("6_spawner")
+enemy_scene = ExtResource("4_melee")
+respawn_delay = 8.0
+minimum_player_distance = 12.0
+required_weapon_level = 2
+enemy_scale = 1.35
+enemy_health = 210.0
+enemy_move_speed = 2.8
+enemy_damage = 24.0
+enemy_title = "重装战士"
+armor_color = Color(0.2, 0.22, 0.25, 1)
+
+[node name="L3SpiralCaster" type="Node3D" parent="Enemies" unique_id=1000695237]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 20, 1, -2)
+script = ExtResource("6_spawner")
+enemy_scene = ExtResource("3_ranged")
+respawn_delay = 7.0
+random_spawn_radius = 17.0
+minimum_player_distance = 12.0
+required_weapon_level = 3
+enemy_scale = 1.05
+enemy_move_speed = 3.3
+enemy_damage = 10.0
+ranged_pattern = 2
+movement_style = 1
+enemy_title = "旋流术士"
+armor_color = Color(0.42, 0.08, 0.66, 1)
+bullet_color = Color(0.76, 0.05, 1, 1)
+preferred_distance = 18.0
+ranged_health_tier = 2
+
+[node name="L3WallGunner" type="Node3D" parent="Enemies" unique_id=1409648857]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -19, 1, 7)
+script = ExtResource("6_spawner")
+enemy_scene = ExtResource("3_ranged")
+respawn_delay = 7.0
+random_spawn_radius = 14.0
+minimum_player_distance = 11.0
+required_weapon_level = 3
+enemy_scale = 1.15
+enemy_move_speed = 2.8
+enemy_damage = 11.0
+ranged_pattern = 3
+enemy_title = "弹墙炮手"
+armor_color = Color(0.04, 0.45, 0.42, 1)
+bullet_color = Color(1, 0.04, 0.55, 1)
+preferred_distance = 20.0
+ranged_health_tier = 2
+
+[node name="L3Berserker" type="Node3D" parent="Enemies" unique_id=660100661]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 1, -24)
+script = ExtResource("6_spawner")
+enemy_scene = ExtResource("4_melee")
+respawn_delay = 7.0
+random_spawn_radius = 14.0
+minimum_player_distance = 11.0
+required_weapon_level = 3
+enemy_scale = 1.15
+enemy_health = 150.0
+enemy_move_speed = 4.7
+enemy_damage = 20.0
+enemy_title = "狂战士"
+armor_color = Color(0.7, 0.04, 0.04, 1)
+
+[node name="L3ShieldGuard" type="Node3D" parent="Enemies" unique_id=440721223]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -28, 1, -5)
+script = ExtResource("6_spawner")
+enemy_scene = ExtResource("4_melee")
+respawn_delay = 9.0
+random_spawn_radius = 12.0
+minimum_player_distance = 12.0
+required_weapon_level = 3
+enemy_scale = 1.4
+enemy_health = 260.0
+enemy_move_speed = 2.5
+enemy_damage = 26.0
+enemy_title = "大型盾卫"
+armor_color = Color(0.12, 0.18, 0.32, 1)
+
+[node name="L3Runner" type="Node3D" parent="Enemies" unique_id=15502451]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 25, 1, -20)
+script = ExtResource("6_spawner")
+enemy_scene = ExtResource("4_melee")
+respawn_delay = 6.0
+random_spawn_radius = 14.0
+required_weapon_level = 3
+enemy_scale = 0.68
+enemy_health = 55.0
+enemy_move_speed = 6.0
+enemy_damage = 11.0
+enemy_title = "疾行刺客"
+armor_color = Color(0.12, 0.5, 0.2, 1)
+
+[node name="L4HeavyArtillery" type="Node3D" parent="Enemies" unique_id=758624134]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30, 1, -28)
+script = ExtResource("6_spawner")
+enemy_scene = ExtResource("3_ranged")
+respawn_delay = 10.0
+random_spawn_radius = 15.0
+minimum_player_distance = 14.0
+required_weapon_level = 4
+enemy_scale = 1.55
+enemy_move_speed = 2.2
+enemy_damage = 14.0
+ranged_pattern = 4
+enemy_title = "重型迫击炮"
+armor_color = Color(0.32, 0.04, 0.04, 1)
+bullet_color = Color(1, 0.12, 0.02, 1)
+preferred_distance = 23.0
+ranged_health_tier = 3
+
+[node name="L4GiantBrute" type="Node3D" parent="Enemies" unique_id=1513331880]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -34, 1, -23)
+script = ExtResource("6_spawner")
+enemy_scene = ExtResource("4_melee")
+respawn_delay = 12.0
+random_spawn_radius = 14.0
+minimum_player_distance = 15.0
+required_weapon_level = 4
+enemy_scale = 1.75
+enemy_health = 520.0
+enemy_move_speed = 2.4
+enemy_damage = 34.0
+enemy_title = "巨型破坏者"
+armor_color = Color(0.34, 0.03, 0.42, 1)
+
+[node name="L4EliteMelee" type="Node3D" parent="Enemies" unique_id=1217273160]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14, 1, -35)
+script = ExtResource("6_spawner")
+enemy_scene = ExtResource("4_melee")
+respawn_delay = 9.0
+random_spawn_radius = 16.0
+minimum_player_distance = 13.0
+required_weapon_level = 4
+enemy_scale = 1.25
+enemy_health = 240.0
+enemy_move_speed = 4.0
+enemy_damage = 24.0
+enemy_title = "精英剑士"
+armor_color = Color(0.66, 0.38, 0.04, 1)
+
+[node name="L4FastHunter" type="Node3D" parent="Enemies" unique_id=1745656476]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 1, -34)
+script = ExtResource("6_spawner")
+enemy_scene = ExtResource("4_melee")
+respawn_delay = 7.0
+random_spawn_radius = 17.0
+minimum_player_distance = 11.0
+required_weapon_level = 4
+enemy_scale = 0.65
+enemy_health = 65.0
+enemy_move_speed = 6.2
+enemy_damage = 12.0
+enemy_title = "猎杀幼体"
+armor_color = Color(0.62, 0.16, 0.08, 1)

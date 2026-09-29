@@ -195,6 +195,7 @@
     "melee_damage_scale": 0.7,
     "ranged_damage_scale": 1.0,
     "melee_attack_interval": 0.72,
+    "melee_attack_angle": 110.0,
     "ranged_fire_interval": 2.3,
     "melee_base_damage": 24.0,
     "ranged_base_damage": 13.0,
@@ -242,7 +243,7 @@
 
   "navigation": {
     "_doc": "运行时烘焙的导航网格参数。agent_radius 会被吸附成 cell_size 的整数倍、agent_height 与 agent_max_climb 会被吸附成 cell_height 的整数倍 —— 所以直接写对齐后的值（见 navigation_region.gd 注释）。",
-    "agent_radius": 0.9,
+    "agent_radius": 1.2,
     "agent_height": 2.0,
     "agent_max_climb": 0.5,
     "agent_max_slope": 45.0,
@@ -324,6 +325,42 @@
     "enemy_stand_clearance": 1.2
   },
 
+  "enemy_gaits": {
+    "_doc": "步态第一版：light / normal / heavy / ranged 共用预设，图鉴 gait_preset 选择、gait 字典少量覆盖。cadence 是相位角速度（弧度/秒），实际步频另受真实速度、体型、步幅影响；不是固定每秒步数。转向/起步/刹停按预设注入 attrs，再由条目的显式 attrs 覆盖。",
+    "light": {
+      "walk_cadence": 10.5, "run_cadence": 13.0, "walk_swing": 0.34, "run_swing": 0.48,
+      "knee_base_bend": 0.34, "knee_swing_bend": 0.65,
+      "idle_lean_degrees": -8.0, "move_lean_degrees": -18.0, "crouch_height": 0.04,
+      "bob_height": 0.018, "hip_sway": 0.045, "shoulder_sway": 0.025, "weight_shift": 0.012,
+      "arm_swing": 0.26, "pose_smoothing": 22.0, "motion_response": 14.0, "turn_lag": 0.025,
+      "turn_speed": 780.0, "accel_ratio": 9.0, "brake_ratio": 12.0
+    },
+    "normal": {
+      "walk_cadence": 6.2, "run_cadence": 8.6, "walk_swing": 0.42, "run_swing": 0.68,
+      "knee_base_bend": 0.16, "knee_swing_bend": 0.6,
+      "idle_lean_degrees": 0.0, "move_lean_degrees": -7.0, "crouch_height": 0.0,
+      "bob_height": 0.035, "hip_sway": 0.06, "shoulder_sway": 0.04, "weight_shift": 0.018,
+      "arm_swing": 0.4, "pose_smoothing": 14.0, "motion_response": 8.0, "turn_lag": 0.055,
+      "turn_speed": 360.0, "accel_ratio": 5.5, "brake_ratio": 9.0
+    },
+    "heavy": {
+      "walk_cadence": 3.6, "run_cadence": 4.6, "walk_swing": 0.50, "run_swing": 0.68,
+      "knee_base_bend": 0.28, "knee_swing_bend": 0.48,
+      "idle_lean_degrees": -2.0, "move_lean_degrees": -7.0, "crouch_height": 0.03,
+      "bob_height": 0.015, "hip_sway": 0.10, "shoulder_sway": 0.06, "weight_shift": 0.055,
+      "arm_swing": 0.22, "pose_smoothing": 8.0, "motion_response": 5.0, "turn_lag": 0.12,
+      "turn_speed": 130.0, "accel_ratio": 2.2, "brake_ratio": 4.0
+    },
+    "ranged": {
+      "walk_cadence": 6.0, "run_cadence": 8.0, "walk_swing": 0.32, "run_swing": 0.46,
+      "knee_base_bend": 0.24, "knee_swing_bend": 0.45,
+      "idle_lean_degrees": 0.0, "move_lean_degrees": -3.0, "crouch_height": 0.015,
+      "bob_height": 0.01, "hip_sway": 0.025, "shoulder_sway": 0.008, "weight_shift": 0.01,
+      "arm_swing": 0.055, "pose_smoothing": 18.0, "motion_response": 10.0, "turn_lag": 0.018,
+      "turn_speed": 360.0, "accel_ratio": 4.5, "brake_ratio": 10.0
+    }
+  },
+
   "enemy_roster": {
     "_doc": "敌人图鉴。原先是场景 hyrule_field.tscn 里 15 个固定刷怪点上的 @export 值 —— 那其实是一套按武器等级解锁的手工调校阵容（侦察射手 → 点射游骑兵 → 旋流术士 → 重型迫击炮 → 巨型破坏者）。波次系统直接从这份图鉴出怪，不再用随机档位掷骰：掷骰能把『大体型占比』拉高，但永远出不了『重型迫击炮』这种有明确身份与弹道图案的敌人。迁到配置后，加一种敌人不再需要改场景。",
     "_fields_doc": "kind: ranged / melee；min_weapon_level: 解锁等级（与原 required_weapon_level 一致）；weight: 被抽中的相对权重（相同即可，调它来控制某种敌人出现频率）；health = -1 表示改由 health_tier 按『狙击几发打死』决定（远程专属）；scale/move_speed/damage 与原 @export 逐值相同。",
@@ -339,8 +376,8 @@
     "_speed_cap_note": "max_speed_growth = 1.25 才是【实际生效】的那个。enemy 段里另有一个 speed_growth_max = 1.12，但那张表只有 survival_director 会读、波次模式下整体休眠。以本段为准：最快的是猎杀幼体 6.2×1.25 = 7.75，仍低于玩家冲刺 8.5。",
     "_anchor_doc": "锚点站位保护：生成点与玩家的最小距离，避免贴着玩家脸上刷出来。",
     "anchor_min_player_distance": 14.0,
-    "_attrs_doc": "敌人『重量』属性（阶段 2）。attrs_default 里每条默认值都等于阶段 2 之前的现有行为 —— 所以整块不动时游戏与改动前逐帧一致。entries 里每条只写【与默认表不同】的字段，按体型/身份逐条启用，方便单条回滚。全部在生成时由同一份 entry 推导。",
-    "_attrs_fields_doc": "turn_speed: 转向速度(度/秒)，0 = 瞬时（旧 look_at 行为）；accel_ratio: 起步加速度 ÷ move_speed（旧值恒为 7；收脚速度恒为它的 9/7 倍）；knockback_resistance: 0~1 霸体，1 = 手雷/脉冲完全推不动；stagger_duration: 被击退的硬直秒数（旧值 0.42）；attack_distance_scale: 0 = 攻击距离不随体型缩放（旧值），1 = 完全随体型缩放（base × scale）；contact_damage: 贴身时每秒伤害，0 = 关（旧值）；armor: 0~1 减伤，对【所有伤害来源】生效（含手雷 / 脉冲）。",
+    "_attrs_doc": "敌人重量属性。先读 attrs_default，再套用步态预设的 turn_speed / accel_ratio / brake_ratio，最后由条目的 attrs 覆盖。护甲、接触伤害、抗击退等只沿用原 attrs，本轮步态不会修改。",
+    "_attrs_fields_doc": "turn_speed: 转向速度(度/秒)，0 = 瞬时（旧 look_at 行为）；accel_ratio: 起步加速度 ÷ move_speed；brake_ratio: 刹停加速度 ÷ move_speed（不配置时近战沿用 accel_ratio×9/7，远程沿用 5）；knockback_resistance: 0~1 霸体，1 = 手雷/脉冲完全推不动；stagger_duration: 被击退的硬直秒数（旧值 0.42）；attack_distance_scale: 0 = 攻击距离不随体型缩放（旧值），1 = 完全随体型缩放（base × scale）；contact_damage: 贴身压力折算到每次可预警挥击（每秒值 × 攻击间隔），0 = 关；armor: 0~1 减伤，对【所有伤害来源】生效（含手雷 / 脉冲）。",
     "attrs_default": {
       "turn_speed": 0.0,
       "accel_ratio": 7.0,
@@ -351,21 +388,21 @@
       "armor": 0.0
     },
     "entries": [
-      {"id": "L1ScoutGunner", "title": "侦察射手", "kind": "ranged", "min_weapon_level": 1, "weight": 1.0, "scale": 0.78, "health": -1.0, "health_tier": 0, "move_speed": 3.8, "damage": 7.0, "ranged_pattern": 0, "movement_style": 0, "preferred_distance": 14.0, "armor_color": [0.68, 0.08, 0.1], "bullet_color": [1.0, 0.03, 0.15]},
-      {"id": "L1SmallHunter", "title": "小型追猎者", "kind": "melee", "min_weapon_level": 1, "weight": 1.0, "scale": 0.72, "health": 40.0, "health_tier": -1, "move_speed": 5.4, "damage": 10.0, "armor_color": [0.7, 0.2, 0.08]},
-      {"id": "L1MeleeSoldier", "title": "近战士兵", "kind": "melee", "min_weapon_level": 1, "weight": 1.0, "scale": 1.0, "health": 90.0, "health_tier": -1, "move_speed": 4.0, "damage": 16.0, "armor_color": [0.4, 0.1, 0.56]},
-      {"id": "L2BurstRanger", "title": "点射游骑兵", "kind": "ranged", "min_weapon_level": 2, "weight": 1.0, "scale": 0.9, "health": -1.0, "health_tier": 1, "move_speed": 4.0, "damage": 8.0, "ranged_pattern": 1, "movement_style": 2, "preferred_distance": 17.0, "armor_color": [0.08, 0.25, 0.68], "bullet_color": [1.0, 0.3, 0.03]},
-      {"id": "L2SwiftBlade", "title": "迅捷刀手", "kind": "melee", "min_weapon_level": 2, "weight": 1.0, "scale": 0.82, "health": 65.0, "health_tier": -1, "move_speed": 5.1, "damage": 14.0, "armor_color": [0.72, 0.26, 0.04]},
-      {"id": "L2HeavyWarrior", "title": "重装战士", "kind": "melee", "min_weapon_level": 2, "weight": 1.0, "scale": 1.35, "health": 210.0, "health_tier": -1, "move_speed": 2.8, "damage": 24.0, "armor_color": [0.2, 0.22, 0.25]},
-      {"id": "L3SpiralCaster", "title": "旋流术士", "kind": "ranged", "min_weapon_level": 3, "weight": 1.0, "scale": 1.05, "health": -1.0, "health_tier": 2, "move_speed": 3.3, "damage": 10.0, "ranged_pattern": 2, "movement_style": 1, "preferred_distance": 18.0, "armor_color": [0.42, 0.08, 0.66], "bullet_color": [0.76, 0.05, 1.0]},
-      {"id": "L3WallGunner", "title": "弹墙炮手", "kind": "ranged", "min_weapon_level": 3, "weight": 1.0, "scale": 1.15, "health": -1.0, "health_tier": 2, "move_speed": 2.8, "damage": 11.0, "ranged_pattern": 3, "movement_style": 0, "preferred_distance": 20.0, "armor_color": [0.04, 0.45, 0.42], "bullet_color": [1.0, 0.04, 0.55]},
-      {"id": "L3Berserker", "title": "狂战士", "kind": "melee", "min_weapon_level": 3, "weight": 1.0, "scale": 1.15, "health": 150.0, "health_tier": -1, "move_speed": 4.7, "damage": 20.0, "profile": "berserker", "armor_color": [0.7, 0.04, 0.04]},
-      {"id": "L3ShieldGuard", "title": "大型盾卫", "kind": "melee", "min_weapon_level": 3, "weight": 1.0, "scale": 1.4, "health": 260.0, "health_tier": -1, "move_speed": 2.5, "damage": 26.0, "profile": "shield", "armor_color": [0.12, 0.18, 0.32]},
-      {"id": "L3Runner", "title": "疾行刺客", "kind": "melee", "min_weapon_level": 3, "weight": 1.0, "scale": 0.68, "health": 55.0, "health_tier": -1, "move_speed": 6.0, "damage": 11.0, "profile": "assassin", "armor_color": [0.12, 0.5, 0.2]},
-      {"id": "L4HeavyArtillery", "title": "重型迫击炮", "kind": "ranged", "min_weapon_level": 4, "weight": 1.0, "scale": 1.55, "health": -1.0, "health_tier": 3, "move_speed": 2.2, "damage": 14.0, "ranged_pattern": 4, "movement_style": 0, "preferred_distance": 23.0, "armor_color": [0.32, 0.04, 0.04], "bullet_color": [1.0, 0.12, 0.02]},
-      {"id": "L4GiantBrute", "title": "巨型破坏者", "kind": "melee", "min_weapon_level": 4, "weight": 1.0, "scale": 1.75, "health": 520.0, "health_tier": -1, "move_speed": 2.4, "damage": 34.0, "armor_color": [0.34, 0.03, 0.42], "attrs": {"turn_speed": 150.0, "accel_ratio": 2.0, "knockback_resistance": 0.8, "stagger_duration": 0.12, "attack_distance_scale": 1.0, "contact_damage": 10.0, "armor": 0.15}},
-      {"id": "L4EliteMelee", "title": "精英剑士", "kind": "melee", "min_weapon_level": 4, "weight": 1.0, "scale": 1.25, "health": 240.0, "health_tier": -1, "move_speed": 4.0, "damage": 24.0, "armor_color": [0.66, 0.38, 0.04]},
-      {"id": "L4FastHunter", "title": "猎杀幼体", "kind": "melee", "min_weapon_level": 4, "weight": 1.0, "scale": 0.65, "health": 65.0, "health_tier": -1, "move_speed": 6.2, "damage": 12.0, "armor_color": [0.62, 0.16, 0.08], "attrs": {"turn_speed": 900.0, "accel_ratio": 9.0, "stagger_duration": 0.5}}
+      {"id": "L1ScoutGunner", "gait_preset": "ranged", "title": "侦察射手", "kind": "ranged", "min_weapon_level": 1, "weight": 1.0, "scale": 0.78, "health": -1.0, "health_tier": 0, "move_speed": 3.8, "damage": 7.0, "ranged_pattern": 0, "movement_style": 0, "preferred_distance": 14.0, "armor_color": [0.68, 0.08, 0.1], "bullet_color": [1.0, 0.03, 0.15]},
+      {"id": "L1SmallHunter", "gait_preset": "light", "title": "小型追猎者", "kind": "melee", "min_weapon_level": 1, "weight": 1.0, "scale": 0.72, "health": 40.0, "health_tier": -1, "move_speed": 5.4, "damage": 10.0, "armor_color": [0.7, 0.2, 0.08]},
+      {"id": "L1MeleeSoldier", "gait_preset": "normal", "title": "近战士兵", "kind": "melee", "min_weapon_level": 1, "weight": 1.0, "scale": 1.0, "health": 90.0, "health_tier": -1, "move_speed": 4.0, "damage": 16.0, "armor_color": [0.4, 0.1, 0.56]},
+      {"id": "L2BurstRanger", "gait_preset": "ranged", "title": "点射游骑兵", "kind": "ranged", "min_weapon_level": 2, "weight": 1.0, "scale": 0.9, "health": -1.0, "health_tier": 1, "move_speed": 4.0, "damage": 8.0, "ranged_pattern": 1, "movement_style": 2, "preferred_distance": 17.0, "armor_color": [0.08, 0.25, 0.68], "bullet_color": [1.0, 0.3, 0.03]},
+      {"id": "L2SwiftBlade", "gait_preset": "light", "gait": {"move_lean_degrees": -12.0, "run_swing": 0.52, "arm_swing": 0.35}, "title": "迅捷刀手", "kind": "melee", "min_weapon_level": 2, "weight": 1.0, "scale": 0.82, "health": 65.0, "health_tier": -1, "move_speed": 5.1, "damage": 14.0, "armor_color": [0.72, 0.26, 0.04]},
+      {"id": "L2HeavyWarrior", "gait_preset": "heavy", "title": "重装战士", "kind": "melee", "min_weapon_level": 2, "weight": 1.0, "scale": 1.35, "health": 210.0, "health_tier": -1, "move_speed": 2.8, "damage": 24.0, "armor_color": [0.2, 0.22, 0.25]},
+      {"id": "L3SpiralCaster", "gait_preset": "ranged", "gait": {"arm_swing": 0.03, "move_lean_degrees": -1.0}, "title": "旋流术士", "kind": "ranged", "min_weapon_level": 3, "weight": 1.0, "scale": 1.05, "health": -1.0, "health_tier": 2, "move_speed": 3.3, "damage": 10.0, "ranged_pattern": 2, "movement_style": 1, "preferred_distance": 18.0, "armor_color": [0.42, 0.08, 0.66], "bullet_color": [0.76, 0.05, 1.0]},
+      {"id": "L3WallGunner", "gait_preset": "ranged", "gait": {"run_cadence": 6.0, "accel_ratio": 3.0, "turn_speed": 240.0}, "title": "弹墙炮手", "kind": "ranged", "min_weapon_level": 3, "weight": 1.0, "scale": 1.15, "health": -1.0, "health_tier": 2, "move_speed": 2.8, "damage": 11.0, "ranged_pattern": 3, "movement_style": 0, "preferred_distance": 20.0, "armor_color": [0.04, 0.45, 0.42], "bullet_color": [1.0, 0.04, 0.55]},
+      {"id": "L3Berserker", "gait_preset": "normal", "gait": {"run_cadence": 9.4, "run_swing": 0.78, "move_lean_degrees": -14.0, "idle_lean_degrees": -3.0, "arm_swing": 0.65, "hip_sway": 0.085, "weight_shift": 0.04}, "title": "狂战士", "kind": "melee", "min_weapon_level": 3, "weight": 1.0, "scale": 1.15, "health": 150.0, "health_tier": -1, "move_speed": 4.7, "damage": 20.0, "profile": "berserker", "armor_color": [0.7, 0.04, 0.04]},
+      {"id": "L3ShieldGuard", "gait_preset": "heavy", "gait": {"arm_swing": 0.10, "move_lean_degrees": -4.0}, "title": "大型盾卫", "kind": "melee", "min_weapon_level": 3, "weight": 1.0, "scale": 1.4, "health": 260.0, "health_tier": -1, "move_speed": 2.5, "damage": 26.0, "profile": "shield", "armor_color": [0.12, 0.18, 0.32]},
+      {"id": "L3Runner", "gait_preset": "light", "gait": {"run_cadence": 14.0, "move_lean_degrees": -20.0}, "title": "疾行刺客", "kind": "melee", "min_weapon_level": 3, "weight": 1.0, "scale": 0.68, "health": 55.0, "health_tier": -1, "move_speed": 6.0, "damage": 11.0, "profile": "assassin", "armor_color": [0.12, 0.5, 0.2]},
+      {"id": "L4HeavyArtillery", "gait_preset": "ranged", "gait": {"walk_cadence": 3.8, "run_cadence": 4.8, "walk_swing": 0.4, "run_swing": 0.55, "knee_base_bend": 0.30, "weight_shift": 0.035, "turn_lag": 0.10, "accel_ratio": 2.6, "brake_ratio": 6.0, "turn_speed": 150.0}, "title": "重型迫击炮", "kind": "ranged", "min_weapon_level": 4, "weight": 1.0, "scale": 1.55, "health": -1.0, "health_tier": 3, "move_speed": 2.2, "damage": 14.0, "ranged_pattern": 4, "movement_style": 0, "preferred_distance": 23.0, "armor_color": [0.32, 0.04, 0.04], "bullet_color": [1.0, 0.12, 0.02]},
+      {"id": "L4GiantBrute", "gait_preset": "heavy", "title": "巨型破坏者", "kind": "melee", "min_weapon_level": 4, "weight": 1.0, "scale": 1.75, "health": 520.0, "health_tier": -1, "move_speed": 2.4, "damage": 34.0, "armor_color": [0.34, 0.03, 0.42], "attrs": {"turn_speed": 150.0, "accel_ratio": 2.0, "knockback_resistance": 0.8, "stagger_duration": 0.12, "attack_distance_scale": 1.0, "contact_damage": 10.0, "armor": 0.15}},
+      {"id": "L4EliteMelee", "gait_preset": "normal", "gait": {"bob_height": 0.02, "arm_swing": 0.30, "turn_speed": 420.0}, "title": "精英剑士", "kind": "melee", "min_weapon_level": 4, "weight": 1.0, "scale": 1.25, "health": 240.0, "health_tier": -1, "move_speed": 4.0, "damage": 24.0, "armor_color": [0.66, 0.38, 0.04]},
+      {"id": "L4FastHunter", "gait_preset": "light", "gait": {"run_cadence": 15.0, "run_swing": 0.44, "knee_base_bend": 0.40}, "title": "猎杀幼体", "kind": "melee", "min_weapon_level": 4, "weight": 1.0, "scale": 0.65, "health": 65.0, "health_tier": -1, "move_speed": 6.2, "damage": 12.0, "armor_color": [0.62, 0.16, 0.08], "attrs": {"turn_speed": 900.0, "accel_ratio": 9.0, "stagger_duration": 0.5}}
     ]
   },
 
@@ -656,13 +693,13 @@
         "flower_count": 72,
         "pebble_count": 48,
         "boulder_count": 22,
-        "distant_pine_count": 78,
+        "distant_pine_count": 0,
         "decor_radius": 86.0,
         "hills": [
-          [-78.0, -74.0, 38.0, 32.0, 6.0],
-          [76.0, -70.0, 36.0, 30.0, 6.5],
-          [-80.0, 34.0, 32.0, 44.0, 5.5],
-          [80.0, 30.0, 34.0, 42.0, 6.0],
+          [-70.0, -64.0, 45.0, 40.0, 10.0],
+          [72.0, -66.0, 44.0, 40.0, 11.0],
+          [-69.0, 34.0, 43.0, 48.0, 9.0],
+          [76.0, 34.0, 43.0, 46.0, 9.0],
           [-44.0, 80.0, 42.0, 32.0, 5.5],
           [46.0, 82.0, 38.0, 30.0, 6.0]
         ],
@@ -699,6 +736,7 @@
             {"pos": [0.0, 31.0], "yaw": 0.0, "size": [12.0, 104.0], "edge_width": 1.15, "lift": 0.020, "curve_start": 3.0, "curve_end": -4.5},
             {"pos": [3.0, -47.0], "yaw": 0.0, "size": [10.5, 54.0], "edge_width": 0.95, "lift": 0.020},
             {"pos": [30.0, 2.0], "yaw": 90.0, "size": [7.5, 46.0], "edge_width": 0.75, "lift": 0.018, "curve_start": -1.0, "curve_end": 2.5},
+            {"pos": [-17.0, 2.0], "yaw": 90.0, "size": [4.0, 34.0], "edge_width": 0.6, "lift": 0.019},
             {"pos": [3.0, -25.0], "yaw": 0.0, "size": [24.0, 20.0], "material": "court", "lift": 0.012}
           ],
           "_props_doc": "山谷遗迹原型：一座中等尺度目标门、两组低墙和断柱、一处营火。体量按组出现，主路两侧保留大片安静草地。",
@@ -745,12 +783,15 @@
           ],
           "lights": [
             {"pos": [3.0, -42.0], "height": 3.4, "color": [0.08, 0.68, 1.0], "energy": 4.4, "range": 15.0},
+            {"pos": [-34.0, 2.0], "height": 2.5, "color": [1.0, 0.78, 0.06], "energy": 3.0, "range": 9.0},
             {"pos": [31.0, 4.0], "height": 2.0, "color": [1.0, 0.34, 0.06], "energy": 3.5, "range": 10.0}
           ],
           "grove": [
             {"center": [-34.0, 26.0], "count": 14, "inner_radius": 8.0, "radius": 30.0, "seed": 8123, "scale_min": 1.25, "scale_max": 2.15, "pine_ratio": 0.22},
             {"center": [44.0, 22.0], "count": 16, "inner_radius": 9.0, "radius": 32.0, "seed": 9327, "scale_min": 1.1, "scale_max": 2.0, "pine_ratio": 0.35},
-            {"center": [-42.0, -42.0], "count": 12, "inner_radius": 8.0, "radius": 27.0, "seed": 10117, "scale_min": 1.05, "scale_max": 1.85, "pine_ratio": 0.42}
+            {"center": [-42.0, -42.0], "count": 12, "inner_radius": 8.0, "radius": 27.0, "seed": 10117, "scale_min": 1.05, "scale_max": 1.85, "pine_ratio": 0.42},
+            {"center": [-48.0, 55.0], "count": 20, "inner_radius": 5.0, "radius": 19.0, "seed": 12051, "scale_min": 1.15, "scale_max": 1.9, "pine_ratio": 0.62},
+            {"center": [47.0, 59.0], "count": 20, "inner_radius": 5.0, "radius": 20.0, "seed": 12053, "scale_min": 1.12, "scale_max": 1.95, "pine_ratio": 0.55}
           ]
         },
         "cover": [
@@ -1011,9 +1052,9 @@
       "sanctum": {
         "_note": "寂石圣所：阴天而非黄昏。上一版把'阴沉'做成了'欠曝'——主光 0.78、地面色 0.145、天空自身也压得很暗，而环境光取自天空，于是三层一起往下塌，整体读成黑。这一版把三处同时抬回可读区间，同时保持冷灰低饱和的取向。",
         "_exposure_doc": "主光 0.78 → 1.55。阴天不等于没有主光：没有主光，面法线的明暗分级就没了，切面感也跟着消失（这正是之前'黑成一片'时丢掉的东西）。",
-        "sun_color": [1.0, 0.89, 0.70], "sun_energy": 1.22,
-        "ambient_color": [0.68, 0.80, 0.92], "ambient_energy": 0.78,
-        "fill_energy": 0.5,
+        "sun_color": [1.0, 0.92, 0.80], "sun_energy": 1.5,
+        "ambient_color": [0.68, 0.80, 0.92], "ambient_energy": 0.84,
+        "fill_energy": 0.34,
         "fog_mode": "depth",
         "_fog_segments_doc": "四段空气透视：0–60m 几乎无雾 / 60–200m 开始降对比 / 200–500m 明显蓝灰化 / 500m+ 只剩大型剪影。depth_begin 与 depth_end 是这条曲线的两个端点，curve 决定它在近处爬升得多慢。",
         "_fog_color_doc": "雾色必须【比天际色暗一档】—— 它同时是远处地面的收敛色。雾色一旦追上天空亮度，地平线就消失，站在地平线上的远景体量会读成悬空（多角度截图里实测到的就是这个）。",
@@ -1233,7 +1274,7 @@
     "resolution": [1920, 1080],
     "settle_frames": 150,
     "hide_ui": true,
-    "output_dir": "res://visual_captures",
+    "output_dir": "../visual_captures",
     "cameras": [
       { "name": "south",     "pos": [0.0, 4.5, 46.0],  "look_at": [0.0, 3.0, -10.0],  "fov": 62.0 },
       { "name": "court",     "pos": [0.0, 2.4, 24.0],  "look_at": [0.0, 6.0, -4.0],   "fov": 65.0 },
@@ -1245,7 +1286,11 @@
       { "name": "orbit_sw",  "pos": [-38.0, 14.0, 36.0], "look_at": [0.0, 4.0, 0.0],  "fov": 58.0 },
       { "name": "north_high", "pos": [0.0, 40.0, -78.0], "look_at": [0.0, 0.0, 0.0],  "fov": 60.0 },
       { "name": "far_ring",  "pos": [0.0, 55.0, 150.0], "look_at": [0.0, 0.0, 0.0],   "fov": 55.0 },
-      { "name": "horizon",   "pos": [0.0, 1.7, 62.0],  "look_at": [0.0, 1.7, 260.0],  "fov": 55.0 }
+      { "name": "horizon",   "pos": [0.0, 1.7, 62.0],  "look_at": [0.0, 1.7, 260.0],  "fov": 55.0 },
+      { "name": "waterfall", "pos": [104.0, 69.0, -236.0], "look_at": [104.0, 54.0, -335.0], "fov": 53.0 },
+      { "name": "waterfall_flow", "pos": [102.0, 130.0, -229.0], "look_at": [104.0, 56.0, -339.0], "fov": 57.0 },
+      { "name": "waterfall_lip", "pos": [114.0, 96.0, -322.0], "look_at": [104.0, 84.0, -351.0], "fov": 49.0 },
+      { "name": "waterfall_oblique", "pos": [147.0, 91.0, -287.0], "look_at": [104.0, 60.0, -345.0], "fov": 48.0 }
     ]
   }
 }

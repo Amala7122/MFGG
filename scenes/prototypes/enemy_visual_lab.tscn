@@ -1,0 +1,104 @@
+[gd_scene format=3 uid="uid://dernp875lta6r"]
+
+[sub_resource type="ProceduralSkyMaterial" id="SkyMaterial_lab"]
+sky_top_color = Color(0.42, 0.53, 0.65, 1)
+sky_horizon_color = Color(0.78, 0.8, 0.78, 1)
+ground_bottom_color = Color(0.16, 0.17, 0.18, 1)
+ground_horizon_color = Color(0.48, 0.49, 0.47, 1)
+
+[sub_resource type="Sky" id="Sky_lab"]
+sky_material = SubResource("SkyMaterial_lab")
+
+[sub_resource type="Environment" id="Environment_lab"]
+background_mode = 2
+sky = SubResource("Sky_lab")
+ambient_light_source = 3
+ambient_light_color = Color(0.66, 0.72, 0.8, 1)
+ambient_light_energy = 0.75
+reflected_light_source = 2
+tonemap_mode = 2
+
+[sub_resource type="StandardMaterial3D" id="GroundMaterial_lab"]
+albedo_color = Color(0.205, 0.215, 0.215, 1)
+roughness = 0.95
+
+[sub_resource type="PlaneMesh" id="GroundMesh_lab"]
+material = SubResource("GroundMaterial_lab")
+size = Vector2(50, 50)
+
+[sub_resource type="StandardMaterial3D" id="BackdropMaterial_lab"]
+albedo_color = Color(0.61, 0.62, 0.6, 1)
+
+[sub_resource type="BoxMesh" id="BackdropMesh_lab"]
+material = SubResource("BackdropMaterial_lab")
+size = Vector3(16, 7, 0.15)
+
+[node name="EnemyVisualLab" type="Node3D" unique_id=838464083]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=902329448]
+environment = SubResource("Environment_lab")
+
+[node name="KeyLight" type="DirectionalLight3D" parent="." unique_id=1269747053]
+transform = Transform3D(0.7880108, 0.48514786, -0.37903908, 0, 0.6156615, 0.7880107, 0.6156615, -0.62096095, 0.4851479, 0, 0, 0)
+light_color = Color(1, 0.86, 0.7, 1)
+light_energy = 1.35
+shadow_enabled = true
+shadow_bias = 0.08
+
+[node name="FillLight" type="DirectionalLight3D" parent="." unique_id=1867297456]
+transform = Transform3D(-0.7880108, -0.28903556, 0.54359674, 0, 0.88294756, 0.46947157, -0.61566144, 0.36994866, -0.6957722, 0, 0, 0)
+light_color = Color(0.48, 0.63, 0.86, 1)
+light_energy = 0.55
+
+[node name="Ground" type="MeshInstance3D" parent="." unique_id=1885688383]
+mesh = SubResource("GroundMesh_lab")
+
+[node name="Backdrop" type="MeshInstance3D" parent="." unique_id=343935712]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.45, -4.5)
+mesh = SubResource("BackdropMesh_lab")
+
+[node name="SubjectMount" type="Node3D" parent="." unique_id=217467286]
+
+[node name="CameraRig" type="Node3D" parent="." unique_id=1453270043]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, 0)
+
+[node name="Pitch" type="Node3D" parent="CameraRig" unique_id=1068793941]
+transform = Transform3D(1, 0, 0, 0, 0.99280864, 0.119712204, 0, -0.119712204, 0.99280864, 0, 0, 0)
+
+[node name="Camera3D" type="Camera3D" parent="CameraRig/Pitch" unique_id=808586257]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 12)
+current = true
+fov = 38.0
+far = 80.0
+
+[node name="Interface" type="CanvasLayer" parent="." unique_id=28144881]
+
+[node name="SafeArea" type="MarginContainer" parent="Interface" unique_id=873188301]
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = -24.0
+grow_horizontal = 2
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 8
+
+[node name="Panel" type="PanelContainer" parent="Interface/SafeArea" unique_id=1515445013]
+layout_mode = 2
+
+[node name="Padding" type="MarginContainer" parent="Interface/SafeArea/Panel" unique_id=2114918299]
+layout_mode = 2
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 14
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 14
+
+[node name="Status" type="Label" parent="Interface/SafeArea/Panel/Padding" unique_id=1661444340]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.94, 0.95, 0.93, 1)
+theme_override_colors/font_outline_color = Color(0.04, 0.05, 0.06, 1)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 18
+text = "敌人视觉实验场"

@@ -1,6 +1,6 @@
 class_name ReadoutPlate
 extends Control
-## 单行读数板：左侧小号标签 + 右侧数值（可带一段更小的附属说明）。
+## 读数板：左侧小号标签 + 右侧数值；附属说明独占第二行。
 ##
 ## 【为什么需要它】"生存 / 最佳"与"击杀"这两块原先各是一条 Label，内容拼成
 ## 一句话："生存 01:23   最佳 01:10"、"击杀：12"。它们与旁边的生命面板、
@@ -19,8 +19,6 @@ const PAD := 10.0
 const FONT_LABEL := 9
 const FONT_VALUE := 15
 const FONT_SUB := 9
-## 数值与其左侧附属说明之间至少留出的间距。
-const SUB_GAP := 10.0
 ## 数值变化时那一下闪光的衰减速度（每秒衰减多少）。1/3 秒衰减完 ——
 ## 再慢就成了"常亮"，而常亮等于没有强调。
 const FLASH_DECAY := 3.0
@@ -46,7 +44,7 @@ var _flash := 0.0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_font = ThemeDB.fallback_font
+	_font = UiThemeUtil.get_font()
 	# 平时不跑 _process：这块板在绝大多数帧里什么都不做。
 	set_process(false)
 
@@ -94,6 +92,8 @@ func _draw() -> void:
 	var accent := UiThemeUtil.shade(_accent, _flash * 0.45)
 	UiThemeUtil.draw_plate(self, Rect2(Vector2.ZERO, size), accent, _plate_variant)
 	var baseline := size.y * 0.5 + float(FONT_VALUE) * 0.36
+	if not _sub.is_empty():
+		baseline = 19.0
 
 	UiThemeUtil.draw_tracked(
 		self, _font, Vector2(PAD, baseline), _label,
@@ -108,9 +108,8 @@ func _draw() -> void:
 	)
 	if _sub.is_empty():
 		return
-	# 附属说明排在数值左边，跟着数值一起右移，所以两块读数共用同一套排版。
-	var sub_w := UiThemeUtil.tracked_width(_font, _sub, FONT_SUB, 0.6)
+	# 结算页的“最佳击杀”有自己的第二行，避免与时间和主标签争同一行。
 	UiThemeUtil.draw_tracked(
-		self, _font, Vector2(right - value_w - SUB_GAP - sub_w, baseline - 1.0), _sub,
+		self, _font, Vector2(PAD, size.y - 8.0), _sub,
 		FONT_SUB, UiThemeUtil.with_alpha(UiThemeUtil.COLOR_DIM, 0.85), 0.6
 	)

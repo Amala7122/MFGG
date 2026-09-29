@@ -25,6 +25,11 @@ var _baked := false
 
 func _ready() -> void:
 	_build_mesh()
+	# 世界导航地图默认 cell_size=0.25，而本项目网格按配置使用 0.3。
+	# 两边栅格保持一致，避免导航服务器合并边界时采用不同精度。
+	var nav_map := get_navigation_map()
+	NavigationServer3D.map_set_cell_size(nav_map, navigation_mesh.cell_size)
+	NavigationServer3D.map_set_cell_height(nav_map, navigation_mesh.cell_height)
 	# 必须先连信号再发起烘焙，否则极快的烘焙会在连接之前就结束。
 	bake_finished.connect(_on_bake_finished)
 	bake_delay_frames = maxi(ConfigUtil.get_int("navigation.bake_delay_frames", 2), 0)
@@ -48,12 +53,13 @@ func _build_mesh() -> void:
 	# 【改之前必读】Godot 会把 agent_radius 吸附成 cell_size 的整数倍、把
 	# agent_height 与 agent_max_climb 吸附成 cell_height 的整数倍。所以默认
 	# 写的都是【已经对齐过的值】，与引擎实际生效值一致，也就不会有精度损失警告：
-	#   半径 0.65 / 0.3  = 2.17 → 向上取整 3 格 = 0.9
+	#   半径 1.2  / 0.3  = 4 格，覆盖最大普通敌人 0.52 × 1.75 ≈ 0.91 米
+	#   的碰撞半径，并给转角留出约 0.29 米余量。
 	#   高度 1.8  / 0.25 = 7.2  → 向上取整 8 格 = 2.0
 	#   攀爬 0.55 / 0.25 = 2.2  → 向下取整 2 格 = 0.5
 	#
-	# 半径不要为了消除警告而调小 —— 0.9 正是防"贴着掩体角穿模"所需要的。
-	mesh.agent_radius = maxf(ConfigUtil.get_float("navigation.agent_radius", 0.9), 0.05)
+	# NavigationAgent3D.radius 仅用于局部避让，不会改变寻路通道宽度。
+	mesh.agent_radius = maxf(ConfigUtil.get_float("navigation.agent_radius", 1.2), 0.05)
 	mesh.agent_height = maxf(ConfigUtil.get_float("navigation.agent_height", 2.0), 0.05)
 	mesh.agent_max_climb = maxf(ConfigUtil.get_float("navigation.agent_max_climb", 0.5), 0.0)
 	# 45° 与 Godot 的默认可走坡度一致，因此"导航说能走"就等于"物理说能走"。

@@ -1,6 +1,10 @@
 extends Node3D
 
 const TargetingUtil := preload("res://scripts/targeting.gd")
+const AttackArea := preload("res://scripts/enemy_attack_area.gd")
+var _attack_area := AttackArea.new()
+var _attacker: WeakRef
+var _cancelled := false
 
 @export var warning_duration: float = 1.35
 @export var blast_radius: float = 2.5
@@ -21,6 +25,7 @@ var visual_only := false
 
 func _ready() -> void:
 	timer = warning_duration
+	add_child(_attack_area)
 
 
 func setup(radius: float, delay: float, blast_damage: float, color: Color) -> void:
@@ -30,6 +35,29 @@ func setup(radius: float, delay: float, blast_damage: float, color: Color) -> vo
 	warning_color = color
 	timer = warning_duration
 	apply_color()
+	_attack_area.prepare(global_transform, {"kind": "circle", "radius": blast_radius, "height": 2.5}, damage)
+	_attack_area.lock()
+	# 圆圈和 X 保留识别线索，统一区域负责贴地填充。
+	disc.visible = false
+	ring.scale = Vector3.ONE * blast_radius
+
+
+func bind_attacker(actor: Node3D) -> void:
+	_attacker = weakref(actor)
+
+
+func cancel() -> void:
+	_cancelled = true
+	_attack_area.cancel()
+	visible = false
+	queue_free()
+
+
+func _attacker_alive() -> bool:
+	if _attacker == null:
+		return true
+	var actor := _attacker.get_ref() as Node3D
+	return is_instance_valid(actor) and not actor.is_queued_for_deletion() and float(actor.get("health")) > 0.0
 
 
 func apply_color() -> void:
@@ -45,13 +73,16 @@ func apply_color() -> void:
 	label.modulate = warning_color
 
 
-func _process(delta: float) -> void:
+func _physics_process(delta: float) -> void:
+	if _cancelled or not _attacker_alive():
+		cancel()
+		return
 	timer -= delta
 	if not exploded:
 		var progress := 1.0 - clampf(timer / maxf(warning_duration, 0.01), 0.0, 1.0)
-		var pulse := 1.0 + sin(Time.get_ticks_msec() * 0.025) * 0.08
-		disc.scale = Vector3(blast_radius * progress, 1.0, blast_radius * progress) * pulse
-		ring.scale = Vector3.ONE * blast_radius * pulse
+		_attack_area.set_progress(progress)
+		# 危险边界从第一帧完整显示，不通过缩放造成半径误读。
+		ring.scale = Vector3.ONE * blast_radius
 		light.light_energy = 1.5 + progress * 4.0
 		if timer <= 0.0:
 			explode()
@@ -63,11 +94,14 @@ func _process(delta: float) -> void:
 
 
 func explode() -> void:
+	if exploded or _cancelled or not _attacker_alive() or not _attack_area.strike():
+		return
 	exploded = true
 	timer = 0.18
 	label.visible = false
 	ring.visible = false
 	light.light_energy = 9.0
+	disc.visible = true
 	if visual_only:
 		return
 	# 【圈内所有人都吃伤害】
@@ -79,10 +113,7 @@ func explode() -> void:
 		var player := node as Node3D
 		if player == null:
 			continue
-		var flat_distance := Vector2(
-			player.global_position.x - global_position.x,
-			player.global_position.z - global_position.z
-		).length()
-		if flat_distance <= blast_radius and player.has_method("take_damage"):
+		if _attack_area.can_hit(player, global_position + Vector3.UP * 0.2) and player.has_method("take_damage"):
 			# 传落点中心，让受击方向指示器指出这片炮击区域来自哪一侧。
-			player.call("take_damage", damage, global_position)
+			preload("res://scripts/combat_telemetry.gd").hurt_player(player,
+				damage, global_position, 1.0, get_meta(&"combat_source", {"id": "unknown", "title": "未归属", "attack": "炮击"}))

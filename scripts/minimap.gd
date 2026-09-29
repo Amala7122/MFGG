@@ -48,7 +48,6 @@ const REFRESH_INTERVAL := 1.0 / 20.0
 ## 石头边就是它的框，形状语言与武器面板 / 生命面板一致。
 const FRAME := 7.0
 
-var _font: Font
 var _terrain_texture: ImageTexture
 var _player: Node3D
 var _camera: Camera3D
@@ -68,7 +67,6 @@ func _ready() -> void:
 	# 项目里其它绘制控件（准星 / 命中标记 / 受击方向 / 武器面板）都自己调
 	# queue_redraw()，这里之前漏了。
 	set_process(true)
-	_font = ThemeDB.fallback_font
 	_extent = TerrainFieldUtil.get_extent()
 	# 收紧到地形半宽的 0.85：留出边距，保证 src 采样框永远能完整落在贴图内
 	# （否则 clamp 的上下界会反过来，玩家一格都画不出来）。
@@ -296,22 +294,9 @@ func _draw_player(source: Rect2, span_px: float) -> void:
 	draw_circle(center, ARROW_RADIUS + 2.0, Color(0.55, 0.92, 1.0, 0.22))
 
 
-## 内容区收边：一圈极淡的青发丝线 + 顶部正中的"北"标记。
+## 内容区收边：只保留一圈极淡的青发丝线。
 ##
 ## 发丝线不是为了"描边"，是为了把地形和石头框之间那条生硬的接缝盖掉 ——
 ## 否则贴图边缘与面板内圈之间会出现一条色差细缝。
 func _draw_frame(content: Rect2) -> void:
-	draw_rect(content, UiThemeUtil.with_alpha(UiThemeUtil.COLOR_EDGE_LIGHT, 0.30), false, 1.0)
-	# 正北标记：地图是正北朝上的（见文件头），而"哪边是北"必须显式给出，
-	# 否则玩家建立不了方位记忆 —— 那正是这个小地图存在的意义。
-	var cx := content.position.x + content.size.x * 0.5
-	var label := "N"
-	var width := UiThemeUtil.tracked_width(_font, label, 9, 0.0)
-	var tab := Rect2(Vector2(cx - 17.0, 2.0), Vector2(34.0, 16.0))
-	var tab_points := UiThemeUtil.bevel_points(tab, 5.0)
-	draw_colored_polygon(tab_points, UiThemeUtil.COLOR_PAPER)
-	draw_polyline(UiThemeUtil.closed(tab_points), UiThemeUtil.COLOR_EDGE, 1.0, true)
-	UiThemeUtil.draw_tracked(
-		self, _font, Vector2(cx - width * 0.5, 13.0), label,
-		9, UiThemeUtil.COLOR_INK, 0.0
-	)
+	draw_rect(content, UiThemeUtil.with_alpha(UiThemeUtil.COLOR_EDGE_LIGHT, 0.30), false, UiThemeUtil.HAIRLINE_WIDTH)
