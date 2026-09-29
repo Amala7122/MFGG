@@ -1,7 +1,7 @@
 [gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://scripts/prototypes/lab_beast_target.gd" id="1_target"]
-[ext_resource type="PackedScene" path="res://scenes/prototypes/fast_beast_prototype.tscn" id="2_visual"]
+[ext_resource type="PackedScene" path="res://prototypes/legacy/visual/fast_beast_prototype.tscn" id="2_visual"]
 
 [sub_resource type="CapsuleShape3D" id="TargetShape"]
 radius = 0.62

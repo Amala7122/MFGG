@@ -1,0 +1,341 @@
+[gd_scene format=3 uid="uid://wy1u4bti4b6v"]
+
+[ext_resource type="PackedScene" path="res://scenes/stylized_tree.tscn" id="2_tree"]
+[ext_resource type="Script" uid="uid://cltea6a0weien" path="res://scripts/world_decor.gd" id="5_decor"]
+[ext_resource type="Script" uid="uid://dmerpogagqcde" path="res://scripts/terrain_field.gd" id="8_terrain"]
+[ext_resource type="Script" uid="uid://dqmpjawimhq5g" path="res://scripts/field_cover.gd" id="9_cover"]
+[ext_resource type="Script" uid="uid://d0ohvtegilxkd" path="res://scripts/terrain_snap.gd" id="10_snap"]
+[ext_resource type="Script" uid="uid://4ykqqp58fhw2" path="res://scripts/navigation_region.gd" id="11_nav"]
+[ext_resource type="Script" uid="uid://cqyyr5kue6vuv" path="res://scripts/player_spawner.gd" id="13_spawner"]
+[ext_resource type="Script" uid="uid://bloban6gwlou8" path="res://scripts/editor_world_preview.gd" id="16_preview"]
+[ext_resource type="Script" uid="uid://c00g3qsxniqas" path="res://scripts/grass_field.gd" id="17_grass"]
+[ext_resource type="PackedScene" path="res://scenes/weather_environment.tscn" id="18_weather_environment"]
+[ext_resource type="Script" path="res://scripts/experiment_quickstart.gd" id="19_quickstart"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_path"]
+albedo_color = Color(0.19, 0.18, 0.155, 1)
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_unit"]
+size = Vector2(1, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_sand"]
+albedo_color = Color(0.3, 0.28, 0.22, 1)
+roughness = 0.95
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_water"]
+transparency = 1
+albedo_color = Color(0.05, 0.1, 0.15, 0.82)
+metallic = 0.1
+roughness = 0.22
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_unit"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_wood"]
+albedo_color = Color(0.15, 0.105, 0.07, 1)
+roughness = 0.95
+
+[sub_resource type="BoxMesh" id="BoxMesh_unit"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_stone_dark"]
+albedo_color = Color(0.16, 0.17, 0.17, 1)
+roughness = 0.9
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_stone"]
+albedo_color = Color(0.23, 0.235, 0.225, 1)
+roughness = 0.88
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_ruin"]
+top_radius = 0.45
+bottom_radius = 0.55
+height = 5.0
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_shrine"]
+shading_mode = 0
+albedo_color = Color(0.1, 0.85, 0.95, 1)
+
+[sub_resource type="SphereMesh" id="SphereMesh_landscape"]
+radius = 1.0
+height = 2.0
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_log"]
+top_radius = 0.12
+bottom_radius = 0.14
+height = 1.5
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_fire"]
+shading_mode = 0
+albedo_color = Color(1, 0.36, 0.03, 1)
+
+[sub_resource type="SphereMesh" id="SphereMesh_fire"]
+radius = 0.32
+height = 0.58
+
+[node name="WeatherLab" type="Node3D"]
+script = ExtResource("16_preview")
+
+[node name="WeatherEnvironment" parent="." unique_id=1293549010 instance=ExtResource("18_weather_environment")]
+
+[node name="Sky3D" parent="WeatherEnvironment" index="0" unique_id=1502289054]
+current_time = 21.33
+tonemap_exposure = 0.94
+sun_shadow_opacity = 0.68
+sky_contribution = 0.655
+ambient_energy = 1.42
+
+[node name="SunLight" parent="WeatherEnvironment/Sky3D" index="0" unique_id=1669123254]
+transform = Transform3D(-0.5622058, -0.5643558, -0.6045057, 0, 0.73096454, -0.6824155, 0.82699734, -0.38365793, -0.4109525, -0.6045057, -0.6824155, -0.4109525)
+light_color = Color(1, 0.61, 0.38, 1)
+light_energy = 0.0
+shadow_enabled = false
+shadow_opacity = 0.68
+
+[node name="MoonLight" parent="WeatherEnvironment/Sky3D" index="1" unique_id=487357045]
+transform = Transform3D(0, -0.99508, -0.09907452, 0.75434124, -0.06504069, 0.65325266, -0.6564825, -0.074736, 0.7506299, -0.09907452, 0.65325266, 0.7506299)
+light_energy = 0.32088274
+shadow_enabled = true
+
+[node name="SkyDome" parent="WeatherEnvironment/Sky3D" index="2" unique_id=2009320672]
+sun_azimuth = -5.3094397
+sun_altitude = -2.3218584
+moon_azimuth = -3.2728226
+moon_altitude = -0.85892385
+atm_sun_intensity = 30.0
+fog_density = 0.00861079
+fog_mie_depth = 0.0071012676
+
+[node name="TimeOfDay" parent="WeatherEnvironment/Sky3D" index="3" unique_id=313974012]
+current_time = 21.33
+
+[node name="WeatherSystem" parent="WeatherEnvironment" index="2" unique_id=714604810]
+rain_preset = 4
+
+[node name="FillLight" parent="WeatherEnvironment" index="3" unique_id=2003871144]
+light_color = Color(0.3728, 0.4696, 0.69600004, 1)
+light_energy = 0.135296
+
+[node name="NightSkyLight" parent="WeatherEnvironment" index="4" unique_id=1120473704]
+light_energy = 0.9936892
+
+[node name="Ground" type="StaticBody3D" parent="." unique_id=271098666]
+visible = false
+script = ExtResource("8_terrain")
+
+[node name="Roads" type="Node3D" parent="." unique_id=384994603]
+visible = false
+
+[node name="MainRoad" type="MeshInstance3D" parent="Roads" unique_id=132273789]
+transform = Transform3D(6.5, 0, 0, 0, 1, 0, 0, 0, 86, 0, 0.012, -8)
+material_override = SubResource("StandardMaterial3D_path")
+mesh = SubResource("PlaneMesh_unit")
+
+[node name="LakeRoad" type="MeshInstance3D" parent="Roads" unique_id=1953994032]
+transform = Transform3D(2.9858367, 0, -22.50494, 0, 1, 0, 2.9537733, 0, 22.749233, 11, 0.014, 10)
+material_override = SubResource("StandardMaterial3D_path")
+mesh = SubResource("PlaneMesh_unit")
+
+[node name="RuinRoad" type="MeshInstance3D" parent="Roads" unique_id=597040803]
+transform = Transform3D(2.728885, 0, -27.78354, 0, 1, 0, 2.9245832, 0, 25.924406, -14, 0.016, -19)
+material_override = SubResource("StandardMaterial3D_path")
+mesh = SubResource("PlaneMesh_unit")
+
+[node name="Lake" type="Node3D" parent="." unique_id=45268982]
+visible = false
+
+[node name="LakeBed" type="MeshInstance3D" parent="Lake" unique_id=1679228978]
+transform = Transform3D(34, 0, 0, 0, 1, 0, 0, 0, 22, 25, 0.018, 20)
+material_override = SubResource("StandardMaterial3D_sand")
+mesh = SubResource("PlaneMesh_unit")
+
+[node name="Water" type="MeshInstance3D" parent="Lake" unique_id=2060874634]
+transform = Transform3D(29, 0, 0, 0, 1, 0, 0, 0, 17, 25, 0.04, 20)
+material_override = SubResource("StandardMaterial3D_water")
+mesh = SubResource("PlaneMesh_unit")
+
+[node name="Pier" type="StaticBody3D" parent="Lake" unique_id=1596399988]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13.5, 0.23, 20)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Lake/Pier" unique_id=1718437433]
+transform = Transform3D(8, 0, 0, 0, 0.35, 0, 0, 0, 2.4, 0, 0, 0)
+shape = SubResource("BoxShape3D_unit")
+
+[node name="Mesh" type="MeshInstance3D" parent="Lake/Pier" unique_id=30886261]
+transform = Transform3D(8, 0, 0, 0, 0.35, 0, 0, 0, 2.4, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_wood")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="AncientRuins" type="Node3D" parent="." unique_id=1381980084]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -29, 0, -29)
+visible = false
+
+[node name="RuinFloor" type="StaticBody3D" parent="AncientRuins" unique_id=744029933]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.18, 0)
+
+[node name="Collision" type="CollisionShape3D" parent="AncientRuins/RuinFloor" unique_id=1093371140]
+transform = Transform3D(12, 0, 0, 0, 0.35, 0, 0, 0, 10, 0, 0, 0)
+shape = SubResource("BoxShape3D_unit")
+
+[node name="Mesh" type="MeshInstance3D" parent="AncientRuins/RuinFloor" unique_id=1024407148]
+transform = Transform3D(12, 0, 0, 0, 0.35, 0, 0, 0, 10, 0, 0, 0)
+material_override = SubResource("StandardMaterial3D_stone_dark")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="Pillar01" type="MeshInstance3D" parent="AncientRuins" unique_id=1195432453]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.5, 2.5, -3.5)
+material_override = SubResource("StandardMaterial3D_stone")
+mesh = SubResource("CylinderMesh_ruin")
+
+[node name="Pillar02" type="MeshInstance3D" parent="AncientRuins" unique_id=56143479]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.5, 2.5, -3.5)
+material_override = SubResource("StandardMaterial3D_stone")
+mesh = SubResource("CylinderMesh_ruin")
+
+[node name="Pillar03" type="MeshInstance3D" parent="AncientRuins" unique_id=379940298]
+transform = Transform3D(1, 0, 0, 0, 0.68, 0, 0, 0, 1, -4.5, 1.7, 3.5)
+material_override = SubResource("StandardMaterial3D_stone")
+mesh = SubResource("CylinderMesh_ruin")
+
+[node name="Pillar04" type="MeshInstance3D" parent="AncientRuins" unique_id=934745170]
+transform = Transform3D(1, 0, 0, 0, 0.84, 0, 0, 0, 1, 4.5, 2.1, 3.5)
+material_override = SubResource("StandardMaterial3D_stone")
+mesh = SubResource("CylinderMesh_ruin")
+
+[node name="Lintel" type="MeshInstance3D" parent="AncientRuins" unique_id=888666138]
+transform = Transform3D(9.5, 0, 0, 0, 0.55, 0, 0, 0, 0.7, 0, 4.55, -3.5)
+material_override = SubResource("StandardMaterial3D_stone")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="ShrineBase" type="MeshInstance3D" parent="AncientRuins" unique_id=2091708904]
+transform = Transform3D(2.4, 0, 0, 0, 1.25, 0, 0, 0, 2.4, 0, 0.75, 0)
+material_override = SubResource("StandardMaterial3D_stone")
+mesh = SubResource("BoxMesh_unit")
+
+[node name="ShrineCore" type="MeshInstance3D" parent="AncientRuins" unique_id=488149008]
+transform = Transform3D(0.58, 0, 0, 0, 0.85, 0, 0, 0, 0.58, 0, 1.75, 0)
+material_override = SubResource("StandardMaterial3D_shrine")
+mesh = SubResource("SphereMesh_landscape")
+
+[node name="ShrineLight" type="OmniLight3D" parent="AncientRuins" unique_id=940328528]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
+light_color = Color(0.12, 0.75, 1, 1)
+light_energy = 3.5
+omni_range = 9.0
+
+[node name="EnemyCamp" type="Node3D" parent="." unique_id=1541449912]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0, -11)
+visible = false
+
+[node name="Log01" type="MeshInstance3D" parent="EnemyCamp" unique_id=684969187]
+transform = Transform3D(-3.6199901e-06, -1, 0, 1, -3.6199901e-06, 0, 0, 0, 1, 0, 0.18, 0)
+material_override = SubResource("StandardMaterial3D_wood")
+mesh = SubResource("CylinderMesh_log")
+
+[node name="Log02" type="MeshInstance3D" parent="EnemyCamp" unique_id=1197298594]
+transform = Transform3D(1, 0, 0, 0, -3.6199901e-06, -1, 0, 1, -3.6199901e-06, 0, 0.18, 0)
+material_override = SubResource("StandardMaterial3D_wood")
+mesh = SubResource("CylinderMesh_log")
+
+[node name="Fire" type="MeshInstance3D" parent="EnemyCamp" unique_id=2037027269]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.45, 0)
+material_override = SubResource("StandardMaterial3D_fire")
+mesh = SubResource("SphereMesh_fire")
+
+[node name="FireLight" type="OmniLight3D" parent="EnemyCamp" unique_id=1146373845]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+light_color = Color(1, 0.32, 0.06, 1)
+light_energy = 3.0
+omni_range = 8.0
+
+[node name="Forest" type="Node3D" parent="." unique_id=2082198695]
+visible = false
+script = ExtResource("10_snap")
+
+[node name="Tree01" parent="Forest" unique_id=718456942 instance=ExtResource("2_tree")]
+transform = Transform3D(1.15, 0, 0, 0, 1.15, 0, 0, 0, 1.15, -12, 0, 18)
+
+[node name="Tree02" parent="Forest" unique_id=258021308 instance=ExtResource("2_tree")]
+transform = Transform3D(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9, -19, 0, 22)
+
+[node name="Tree03" parent="Forest" unique_id=1461012798 instance=ExtResource("2_tree")]
+transform = Transform3D(1.3, 0, 0, 0, 1.3, 0, 0, 0, 1.3, -26, 0, 16)
+
+[node name="Tree04" parent="Forest" unique_id=279595074 instance=ExtResource("2_tree")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -34, 0, 22)
+
+[node name="Tree05" parent="Forest" unique_id=164951474 instance=ExtResource("2_tree")]
+transform = Transform3D(1.2, 0, 0, 0, 1.2, 0, 0, 0, 1.2, -42, 0, 13)
+
+[node name="Tree06" parent="Forest" unique_id=1689137719 instance=ExtResource("2_tree")]
+transform = Transform3D(0.85, 0, 0, 0, 0.85, 0, 0, 0, 0.85, -30, 0, 32)
+
+[node name="Tree07" parent="Forest" unique_id=1649320685 instance=ExtResource("2_tree")]
+transform = Transform3D(1.1, 0, 0, 0, 1.1, 0, 0, 0, 1.1, -18, 0, 36)
+
+[node name="Tree08" parent="Forest" unique_id=1343917825 instance=ExtResource("2_tree")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7, 0, 40)
+
+[node name="Tree09" parent="Forest" unique_id=1977969671 instance=ExtResource("2_tree")]
+transform = Transform3D(1.25, 0, 0, 0, 1.25, 0, 0, 0, 1.25, 7, 0, 40)
+
+[node name="Tree10" parent="Forest" unique_id=2088587434 instance=ExtResource("2_tree")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 39, 0, 36)
+
+[node name="Tree11" parent="Forest" unique_id=1640406819 instance=ExtResource("2_tree")]
+transform = Transform3D(1.2, 0, 0, 0, 1.2, 0, 0, 0, 1.2, 46, 0, 29)
+
+[node name="Tree12" parent="Forest" unique_id=1304367245 instance=ExtResource("2_tree")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 44, 0, 9)
+
+[node name="Tree13" parent="Forest" unique_id=495756805 instance=ExtResource("2_tree")]
+transform = Transform3D(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9, 39, 0, -4)
+
+[node name="Tree14" parent="Forest" unique_id=1009955894 instance=ExtResource("2_tree")]
+transform = Transform3D(1.15, 0, 0, 0, 1.15, 0, 0, 0, 1.15, 34, 0, -18)
+
+[node name="Tree15" parent="Forest" unique_id=1787788399 instance=ExtResource("2_tree")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 24, 0, -31)
+
+[node name="Tree16" parent="Forest" unique_id=686467105 instance=ExtResource("2_tree")]
+transform = Transform3D(1.25, 0, 0, 0, 1.25, 0, 0, 0, 1.25, 12, 0, -39)
+
+[node name="Tree17" parent="Forest" unique_id=1571155488 instance=ExtResource("2_tree")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5, 0, -44)
+
+[node name="Tree18" parent="Forest" unique_id=1791083386 instance=ExtResource("2_tree")]
+transform = Transform3D(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9, -18, 0, -43)
+
+[node name="Tree19" parent="Forest" unique_id=627712284 instance=ExtResource("2_tree")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -42, 0, -12)
+
+[node name="Tree20" parent="Forest" unique_id=136718822 instance=ExtResource("2_tree")]
+transform = Transform3D(1.2, 0, 0, 0, 1.2, 0, 0, 0, 1.2, -45, 0, 1)
+
+[node name="Tree21" parent="Forest" unique_id=2129012972 instance=ExtResource("2_tree")]
+transform = Transform3D(0.85, 0, 0, 0, 0.85, 0, 0, 0, 0.85, 18, 0, 33)
+
+[node name="Tree22" parent="Forest" unique_id=1497541844 instance=ExtResource("2_tree")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 31, 0, 36)
+
+[node name="Grass" type="Node3D" parent="." unique_id=2056372697]
+visible = false
+script = ExtResource("17_grass")
+
+[node name="WorldDecor" type="Node3D" parent="." unique_id=502388631]
+visible = false
+script = ExtResource("5_decor")
+
+[node name="Cover" type="Node3D" parent="." unique_id=1120520866]
+visible = false
+script = ExtResource("9_cover")
+
+[node name="NavRegion" type="NavigationRegion3D" parent="." unique_id=150477537]
+script = ExtResource("11_nav")
+
+[node name="Players" type="Node3D" parent="." unique_id=1971367536]
+
+[node name="PlayerSpawner" type="Node" parent="." unique_id=471679608]
+script = ExtResource("13_spawner")
+
+[node name="ExperimentQuickStart" type="Node" parent="."]
+script = ExtResource("19_quickstart")
+
+[editable path="WeatherEnvironment"]

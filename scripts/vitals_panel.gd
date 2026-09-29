@@ -1,27 +1,12 @@
 class_name VitalsPanel
 extends Control
-## 生命 / 护盾面板（屏幕左上角信息区）。
-##
-## 【为什么要合成一块】原先这里是两条各自独立的 ProgressBar：一条写在 player.tscn 里，
-## 一条由 PlayerHUD 在运行时新建。两者都是"纯色块 + 1 像素描边"，也就是原型阶段最省事的
-## 做法；更糟的是它们与右下角武器面板的形状语言毫无关系（那边是切角石板，这边是直角色块），
-## 同屏并排时的"拼凑感"一眼就能看出来。
-##
-## 三处升级，都是为了"从原型走向 demo"：
-##   1. 形状统一 —— 走 UiThemeUtil.draw_plate 的石板 → 青铜包边 → 切角，与武器面板、
-##      小地图共用同一套轮廓。统一形状比统一颜色更重要，因为轮廓先被看到。
-##   2. 伤害残影 —— 实色滞后于数值一小段，刚被抹掉的那截血留一道白影。
-##      静态血条永远像占位图，就差这一笔。
-##   3. 低血量呼吸 + 分段刻度 —— 把"还能扛几下"变成不用读数字就能拿到的信息。
-##
-## 数据由 PlayerHUD 每帧灌入（set_health / set_shield），本节点不查询任何东西 ——
-## 与 WeaponPanel 保持同一种"纯显示器"约定。
+## 下方中央生命与护盾：半透明底、连续色条，保留伤害残影与低血量反馈。
 
 const UiThemeUtil := preload("res://scripts/ui_theme.gd")
 
 ## 面板尺寸。PlayerHUD 用它来排布（不想让两处各写一份坐标）。
-const PANEL_WIDTH := 272.0
-const PANEL_HEIGHT := 48.0
+const PANEL_WIDTH := 228.0
+const PANEL_HEIGHT := 40.0
 
 ## 分段刻度数。10 段对应"每段 10 点生命"，比一根连续条更容易估出还剩几成。
 const SEGMENTS := 10
@@ -34,7 +19,7 @@ const LOW_RATIO := 0.3
 
 # ---------------------------------------------------------------- 版面度量
 # 全部相对面板左上角，画的时候只读这些常量，不在 _draw 里现算。
-const ROW_HEIGHT := 22.0
+const ROW_HEIGHT := 18.0
 const ROW_GAP := 4.0
 const ICON_WIDTH := 36.0
 const VALUE_WIDTH := 82.0
@@ -42,7 +27,7 @@ const BAR_LEFT := ICON_WIDTH + VALUE_WIDTH + 6.0
 const BAR_RIGHT_PAD := 8.0
 const BAR_TOP_INSET := 7.0
 const BAR_HEIGHT := 18.0
-const FONT_VALUE := 11
+const FONT_VALUE := 10
 
 var _font: Font
 
@@ -153,6 +138,11 @@ func _shield_ints() -> Array:
 # ---------------------------------------------------------------- 绘制
 
 func _draw() -> void:
+	var glass := PackedVector2Array([
+		Vector2(10, 0), Vector2(size.x, 0),
+		Vector2(size.x - 10, size.y), Vector2(0, size.y),
+	])
+	UiThemeUtil.draw_black_glass(self, glass)
 	var accent := UiThemeUtil.COLOR_HEALTH
 	if is_low():
 		accent = UiThemeUtil.shade(UiThemeUtil.COLOR_HEALTH, _pulse() * 0.30)
@@ -189,21 +179,19 @@ func _draw_shield(top: float) -> void:
 
 ## 每行严格拆成三段：图标、数字、纯进度条。数字永远不会再压在色条上。
 func _draw_stat_row(
-	top: float, text: String, value_color: Color, fill: Color,
-	ratio: float, ghost: float, heart: bool, accent: Color
+	top: float, text: String, _value_color: Color, fill: Color,
+	ratio: float, ghost: float, heart: bool, _accent: Color
 ) -> void:
-	var row := Rect2(Vector2(0, top), Vector2(size.x, ROW_HEIGHT))
-	draw_rect(row, Color(0.025, 0.045, 0.055, 0.38))
-	var center := Vector2(12, top + ROW_HEIGHT * 0.5)
-	draw_set_transform(center, 0, Vector2(0.52, 0.52))
+	var center := Vector2(10, top + ROW_HEIGHT * 0.5)
+	draw_set_transform(center, 0, Vector2(0.43, 0.43))
 	if heart:
 		_draw_heart(Vector2.ZERO, fill)
 	else:
 		_draw_shield_icon(Vector2.ZERO, fill)
 	draw_set_transform(Vector2.ZERO)
-	draw_string(_font, Vector2(26, top + 15), text, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_VALUE, Color(0.94, 0.96, 0.94))
-	var bar := Rect2(101, top + 5, size.x - 107, 12)
-	draw_rect(bar, Color(1, 1, 1, 0.13))
+	draw_string(_font, Vector2(21, top + 13), text, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_VALUE, Color(0.94, 0.96, 0.94))
+	var bar := Rect2(82, top + 4, size.x - 90, 10)
+	draw_rect(bar, Color(1, 1, 1, 0.11))
 	if ghost > ratio:
 		draw_rect(Rect2(bar.position, Vector2(bar.size.x * clampf(ghost, 0, 1), bar.size.y)), Color(1, 0.89, 0.8, 0.48))
 	draw_rect(Rect2(bar.position, Vector2(bar.size.x * clampf(ratio, 0, 1), bar.size.y)), fill)

@@ -27,6 +27,7 @@ const FLASH_DECAY := 3.0
 ## 生存时间每秒变几十次，跟着闪的话这块板会一直抖；
 ## 只有"击杀数"这种偶尔跳一次的量才适合闪光。
 var pulse_on_change := false
+var minimal := false
 
 var _font: Font
 var _accent := UiThemeUtil.COLOR_ACCENT
@@ -90,7 +91,13 @@ func set_readout(label: String, value: String, sub: String = "") -> void:
 func _draw() -> void:
 	# 闪光量并入强调色：板边与数值同时亮一下，而不是另外加一层盖在上面。
 	var accent := UiThemeUtil.shade(_accent, _flash * 0.45)
-	UiThemeUtil.draw_plate(self, Rect2(Vector2.ZERO, size), accent, _plate_variant)
+	if minimal:
+		# 左侧斜切、右侧垂直：右边界可与小地图和 Q 卡严格共线。
+		UiThemeUtil.draw_black_glass(self, PackedVector2Array([
+			Vector2(7, 0), Vector2(size.x, 0), Vector2(size.x, size.y), Vector2(0, size.y),
+		]))
+	else:
+		UiThemeUtil.draw_plate(self, Rect2(Vector2.ZERO, size), accent, _plate_variant)
 	var baseline := size.y * 0.5 + float(FONT_VALUE) * 0.36
 	if not _sub.is_empty():
 		baseline = 19.0
