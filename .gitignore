@@ -8,6 +8,18 @@ export_templates/
 visual_captures/
 performance_logs/
 
+# Local machine / tool configuration
+active-game.json
+opencode.json
+parse_sweep_result.txt
+
 # AI tool caches
 .codebuddy/
 .godot-mcp/
+
+# IDE / OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
