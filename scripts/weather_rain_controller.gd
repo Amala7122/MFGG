@@ -164,8 +164,8 @@ func _ready() -> void:
 	# 预设决定运行首帧天气。
 	_rain_intensity = _target_intensity()
 	# 云层本身不等于雾。只有旧雨雾联动或独立 Fog Layer 才决定开场雾量。
-	var opening_rain_fog := profile_value(&"storm_strength") * storm_environment_strength 		* _precipitation_environment_coupling
-	_fog_amount = 1.0 - (1.0 - clampf(opening_rain_fog, 0.0, 1.0)) 		* (1.0 - _external_fog_strength)
+	var opening_rain_fog := profile_value(&"storm_strength") * storm_environment_strength \\\n		* _precipitation_environment_coupling
+	_fog_amount = 1.0 - (1.0 - clampf(opening_rain_fog, 0.0, 1.0)) \\\n		* (1.0 - _external_fog_strength)
 	_update_environment()
 	set_process(true)
 
@@ -562,11 +562,11 @@ func _update_environment(delta: float = 0.0) -> void:
 	# “降水”和“阴天”是两个概念。旧 WeatherRainController 可以继续用 profile
 	# 自动带出阴雨环境；统一 WeatherSystem 把 coupling 设为 0，此时只有
 	# Cloud Layer 能改变云幕，只有 Fog Layer 能制造独立雾。
-	var rain_storm := profile_value(&"storm_strength") * storm_environment_strength 		* _precipitation_environment_coupling
-	var rain_cloud := profile_value(&"cloud_cover") * storm_environment_strength 		* _precipitation_environment_coupling
+	var rain_storm := profile_value(&"storm_strength") * storm_environment_strength \\\n		* _precipitation_environment_coupling
+	var rain_cloud := profile_value(&"cloud_cover") * storm_environment_strength \\\n		* _precipitation_environment_coupling
 	var storm := clampf(maxf(rain_storm, _external_storm_strength), 0.0, 1.0)
 	var cloud_cover := clampf(maxf(rain_cloud, _external_cloud_cover), 0.0, 1.0)
-	var daylight := smoothstep(-0.06, 0.25, _sun.global_basis.z.normalized().y) 		if is_instance_valid(_sun) else 0.0
+	var daylight := smoothstep(-0.06, 0.25, _sun.global_basis.z.normalized().y) \\\n		if is_instance_valid(_sun) else 0.0
 	# 薄阴先成为明亮漫射云幕；厚云继续增加时才逐渐压向深冷灰。
 	var clear_horizon := Color(0.13, 0.16, 0.20).lerp(Color(0.56, 0.60, 0.64), daylight)
 	var overcast_horizon := Color(0.16, 0.19, 0.23).lerp(
@@ -574,7 +574,7 @@ func _update_environment(delta: float = 0.0) -> void:
 	)
 	var horizon := clear_horizon.lerp(overcast_horizon, cloud_cover)
 	# 云层本身不降低能见度。只有旧雨雾联动或独立 Fog Layer 改变雾量。
-	var fog_target := 1.0 - (1.0 - clampf(rain_storm, 0.0, 1.0)) 		* (1.0 - clampf(_external_fog_strength, 0.0, 1.0))
+	var fog_target := 1.0 - (1.0 - clampf(rain_storm, 0.0, 1.0)) \\\n		* (1.0 - clampf(_external_fog_strength, 0.0, 1.0))
 	var fog_seconds := fog_build_seconds if fog_target > _fog_amount else fog_clear_seconds
 	if delta > 0.0:
 		_fog_amount = move_toward(_fog_amount, fog_target, delta / maxf(fog_seconds, 0.1))
@@ -648,7 +648,7 @@ func _update_environment(delta: float = 0.0) -> void:
 		var fog_distance := lerpf(downpour_fog_end, _standalone_fog_distance, manual_share)
 		environment.fog_density = 4.6 / maxf(fog_distance, 1.0) * pow(fog_strength, 1.6) \
 			* (1.0 + _wind_strength * 0.45)
-		environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR 			if cloud_cover > 0.001 else int(_base_environment.ambient_light_source)
+		environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR \\\n			if cloud_cover > 0.001 else int(_base_environment.ambient_light_source)
 		# 阴天仍保留大量漫射天光。薄阴明亮柔和，厚云才降低能量并转成深冷灰，
 		# 避免“天空灰了，但所有材质还像打过蜡”的塑料感。
 		var light_overcast := Color(0.43, 0.49, 0.58).lerp(Color(0.72, 0.76, 0.82), daylight)
