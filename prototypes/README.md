@@ -4,7 +4,23 @@
 >
 > 本文主要记录 Combat Lab 的使用方法与各轮实现细节，因此包含较多历史说明。判断“某功能是否已进入主游戏”时，以状态表和 `docs/项目总进度与下一步.md` 为准，不要仅凭本文出现过某个功能就视为正式接入。
 
-在 Godot 中打开 `res://prototypes/combat_lab.tscn`，按 **F6（运行当前场景）** 启动。
+## 目录约定
+
+可直接运行的实验场景统一放在 `prototypes/`，不再分散到正式 `scenes/`：
+
+```text
+prototypes/
+├─ combat/              当前战斗实验场与其专用工具
+│  └─ enemies/          Combat Lab 使用的程序化敌人场景
+├─ environment/         天空、天气、环境等隔离实验场
+└─ legacy/              已归档但仍保留参考价值的旧实验
+   ├─ melee/
+   └─ visual/
+```
+
+行为脚本仍按代码职责保留在 `scripts/prototypes/`；这里统一解决的是“实验场景从哪里打开”的入口问题。
+
+在 Godot 中打开 `res://prototypes/combat/combat_lab.tscn`，按 **F6（运行当前场景）** 启动。
 
 场地为 **120 × 90 米**的封闭空场，四面有实体墙，地面每格 5 米。敌人生成在对面墙前的一排，玩家在另一侧准备区开始。
 
@@ -81,7 +97,7 @@
 
 项目运行时，命名方案保存到 `res://data/enemy_presets/PrototypeMudGolem.json` 、`PrototypeSedimentTitan.json` 、`PrototypeFastBeast.json` 与 `PrototypeHornet.json`，可随项目复用。保存先写临时文件，成功后替换原方案；保存失败不会修改当前选用的方案。非法数值、随机区间下限大于上限，横扫优先距离大于半径，以及晶兽绕行内圈大于外圈 / 飞扑距离下限大于上限都会阻止保存。导出资源包含这些配置，导出版本继承项目中选用的方案，后续修改写入 `user://enemy_presets/`。
 
-配置接入代码：`res://scripts/prototypes/enemy_tuning.gd`；面板：`res://prototypes/enemy_tuning_panel.gd`。后续程序化敌人按同样的配置结构登记，不再往动作代码里填平衡数值。
+配置接入代码：`res://scripts/prototypes/enemy_tuning.gd`；面板：`res://prototypes/combat/enemy_tuning_panel.gd`。后续程序化敌人按同样的配置结构登记，不再往动作代码里填平衡数值。
 
 检查：`res://tests/test_enemy_tuning.gd`，覆盖面板输入、命名 / 覆盖 / 重读、独立属性、实际前摇 / 施放 / 后摇 / 距离 / 伤害、预警顶点、狂暴倍率、Esc 与点击期间的鼠标状态、B 补兵快照和自定义死亡演出等待。测试方案仅写到截图目录，不覆盖实际调参方案。有渲染时添加 `--capture-enemy-tuning` 保存面板截图；启动测试场添加 `--lab-enemy-tuning` 默认打开泰坦参数面板；同时添加 `--lab-fast-beast`、`--lab-mud-golem` 或 `--lab-hornet` 则打开对应敌人的参数。
 
@@ -115,7 +131,7 @@
 
 项目默认参数为 120 生命、2.4 m/s、10 点攻击伤害、2.2 秒攻击间隔，可在独立参数面板中修改并保存；面板的测试等级仍调整玩家武器，不缩放此原型的数值。支持暂停、重开、A/B 循环和伤害统计，只注册在测试场，不影响正式图鉴和关卡刷怪。
 
-场景资源：`res://scenes/prototypes/procedural_mud_golem.tscn`；脚本：`res://scripts/prototypes/procedural_mud_golem.gd`。脚本挂在 `CharacterBody3D` 根节点，运行时自动创建模型、碰撞与生命标签。测试场用统一敌人接口注入玩家目标，并按胶囊中心摆位。
+场景资源：`res://prototypes/combat/enemies/procedural_mud_golem.tscn`；脚本：`res://scripts/prototypes/procedural_mud_golem.gd`。脚本挂在 `CharacterBody3D` 根节点，运行时自动创建模型、碰撞与生命标签。测试场用统一敌人接口注入玩家目标，并按胶囊中心摆位。
 
 专用检查：`res://tests/test_mud_golem.gd`；无界面运行时使用 `--fixed-fps 60` 保证按动画时间推进。添加 `--capture-mud-golem` 可在有渲染的运行中保存待机、蓄力和散架截图。启动战斗测试场时添加 `--lab-mud-golem` 会预选 1 只傀儡并开启无敌，等待点击生成。
 
@@ -131,7 +147,7 @@
 - **弱点机制替换**：移除晶核专属 2.5 倍伤害、Q 破盾额外 100 点伤害和跪地弱点窗口。Q 沿用现有距离衰减、范围伤害和击退，狂暴承伤倍率对射击、E、Q 一致生效；项目原有狙击爆头规则继续保留。跨阈值攻击若命中泥盾，仍先按该次攻击发生时的普通护盾结算。
 - **死亡**：八块身体碎片（4.5 秒清理）和一枚旋转晶体（10 秒清理）。结算仍等待散架完成，补兵及重开从普通黄晶阶段开始。
 
-场景资源：`res://scenes/prototypes/procedural_sediment_titan.tscn`；脚本：`res://scripts/prototypes/procedural_sediment_titan.gd`。以上为项目默认参数，可通过独立参数面板保存不同方案；测试等级仅调整玩家武器。支持暂停、A/B 补兵、来源统计和重开清理，不进入正式图鉴或关卡刷怪。
+场景资源：`res://prototypes/combat/enemies/procedural_sediment_titan.tscn`；脚本：`res://scripts/prototypes/procedural_sediment_titan.gd`。以上为项目默认参数，可通过独立参数面板保存不同方案；测试等级仅调整玩家武器。支持暂停、A/B 补兵、来源统计和重开清理，不进入正式图鉴或关卡刷怪。
 
 与粘贴原稿的冲突处理：统一模型、转向、预警和伤害到项目的 -Z 正面；玩家受伤传来源位置而非击退向量；横扫按最新反馈改为左臂270°扫过；修复小臂复位（回到原始 y=-0.3）、技能打断和主节点销毁后的核心旋转。头部另有随姿态移动的碰撞体，射击悬浮晶体可以正常命中。旧弱点以红晶狂暴替换，泥盾改为普通阶段随机技能，不与狂暴承伤倍率叠加。原稿的任务核心暂为视觉展示，没有任务拾取接口。
 
@@ -148,7 +164,7 @@
 
 74 项独立参数包括基础体型 / 生命 / 护甲、奔跑 / 绕行 / 转向、内外圈、随机等待、飞扑施放范围 / 命中距离 / 角度 / 高度 / 伤害 / 速度 / 跳高 / 前后摇 / 最长施放 / 最短间隔、打断 / 击退 / 硬直、步态 / 晶角闪烁以及死亡散架参数。保存具名方案后手动重新生成生效；B 补兵仍用开场快照。
 
-场景：`res://scenes/prototypes/procedural_fast_beast.tscn`；脚本：`res://scripts/prototypes/procedural_fast_beast.gd`；数值：`res://data/enemies/procedural_fast_beast.json`。与前两个原型一致，仅在运行时创建模型，移除原稿 `@tool` 的编辑器持续执行；脚本挂在 `CharacterBody3D` 根节点即可运行。原稿模型已朝向 -Z，无需旋转翻面。
+场景：`res://prototypes/combat/enemies/procedural_fast_beast.tscn`；脚本：`res://scripts/prototypes/procedural_fast_beast.gd`；数值：`res://data/enemies/procedural_fast_beast.json`。与前两个原型一致，仅在运行时创建模型，移除原稿 `@tool` 的编辑器持续执行；脚本挂在 `CharacterBody3D` 根节点即可运行。原稿模型已朝向 -Z，无需旋转翻面。
 
 接入冲突处理：用项目统一寻敌与伤害接口替换 `Player` 分组和“击退向量当来源位置”；所有状态持续计算重力，恢复与受击不再悬空；动作打断杀掉旧动画，复位全部腿和尾关节；随机等待不逐帧重抽；远距离先接近而非一直切向游走；盒形碰撞覆盖站姿背晶，测试场摆位和狙击爆头高度兼容盒形；高速飞扑检查本帧移动线段，且不隔墙或向身后造成伤害；散架缓存世界变换，避免旋转/缩放重复，碎片使用实际网格尺寸。
 

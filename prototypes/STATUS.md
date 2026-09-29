@@ -19,16 +19,16 @@
 
 | 实验 / 系统 | 状态 | 当前入口 | 与正式游戏的关系 | 下一步 / 停止条件 |
 |---|---|---|---|---|
-| Combat Lab 战斗测试场 | **Active** | `prototypes/combat_lab.tscn` | 开发工具，不是正式关卡 | 保持稳定，用来验证战斗；不要把正式流程继续塞进 Lab |
-| 敌人独立调参系统 | **Active** | `scripts/prototypes/enemy_tuning.gd`、`prototypes/enemy_tuning_panel.gd`、`data/enemies/` | 当前服务程序化敌人实验 | 继续作为实验基础设施；正式敌人接入时再决定哪些能力迁入正式层 |
+| Combat Lab 战斗测试场 | **Active** | `prototypes/combat/combat_lab.tscn` | 开发工具，不是正式关卡 | 保持稳定，用来验证战斗；不要把正式流程继续塞进 Lab |
+| 敌人独立调参系统 | **Active** | `scripts/prototypes/enemy_tuning.gd`、`prototypes/combat/enemy_tuning_panel.gd`、`data/enemies/` | 当前服务程序化敌人实验 | 继续作为实验基础设施；正式敌人接入时再决定哪些能力迁入正式层 |
 | 原型群体运动 | **Active** | `scripts/prototypes/enemy_crowd.gd` | 当前只服务程序化原型 | 只有首章正式敌人确实需要时才迁入主游戏；不提前扩成完整群体 AI 框架 |
-| 沉积泰坦 | **Graduating** | `scenes/prototypes/procedural_sediment_titan.tscn`、`scripts/prototypes/procedural_sediment_titan.gd`、`scripts/prototypes/titan_*.gd` | 目前仍在 Combat Lab；主游戏未正式接入 | 完成 B0 封口与用户试玩；随后在首章战斗阶段做正式场地适配。封口前不继续无限加招 |
-| 泥土傀儡 | **Active** | `scenes/prototypes/procedural_mud_golem.tscn`、对应脚本与 JSON | Combat Lab 可玩，正式刷怪未使用 | 只有被选入首章正式阵容时才进入 Graduating |
-| 迅捷晶兽 | **Active** | `scenes/prototypes/procedural_fast_beast.tscn`、对应脚本与 JSON | Combat Lab 可玩，正式刷怪未使用 | 只有被选入首章正式阵容时才进入 Graduating |
-| 晶刺蜂 | **Active** | `scenes/prototypes/procedural_hornet.tscn`、对应脚本与 JSON | Combat Lab 可玩，正式刷怪未使用 | 只有被选入首章正式阵容时才进入 Graduating |
-| 旧近战手感实验场 | **Archived** | `scenes/prototypes/enemy_melee_lab.tscn`、`lab_melee_player`、`lab_beast_target` | 旧 F 键近战参考，不是当前正式玩家能力 | 保留用于查手感思路；正式近战需求另行接入，不继续扩展旧 Lab |
+| 沉积泰坦 | **Graduating** | `prototypes/combat/enemies/procedural_sediment_titan.tscn`、`scripts/prototypes/procedural_sediment_titan.gd`、`scripts/prototypes/titan_*.gd` | 目前仍在 Combat Lab；主游戏未正式接入 | 完成 B0 封口与用户试玩；随后在首章战斗阶段做正式场地适配。封口前不继续无限加招 |
+| 泥土傀儡 | **Active** | `prototypes/combat/enemies/procedural_mud_golem.tscn`、对应脚本与 JSON | Combat Lab 可玩，正式刷怪未使用 | 只有被选入首章正式阵容时才进入 Graduating |
+| 迅捷晶兽 | **Active** | `prototypes/combat/enemies/procedural_fast_beast.tscn`、对应脚本与 JSON | Combat Lab 可玩，正式刷怪未使用 | 只有被选入首章正式阵容时才进入 Graduating |
+| 晶刺蜂 | **Active** | `prototypes/combat/enemies/procedural_hornet.tscn`、对应脚本与 JSON | Combat Lab 可玩，正式刷怪未使用 | 只有被选入首章正式阵容时才进入 Graduating |
+| 旧近战手感实验场 | **Archived** | `prototypes/legacy/melee/enemy_melee_lab.tscn`、`lab_melee_player`、`lab_beast_target` | 旧 F 键近战参考，不是当前正式玩家能力 | 保留用于查手感思路；正式近战需求另行接入，不继续扩展旧 Lab |
 | 第一版快速野兽剪影 / 视觉 Lab | **Archived** | `fast_beast_prototype.tscn`、`beast_prototype.gd`、`enemy_visual_lab.tscn` | 已被后续程序化迅捷晶兽路线替代 | 仅作造型与实验历史参考 |
-| Sky3D 独立实验场 | **Integrated** | `scenes/experiments/sanctum_sky3d_experiment.tscn` | Sky3D / 天气能力已经进入主场景 `WeatherEnvironment` | 保留隔离实验场用于天气和天空验证，正式行为以主场景实现为准 |
+| Sky3D 独立实验场 | **Integrated** | `prototypes/environment/sanctum_sky3d_experiment.tscn` | Sky3D / 天气能力已经进入主场景 `WeatherEnvironment` | 保留隔离实验场用于天气和天空验证，正式行为以主场景实现为准 |
 
 ## 当前特别容易混淆的边界
 
