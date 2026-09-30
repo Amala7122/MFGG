@@ -7,18 +7,18 @@ class_name WeatherSystem
 ## - Cumulus 多云：蓝天仍占较大比例，保留较强直射光。
 ## - Stratus 阴天：连续云底逐步接管直射光与环境光。
 ##
-## 从这一版开始，两者不再使用两套不同风格的云几何。Sky3D 原生真实积云被停用，
-## 统一改用 weather shader 的低频 Stylized Cloud Field。Coverage 决定云块从分离到连片，
-## Density 决定云底厚度与吸光。云色只使用大块漫射明暗，不读取太阳高光或 Mie 银边，
-## 避免出现天空中漂浮的塑料块。
+## 云形使用项目原有的低多边形 BackdropClouds。Coverage 较低时它们保持清晰的
+## 独立云团；Coverage 超过约 0.55 后，Stratus 云幕从背后长出来，同时旧云逐渐
+## 横向摊开、压平、降低自身色差并靠拢云幕颜色，最终在完整阴天里“融化”。
+## 整个过程保持 unshaded / matte，不引入太阳高光、银边或真实体积云反射。
 
 enum CloudType { CUMULUS, STRATUS }
 
 @export_category("天气组合：可复选")
 @export var cloud_enabled := false
-## 当前暂时作为照明性格选择；云的形状已经统一为 Stylized Cloud Field。
+## 当前主要决定照明性格；云的视觉形态由 Coverage 连续控制。
 @export_enum("Cumulus 多云:0", "Stratus 阴天:1") var cloud_type: int = CloudType.STRATUS
-## 天空有多少面积被云覆盖。低值形成分散大云块，高值逐渐连成连续云幕。
+## 天空有多少面积被云覆盖。低值是独立风格云，高值逐渐融入连续云幕。
 @export_range(0.0, 1.0, 0.01) var cloud_coverage := 1.0
 ## 云有多厚。它不决定覆盖面积；低值偏明亮薄云，高值偏厚重吸光。
 @export_range(0.0, 1.0, 0.01) var cloud_density := 0.47
@@ -38,6 +38,7 @@ enum CloudType { CUMULUS, STRATUS }
 var _cloud_level := 0.0
 var _cloud_density_level := 0.0
 var _snow_level := 0.0
+var _stylized_cloud_mesh: MeshInstance3D
 @onready var _snow_layer: Node3D = get_node_or_null("SnowLayer")
 
 
@@ -63,8 +64,7 @@ func _process(delta: float) -> void:
 	_snow_level = move_toward(_snow_level, snow_target, transition_speed)
 	_sync_extra_layers()
 	super._process(delta)
-	# 父类会按 CloudType 更新天空；最后统一覆盖为风格化云场，确保两种天气不会
-	# 在视觉上突然从 low-poly 世界切换成写实体积云。
+	# 父类先完成通用天空/光照合成；最后再覆写项目自己的云形过渡。
 	_apply_stylized_cloud_field()
 	_update_snow_layer()
 
@@ -111,8 +111,7 @@ func _sync_extra_layers() -> void:
 	_external_fog_strength = fog_amount if fog_enabled else 0.0
 	_external_cloud_cover = _cloud_level
 	_external_cloud_density = _cloud_density_level
-	# 暂时保留现有两套照明响应。云形本身会在 _apply_stylized_cloud_field()
-	# 统一，所以这里的 type 只决定多云/阴天对直射光和环境光的影响。
+	# CloudType 暂时只保留多云 / 阴天的照明差异。云形过渡本身由 Coverage 连续驱动。
 	_external_cloud_style = cloud_type
 	_external_storm_strength = _cloud_darkness(
 		_cloud_level, _cloud_density_level, cloud_type
@@ -122,8 +121,8 @@ func _sync_extra_layers() -> void:
 
 
 static func _cloud_darkness(coverage: float, density: float, type: int) -> float:
-	# 多云第一版保持晴空照明家族：云块会出现在天空，但不统一压暗整个世界。
-	# 阴天在覆盖面积足够高之后，才随厚度逐渐进入重阴状态。
+	# 多云第一版保持晴空照明家族；阴天才逐步进入低曝光的重阴状态。
+	# 后续会再根据太阳方向的局部云密度补上多云时的云影与短时遮阳。
 	if type == CloudType.CUMULUS:
 		return 0.0
 	var cover := smoothstep(0.35, 1.0, clampf(coverage, 0.0, 1.0))
@@ -135,33 +134,66 @@ func _apply_stylized_cloud_field() -> void:
 	if _sky_dome == null:
 		return
 
-	# Sky3D 原生 Cumulus 是偏写实体积云，也是此前与世界风格割裂、出现高亮银边的来源。
-	# 统一云场开启后，无论 CloudType 都不再渲染它。
+	# 停用 Sky3D 偏写实的体积积云。多云的可见云体改回项目原有 BackdropClouds。
 	_sky_dome.set("cumulus_visible", false)
-
-	var sky_material := _sky_dome.get("sky_material") as ShaderMaterial
-	if sky_material == null:
-		return
 
 	var coverage := clampf(_cloud_level, 0.0, 1.0)
 	var density := clampf(_cloud_density_level, 0.0, 1.0)
+	# 0.55 前基本保持独立云团；0.55~0.88 是主要“融化”区间。
+	var overcast_blend := smoothstep(0.55, 0.88, coverage)
+	# 云幕不是从 Coverage=0 就铺一层白雾，而是在风格云开始连片时才从背后长出来。
+	var deck_cover := coverage * overcast_blend
 	var daylight := smoothstep(-0.06, 0.25, _sun.global_basis.z.normalized().y) \
 		if is_instance_valid(_sun) else 0.0
 
-	# 这套云色刻意不取 sun_light_color，也不计算太阳方向高光。
-	# 亮云仍然是低反射的冷灰漫射面；Density 高时只扩大暗部，不产生白色银边。
-	var day_light_cloud := Color(0.66, 0.70, 0.74, 1.0)
-	var day_storm_cloud := Color(0.27, 0.31, 0.36, 1.0)
-	var night_cloud := Color(0.10, 0.13, 0.18, 1.0)
-	var heavy_factor := smoothstep(0.52, 1.0, density) * smoothstep(0.55, 1.0, coverage)
-	var day_cloud := day_light_cloud.lerp(day_storm_cloud, heavy_factor)
-	var matte_cloud := night_cloud.lerp(day_cloud, daylight)
+	var day_light_deck := Color(0.67, 0.71, 0.75, 1.0)
+	var day_storm_deck := Color(0.25, 0.29, 0.34, 1.0)
+	var night_deck := Color(0.10, 0.13, 0.18, 1.0)
+	var heavy_factor := smoothstep(0.52, 1.0, density) * smoothstep(0.65, 1.0, coverage)
+	var day_deck := day_light_deck.lerp(day_storm_deck, heavy_factor)
+	var matte_deck := night_deck.lerp(day_deck, daylight)
 
-	# 同一张低频云场从分散云块连续长成完整阴天云幕。
-	# weather shader 内部只做大尺度明暗，不使用真实体积云的镜面/Mie 响应。
-	sky_material.set_shader_parameter("weather_overcast", coverage)
-	sky_material.set_shader_parameter("weather_cloud_density", density)
-	sky_material.set_shader_parameter("weather_horizon", matte_cloud)
+	var sky_material := _sky_dome.get("sky_material") as ShaderMaterial
+	if sky_material != null:
+		sky_material.set_shader_parameter("weather_overcast", deck_cover)
+		sky_material.set_shader_parameter("weather_cloud_density", density)
+		sky_material.set_shader_parameter("weather_horizon", matte_deck)
+
+	_resolve_stylized_cloud_mesh()
+	if not is_instance_valid(_stylized_cloud_mesh):
+		return
+
+	# 低 Coverage 时独立云团逐渐出现；到完整阴天的最后一段才真正消失。
+	# 中间大部分时间依靠“颜色靠拢 + 云幕长出”来融，而不是简单 alpha 交叉淡化。
+	var bank_in := smoothstep(0.02, 0.26, coverage)
+	var final_dissolve := smoothstep(0.88, 1.0, coverage)
+	var bank_visibility := bank_in * (1.0 - final_dissolve)
+	_stylized_cloud_mesh.transparency = 1.0 - bank_visibility
+
+	var material := _stylized_cloud_mesh.material_override as ShaderMaterial
+	if material == null:
+		return
+
+	# 旧云继续保持低反射冷灰漫射色。随着 Density 与融化程度增加，云团和云幕
+	# 使用越来越接近的色组，最终视觉上失去“贴在云幕前面”的独立边界。
+	var day_bank_light := Color(0.78, 0.82, 0.86, 1.0)
+	var day_bank_heavy := Color(0.34, 0.39, 0.45, 1.0)
+	var night_bank := Color(0.11, 0.14, 0.20, 1.0)
+	var bank_heavy := smoothstep(0.50, 1.0, density) * smoothstep(0.45, 1.0, coverage)
+	var day_bank := day_bank_light.lerp(day_bank_heavy, bank_heavy)
+	var matte_bank := night_bank.lerp(day_bank, daylight)
+
+	material.set_shader_parameter("cloud_coverage", coverage)
+	material.set_shader_parameter("cloud_density", density)
+	material.set_shader_parameter("overcast_blend", overcast_blend)
+	material.set_shader_parameter("cloud_tint", matte_bank)
+	material.set_shader_parameter("overcast_tint", matte_deck)
+
+
+func _resolve_stylized_cloud_mesh() -> void:
+	if is_instance_valid(_stylized_cloud_mesh):
+		return
+	_stylized_cloud_mesh = get_tree().root.find_child("BackdropClouds", true, false) as MeshInstance3D
 
 
 func _update_snow_layer() -> void:
