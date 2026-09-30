@@ -1,4 +1,4 @@
-[gd_scene format=3 uid="uid://wy1u4bti4b6v"]
+[gd_scene format=3 uid="uid://dyfmg747ld6q2"]
 
 [ext_resource type="PackedScene" path="res://scenes/stylized_tree.tscn" id="2_tree"]
 [ext_resource type="Script" uid="uid://cltea6a0weien" path="res://scripts/world_decor.gd" id="5_decor"]
@@ -10,7 +10,7 @@
 [ext_resource type="Script" uid="uid://bloban6gwlou8" path="res://scripts/editor_world_preview.gd" id="16_preview"]
 [ext_resource type="Script" uid="uid://c00g3qsxniqas" path="res://scripts/grass_field.gd" id="17_grass"]
 [ext_resource type="PackedScene" path="res://scenes/weather_environment.tscn" id="18_weather_environment"]
-[ext_resource type="Script" path="res://scripts/experiment_quickstart.gd" id="19_quickstart"]
+[ext_resource type="Script" uid="uid://ddtf6168msjcv" path="res://scripts/experiment_quickstart.gd" id="19_quickstart"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_path"]
 albedo_color = Color(0.19, 0.18, 0.155, 1)
@@ -70,57 +70,53 @@ albedo_color = Color(1, 0.36, 0.03, 1)
 radius = 0.32
 height = 0.58
 
-[node name="WeatherLab" type="Node3D"]
+[node name="WeatherLab" type="Node3D" unique_id=411216255]
 script = ExtResource("16_preview")
 
 [node name="WeatherEnvironment" parent="." unique_id=1293549010 instance=ExtResource("18_weather_environment")]
 
 [node name="Sky3D" parent="WeatherEnvironment" index="0" unique_id=1502289054]
-current_time = 9.0
+game_time_enabled = false
+current_time = 11.15
 tonemap_exposure = 0.94
 sun_shadow_opacity = 0.68
 sky_contribution = 0.655
 ambient_energy = 1.42
 
 [node name="SunLight" parent="WeatherEnvironment/Sky3D" index="0" unique_id=1669123254]
-transform = Transform3D(-0.5622058, -0.5643558, -0.6045057, 0, 0.73096454, -0.6824155, 0.82699734, -0.38365793, -0.4109525, -0.6045057, -0.6824155, -0.4109525)
-light_color = Color(1, 0.61, 0.38, 1)
-light_energy = 0.0
-shadow_enabled = false
+transform = Transform3D(0.94617903, -0.2738694, 0.17245504, 0, 0.53285474, 0.8462067, -0.3236436, -0.80066305, 0.504176, 0.17245504, 0.8462067, 0.504176)
+light_color = Color(1, 0.89, 0.7, 1)
 shadow_opacity = 0.68
 
 [node name="MoonLight" parent="WeatherEnvironment/Sky3D" index="1" unique_id=487357045]
-transform = Transform3D(0, -0.99508, -0.09907452, 0.75434124, -0.06504069, 0.65325266, -0.6564825, -0.074736, 0.7506299, -0.09907452, 0.65325266, 0.7506299)
-light_energy = 0.32088274
-shadow_enabled = true
+transform = Transform3D(0, -0.8154743, 0.5787933, -0.114020504, -0.5750186, -0.8101561, 0.99347836, -0.0659943, -0.092980795, 0.5787933, -0.8101561, -0.092980795)
 
 [node name="SkyDome" parent="WeatherEnvironment/Sky3D" index="2" unique_id=2009320672]
-sun_azimuth = -5.3094397
-sun_altitude = -2.3218584
-moon_azimuth = -3.2728226
-moon_altitude = -0.85892385
+sun_azimuth = -2.8120148
+sun_altitude = -0.5619706
+moon_azimuth = -1.4115113
+moon_altitude = -2.5152147
 atm_sun_intensity = 30.0
 fog_density = 0.00861079
 fog_mie_depth = 0.0071012676
 
 [node name="TimeOfDay" parent="WeatherEnvironment/Sky3D" index="3" unique_id=313974012]
-current_time = 21.33
+game_time_enabled = false
+current_time = 11.15
 
 [node name="WeatherSystem" parent="WeatherEnvironment" index="2" unique_id=714604810]
 cloud_enabled = true
-cloud_type = 1
-cloud_coverage = 1.0
-cloud_density = 0.47
+cloud_type = 0
+cloud_coverage = 0.77
+cloud_density = 0.21
 rain_enabled = false
 fog_enabled = false
-rain_preset = 0
 
 [node name="FillLight" parent="WeatherEnvironment" index="3" unique_id=2003871144]
-light_color = Color(0.3728, 0.4696, 0.69600004, 1)
-light_energy = 0.135296
+light_energy = 0.657152
 
 [node name="NightSkyLight" parent="WeatherEnvironment" index="4" unique_id=1120473704]
-light_energy = 0.9936892
+light_energy = 0.0
 
 [node name="Ground" type="StaticBody3D" parent="." unique_id=271098666]
 visible = false
@@ -341,7 +337,7 @@ script = ExtResource("11_nav")
 [node name="PlayerSpawner" type="Node" parent="." unique_id=471679608]
 script = ExtResource("13_spawner")
 
-[node name="ExperimentQuickStart" type="Node" parent="."]
+[node name="ExperimentQuickStart" type="Node" parent="." unique_id=679956011]
 script = ExtResource("19_quickstart")
 
 [editable path="WeatherEnvironment"]
