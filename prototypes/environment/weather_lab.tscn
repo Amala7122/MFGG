@@ -76,7 +76,7 @@ script = ExtResource("16_preview")
 [node name="WeatherEnvironment" parent="." unique_id=1293549010 instance=ExtResource("18_weather_environment")]
 
 [node name="Sky3D" parent="WeatherEnvironment" index="0" unique_id=1502289054]
-current_time = 21.33
+current_time = 9.0
 tonemap_exposure = 0.94
 sun_shadow_opacity = 0.68
 sky_contribution = 0.655
@@ -107,7 +107,13 @@ fog_mie_depth = 0.0071012676
 current_time = 21.33
 
 [node name="WeatherSystem" parent="WeatherEnvironment" index="2" unique_id=714604810]
-rain_preset = 4
+cloud_enabled = true
+cloud_type = 1
+cloud_coverage = 1.0
+cloud_density = 0.47
+rain_enabled = false
+fog_enabled = false
+rain_preset = 0
 
 [node name="FillLight" parent="WeatherEnvironment" index="3" unique_id=2003871144]
 light_color = Color(0.3728, 0.4696, 0.69600004, 1)
