@@ -37,8 +37,8 @@ func _ready() -> void:
 	if _time_of_day.has_signal("time_changed"):
 		_time_of_day.connect("time_changed", _on_time_changed)
 	call_deferred("_update_stylized_fill")
-	if Engine.is_editor_hint():
-		set_process(true)
+	# _process 只给编辑器预览用；正式运行时彻底关闭，避免每帧多一条空路径。
+	set_process(Engine.is_editor_hint())
 
 
 func _exit_tree() -> void:
