@@ -70,25 +70,38 @@ albedo_color = Color(1, 0.36, 0.03, 1)
 radius = 0.32
 height = 0.58
 
+<<<<<<< Updated upstream
 [node name="WeatherLab" type="Node3D" unique_id=411216255]
+=======
+[node name="WeatherLab" type="Node3D" unique_id=252374179]
+>>>>>>> Stashed changes
 script = ExtResource("16_preview")
 
 [node name="WeatherEnvironment" parent="." unique_id=1293549010 instance=ExtResource("18_weather_environment")]
 
 [node name="Sky3D" parent="WeatherEnvironment" index="0" unique_id=1502289054]
 game_time_enabled = false
+<<<<<<< Updated upstream
 current_time = 11.15
+=======
+current_time = 8.77
+>>>>>>> Stashed changes
 tonemap_exposure = 0.94
 sun_shadow_opacity = 0.68
 sky_contribution = 0.655
 ambient_energy = 1.42
 
 [node name="SunLight" parent="WeatherEnvironment/Sky3D" index="0" unique_id=1669123254]
+<<<<<<< Updated upstream
 transform = Transform3D(0.94617903, -0.2738694, 0.17245504, 0, 0.53285474, 0.8462067, -0.3236436, -0.80066305, 0.504176, 0.17245504, 0.8462067, 0.504176)
+=======
+transform = Transform3D(0.4461158, -0.53836, 0.71494704, 0, 0.7988455, 0.6015362, -0.8949752, -0.2683548, 0.35637766, 0.714947, 0.60153615, 0.35637763)
+>>>>>>> Stashed changes
 light_color = Color(1, 0.89, 0.7, 1)
 shadow_opacity = 0.68
 
 [node name="MoonLight" parent="WeatherEnvironment/Sky3D" index="1" unique_id=487357045]
+<<<<<<< Updated upstream
 transform = Transform3D(0, -0.8154743, 0.5787933, -0.114020504, -0.5750186, -0.8101561, 0.99347836, -0.0659943, -0.092980795, 0.5787933, -0.8101561, -0.092980795)
 
 [node name="SkyDome" parent="WeatherEnvironment/Sky3D" index="2" unique_id=2009320672]
@@ -96,12 +109,22 @@ sun_azimuth = -2.8120148
 sun_altitude = -0.5619706
 moon_azimuth = -1.4115113
 moon_altitude = -2.5152147
+=======
+transform = Transform3D(0, -0.99849707, 0.05480605, -0.18788122, -0.05383005, -0.9807156, 0.98219174, -0.010297027, -0.18759884, 0.054806046, -0.9807155, -0.18759882)
+
+[node name="SkyDome" parent="WeatherEnvironment/Sky3D" index="2" unique_id=2009320672]
+sun_azimuth = -2.033217
+sun_altitude = -0.9253736
+moon_azimuth = -0.28423482
+moon_altitude = -2.944886
+>>>>>>> Stashed changes
 atm_sun_intensity = 30.0
 fog_density = 0.00861079
 fog_mie_depth = 0.0071012676
 
 [node name="TimeOfDay" parent="WeatherEnvironment/Sky3D" index="3" unique_id=313974012]
 game_time_enabled = false
+<<<<<<< Updated upstream
 current_time = 11.15
 
 [node name="WeatherSystem" parent="WeatherEnvironment" index="2" unique_id=714604810]
@@ -111,12 +134,26 @@ cloud_coverage = 0.77
 cloud_density = 0.21
 rain_enabled = false
 fog_enabled = false
+=======
+current_time = 8.77
+
+[node name="WeatherSystem" parent="WeatherEnvironment" index="2" unique_id=714604810]
+cloud_enabled = true
+cloud_amount = 0.47
+rain_enabled = false
+fog_enabled = false
+rain_preset = 4
+>>>>>>> Stashed changes
 
 [node name="FillLight" parent="WeatherEnvironment" index="3" unique_id=2003871144]
 light_energy = 0.657152
 
 [node name="NightSkyLight" parent="WeatherEnvironment" index="4" unique_id=1120473704]
+<<<<<<< Updated upstream
 light_energy = 0.0
+=======
+light_energy = 0.13635525
+>>>>>>> Stashed changes
 
 [node name="Ground" type="StaticBody3D" parent="." unique_id=271098666]
 visible = false
@@ -337,7 +374,11 @@ script = ExtResource("11_nav")
 [node name="PlayerSpawner" type="Node" parent="." unique_id=471679608]
 script = ExtResource("13_spawner")
 
+<<<<<<< Updated upstream
 [node name="ExperimentQuickStart" type="Node" parent="." unique_id=679956011]
+=======
+[node name="ExperimentQuickStart" type="Node" parent="." unique_id=1378695131]
+>>>>>>> Stashed changes
 script = ExtResource("19_quickstart")
 
 [editable path="WeatherEnvironment"]
