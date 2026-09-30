@@ -14,6 +14,11 @@ class_name WeatherSystem
 
 enum CloudType { CUMULUS, STRATUS }
 
+@export_category("编辑器预览")
+## 开启后，在 Godot 编辑器 3D 视口里直接预览云、天空光照、太阳与雾。
+## 预览由独立 @tool 适配器执行，不会启动雨粒子、风状态机、落点池或其它游戏逻辑。
+@export var editor_preview_enabled := true
+
 @export_category("天气组合：可复选")
 @export var cloud_enabled := false
 ## 当前主要决定照明性格；云的视觉形态由 Coverage 连续控制。
