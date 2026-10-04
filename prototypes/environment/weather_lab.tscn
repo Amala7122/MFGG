@@ -10,7 +10,8 @@
 [ext_resource type="Script" uid="uid://bloban6gwlou8" path="res://scripts/editor_world_preview.gd" id="16_preview"]
 [ext_resource type="Script" uid="uid://c00g3qsxniqas" path="res://scripts/grass_field.gd" id="17_grass"]
 [ext_resource type="PackedScene" path="res://scenes/weather_environment.tscn" id="18_weather_environment"]
-[ext_resource type="Script" path="res://scripts/experiment_quickstart.gd" id="19_quickstart"]
+[ext_resource type="Script" uid="uid://ddtf6168msjcv" path="res://scripts/experiment_quickstart.gd" id="19_quickstart"]
+[ext_resource type="Script" uid="uid://c0g5660vafdr8" path="res://scripts/prototypes/cloud_model_gallery.gd" id="20_cloud_gallery"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_path"]
 albedo_color = Color(0.19, 0.18, 0.155, 1)
@@ -70,51 +71,57 @@ albedo_color = Color(1, 0.36, 0.03, 1)
 radius = 0.32
 height = 0.58
 
-[node name="WeatherLab" type="Node3D"]
+[node name="WeatherLab" type="Node3D" unique_id=411216255]
 script = ExtResource("16_preview")
 
 [node name="WeatherEnvironment" parent="." unique_id=1293549010 instance=ExtResource("18_weather_environment")]
 
 [node name="Sky3D" parent="WeatherEnvironment" index="0" unique_id=1502289054]
-current_time = 21.33
+game_time_enabled = false
+current_time = 8.77
 tonemap_exposure = 0.94
 sun_shadow_opacity = 0.68
 sky_contribution = 0.655
 ambient_energy = 1.42
 
 [node name="SunLight" parent="WeatherEnvironment/Sky3D" index="0" unique_id=1669123254]
-transform = Transform3D(-0.5622058, -0.5643558, -0.6045057, 0, 0.73096454, -0.6824155, 0.82699734, -0.38365793, -0.4109525, -0.6045057, -0.6824155, -0.4109525)
-light_color = Color(1, 0.61, 0.38, 1)
-light_energy = 0.0
-shadow_enabled = false
+transform = Transform3D(0.4461158, -0.53836, 0.71494704, 0, 0.7988455, 0.6015362, -0.8949752, -0.2683548, 0.35637766, 0.714947, 0.60153615, 0.35637763)
+light_color = Color(1, 0.89, 0.7, 1)
 shadow_opacity = 0.68
 
 [node name="MoonLight" parent="WeatherEnvironment/Sky3D" index="1" unique_id=487357045]
-transform = Transform3D(0, -0.99508, -0.09907452, 0.75434124, -0.06504069, 0.65325266, -0.6564825, -0.074736, 0.7506299, -0.09907452, 0.65325266, 0.7506299)
-light_energy = 0.32088274
-shadow_enabled = true
+transform = Transform3D(0, -0.99849707, 0.05480605, -0.18788122, -0.05383005, -0.9807156, 0.98219174, -0.010297027, -0.18759884, 0.054806046, -0.9807155, -0.18759882)
 
 [node name="SkyDome" parent="WeatherEnvironment/Sky3D" index="2" unique_id=2009320672]
-sun_azimuth = -5.3094397
-sun_altitude = -2.3218584
-moon_azimuth = -3.2728226
-moon_altitude = -0.85892385
+sun_azimuth = -2.033217
+sun_altitude = -0.9253736
+moon_azimuth = -0.28423482
+moon_altitude = -2.944886
 atm_sun_intensity = 30.0
 fog_density = 0.00861079
 fog_mie_depth = 0.0071012676
 
 [node name="TimeOfDay" parent="WeatherEnvironment/Sky3D" index="3" unique_id=313974012]
-current_time = 21.33
+game_time_enabled = false
+current_time = 8.77
 
 [node name="WeatherSystem" parent="WeatherEnvironment" index="2" unique_id=714604810]
+cloud_enabled = true
+cloud_type = 0
+cloud_coverage = 0.21
+cloud_density = 0.0
+rain_enabled = false
+fog_enabled = false
+cloud_wind_speed = 7.5
+cloud_wind_direction_degrees = 229.0
+cloud_size_multiplier = 3.0
 rain_preset = 4
 
 [node name="FillLight" parent="WeatherEnvironment" index="3" unique_id=2003871144]
-light_color = Color(0.3728, 0.4696, 0.69600004, 1)
-light_energy = 0.135296
+light_color = Color(0.55, 0.67, 0.82, 1)
 
 [node name="NightSkyLight" parent="WeatherEnvironment" index="4" unique_id=1120473704]
-light_energy = 0.9936892
+light_energy = 0.18030314
 
 [node name="Ground" type="StaticBody3D" parent="." unique_id=271098666]
 visible = false
@@ -335,7 +342,10 @@ script = ExtResource("11_nav")
 [node name="PlayerSpawner" type="Node" parent="." unique_id=471679608]
 script = ExtResource("13_spawner")
 
-[node name="ExperimentQuickStart" type="Node" parent="."]
+[node name="ExperimentQuickStart" type="Node" parent="." unique_id=679956011]
 script = ExtResource("19_quickstart")
+
+[node name="CloudModelGallery" type="Node3D" parent="." unique_id=1674208254]
+script = ExtResource("20_cloud_gallery")
 
 [editable path="WeatherEnvironment"]
