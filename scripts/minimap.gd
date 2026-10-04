@@ -167,6 +167,9 @@ func _draw() -> void:
 	draw_texture_rect_region(_terrain_texture, content, source)
 	_draw_world_features(source, span_px)
 	_draw_pickups(source, span_px)
+	# 指北针要盖住地形与道路，但【必须】在敌人方向箭头之前画 ——
+	# 否则正北偏上的敌人箭头会被这块 18×15 的底板吃掉。见 _draw_compass。
+	_draw_compass()
 	_draw_enemies(source, span_px)
 	_draw_player(source, span_px)
 	_draw_frame(content)
@@ -390,5 +393,11 @@ func _draw_player(source: Rect2, span_px: float) -> void:
 ## 否则贴图边缘与面板内圈之间会出现一条色差细缝。
 func _draw_frame(content: Rect2) -> void:
 	draw_rect(content, Color(0.85, 0.89, 0.87, 0.18), false, 0.7)
+
+
+## 指北针。单独成函数是因为它的画序有要求：必须在 _draw_enemies 之前调用，
+## 否则正北偏上的敌人方向箭头会被这块 18×15 的底板盖住。
+## N 本身比箭头"更基础"，但箭头是可行动信息，不能被装饰元素吃掉。
+func _draw_compass() -> void:
 	draw_rect(Rect2(size.x * 0.5 - 9, 3, 18, 15), Color(0.02, 0.04, 0.05, 0.65))
 	draw_string(UiThemeUtil.get_font(), Vector2(size.x * 0.5 - 4, 14), "N", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.94, 0.96, 0.93))

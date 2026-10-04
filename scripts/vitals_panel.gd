@@ -24,9 +24,12 @@ const ROW_GAP := 4.0
 const ICON_WIDTH := 36.0
 const VALUE_WIDTH := 82.0
 const BAR_LEFT := ICON_WIDTH + VALUE_WIDTH + 6.0
-const BAR_RIGHT_PAD := 8.0
-const BAR_TOP_INSET := 7.0
-const BAR_HEIGHT := 18.0
+## 底板是梯形：左右两条边在整高内各内收 10px（见 _draw 的 glass 多边形）。
+## 右留白必须覆盖这条边的损失量，否则第二行护盾条的右下角会戳出轮廓 ——
+## 原来的 8 正好差 1px（条右端 220 vs 该处右边界 219）。
+const BAR_RIGHT_PAD := 12.0
+const BAR_TOP_INSET := 4.0
+const BAR_HEIGHT := 10.0
 const FONT_VALUE := 10
 
 var _font: Font
@@ -182,15 +185,19 @@ func _draw_stat_row(
 	top: float, text: String, _value_color: Color, fill: Color,
 	ratio: float, ghost: float, heart: bool, _accent: Color
 ) -> void:
-	var center := Vector2(10, top + ROW_HEIGHT * 0.5)
+	# 图标中心取【图标列中点】。底板左边从 (10,0) 斜到 (0,size.y)，
+	# 原来固定在 x=10 会让第一行心形的左瓣挂到斜边外约 3px。
+	var center := Vector2(ICON_WIDTH * 0.5, top + ROW_HEIGHT * 0.5)
 	draw_set_transform(center, 0, Vector2(0.43, 0.43))
 	if heart:
 		_draw_heart(Vector2.ZERO, fill)
 	else:
 		_draw_shield_icon(Vector2.ZERO, fill)
 	draw_set_transform(Vector2.ZERO)
-	draw_string(_font, Vector2(21, top + 13), text, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_VALUE, Color(0.94, 0.96, 0.94))
-	var bar := Rect2(82, top + 4, size.x - 90, 10)
+	draw_string(_font, Vector2(ICON_WIDTH + 2.0, top + 13), text, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_VALUE, Color(0.94, 0.96, 0.94))
+	# 用上面声明的三列度量，而不是硬编码 82 / size.x-90：后者让色条从数值列内部就开始
+	# （声明的值列到 118，条却从 82 起 = 重叠 36px），右端还会越过梯形右边。
+	var bar := Rect2(BAR_LEFT, top + BAR_TOP_INSET, size.x - BAR_LEFT - BAR_RIGHT_PAD, BAR_HEIGHT)
 	draw_rect(bar, Color(1, 1, 1, 0.11))
 	if ghost > ratio:
 		draw_rect(Rect2(bar.position, Vector2(bar.size.x * clampf(ghost, 0, 1), bar.size.y)), Color(1, 0.89, 0.8, 0.48))

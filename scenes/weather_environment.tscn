@@ -13,6 +13,7 @@
 [ext_resource type="Script" uid="uid://rolxgc2l3jsk" path="res://scripts/sky3d_experiment_controller.gd" id="21_sky_controller"]
 [ext_resource type="Script" path="res://scripts/weather_system.gd" id="22_rain_controller"]
 [ext_resource type="Script" path="res://scripts/weather_snow_layer.gd" id="41_snow_layer"]
+[ext_resource type="Script" path="res://scripts/procedural_cloud_field.gd" id="42_cloud_field"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_7jmfh"]
 shader = ExtResource("2_tvosd")
@@ -214,6 +215,9 @@ impact_radius = 24.0
 
 [node name="SnowLayer" type="Node3D" parent="WeatherSystem" unique_id=169558255]
 script = ExtResource("41_snow_layer")
+
+[node name="ProceduralCloudField" type="Node3D" parent="WeatherSystem"]
+script = ExtResource("42_cloud_field")
 
 [node name="FillLight" type="DirectionalLight3D" parent="." unique_id=2003871144]
 transform = Transform3D(-0.58850116, 0.489291, 0.64363086, 0, 0.7960838, -0.6051864, -0.80849636, -0.3561529, -0.46849623, 0, 0, 0)
