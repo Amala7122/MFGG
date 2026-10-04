@@ -81,45 +81,47 @@ script = ExtResource("16_preview")
 [node name="WeatherEnvironment" parent="." unique_id=1293549010 instance=ExtResource("18_weather_environment")]
 
 [node name="Sky3D" parent="WeatherEnvironment" index="0" unique_id=1502289054]
-current_time = 21.33
+current_time = 11.83
 tonemap_exposure = 0.94
-sun_shadow_opacity = 0.68
-sky_contribution = 0.655
+sun_energy = 2.275
 ambient_energy = 1.42
 
 [node name="SunLight" parent="WeatherEnvironment/Sky3D" index="0" unique_id=1669123254]
-transform = Transform3D(-0.5622058, -0.5643558, -0.6045057, 0, 0.73096454, -0.6824155, 0.82699734, -0.38365793, -0.4109525, -0.6045057, -0.6824155, -0.4109525)
-light_color = Color(1, 0.61, 0.38, 1)
-light_energy = 0.0
-shadow_enabled = false
-shadow_opacity = 0.68
+transform = Transform3D(0.999957, 0.00795821, -0.0047444385, 0, 0.5120741, 0.85894126, 0.009265139, -0.85890436, 0.5120522, -0.0047444385, 0.85894126, 0.5120522)
+light_color = Color(1, 0.89, 0.7, 1)
+light_energy = 2.275
+light_angular_distance = 0.5
+directional_shadow_pancake_size = 702.91705
 
 [node name="MoonLight" parent="WeatherEnvironment/Sky3D" index="1" unique_id=487357045]
-transform = Transform3D(0, -0.99508, -0.09907452, 0.75434124, -0.06504069, 0.65325266, -0.6564825, -0.074736, 0.7506299, -0.09907452, 0.65325266, 0.7506299)
-light_energy = 0.32088274
-shadow_enabled = true
+transform = Transform3D(0, -0.71593934, 0.69816256, -0.053137016, -0.6971762, -0.71492785, 0.99858725, -0.037098274, -0.038042877, 0.69816256, -0.71492785, -0.038042877)
 
 [node name="SkyDome" parent="WeatherEnvironment/Sky3D" index="2" unique_id=2009320672]
-sun_azimuth = -5.3094397
-sun_altitude = -2.3218584
-moon_azimuth = -3.2728226
-moon_altitude = -0.85892385
+sun_azimuth = -3.150858
+sun_altitude = -0.53759784
+sun_light_energy = 2.275
+moon_azimuth = -1.5163602
+moon_altitude = -2.3673172
 atm_sun_intensity = 30.0
 fog_density = 0.00861079
+fog_start = 72.76582512499999
+fog_end = 736.0041725
 fog_mie_depth = 0.0071012676
 
 [node name="TimeOfDay" parent="WeatherEnvironment/Sky3D" index="3" unique_id=313974012]
-current_time = 21.33
+current_time = 11.83
 
 [node name="WeatherSystem" parent="WeatherEnvironment" index="2" unique_id=714604810]
-rain_preset = 4
+cloud_enabled = true
+cloud_type = 0
+cloud_coverage = 0.62
+cloud_size_multiplier = 0.55
 
 [node name="FillLight" parent="WeatherEnvironment" index="3" unique_id=2003871144]
-light_color = Color(0.3728, 0.4696, 0.69600004, 1)
-light_energy = 0.135296
+light_color = Color(0.55, 0.67, 0.82, 1)
 
 [node name="NightSkyLight" parent="WeatherEnvironment" index="4" unique_id=1120473704]
-light_energy = 0.9936892
+light_energy = 0.0
 
 [node name="Ground" type="StaticBody3D" parent="." unique_id=271098666]
 visible = false

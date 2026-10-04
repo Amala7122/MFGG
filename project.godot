@@ -27,6 +27,8 @@ Graphics="*res://scripts/graphics_director.gd"
 VisualCapture="*res://scripts/visual_capture.gd"
 WorldBackdrop="*res://scripts/world_backdrop.gd"
 PerformanceRecorder="*res://scripts/performance_recorder.gd"
+MCPRuntimeServer="*res://addons/godot_mcp_toolkit/runtime/mcp_runtime_server.gd"
+_mcp_game_helper="*res://addons/godot_ai/runtime/game_helper.gd"
 
 [display]
 
@@ -38,7 +40,7 @@ window/vsync/vsync_mode=0
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/godot_mcp/plugin.cfg", "res://addons/sky_3d/plugin.cfg")
+enabled=PackedStringArray("res://addons/godot_ai/plugin.cfg", "res://addons/godot_mcp_toolkit/plugin.cfg", "res://addons/sky_3d/plugin.cfg")
 
 [input]
 
@@ -120,4 +122,5 @@ flashlight={
 [rendering]
 
 rendering_device/driver.windows="d3d12"
+lights_and_shadows/directional_shadow/soft_shadow_filter_quality=3
 lights_and_shadows/directional_shadow/16_bits=false

@@ -23,8 +23,8 @@ extends Node3D
 ## 所以不入组就对导航烘焙与 Jolt 完全不可见。这是它能存在的全部依据。
 ##
 ## 【红线二：默认绘制调用锁死 2 个】地台一个 ArrayMesh，
-## 地标一个 ArrayMesh。Sky3D 场景例外增加一个云层提交：云和地景需要不同的
-## 受光策略，否则云会像悬在低空的实体，或在夜间仍像白纸。
+## 地标一个 ArrayMesh。统一天气场景的云由 WeatherSystem 下的程序云场负责；
+## 旧 Sky3D 实验仍保留单独的背景云提交。
 ##
 ## 【红线三：稀疏】—— 严禁"小房子 × 40"。宁可只有几个体块，也要让每个体块
 ## 都大到能单独撑起构图。
@@ -102,17 +102,19 @@ func _build() -> void:
 		valley.material_override = _make_material(false, true)
 		valley.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(valley)
-		_cloud_mesh = _build_clouds()
-		add_child(_cloud_mesh)
-		_update_editor_cloud_tint()
+		if not _uses_procedural_cloud_field():
+			_cloud_mesh = _build_clouds()
+			add_child(_cloud_mesh)
+			_update_editor_cloud_tint()
 		return
 	add_child(_build_skirt(arena, sky3d_lighting))
 	if sky3d_lighting:
 		# 远景云独立成第三个提交：保持低模轮廓，但不再当作近处实体受直射光。
 		add_child(_build_landforms(true))
-		_cloud_mesh = _build_clouds()
-		add_child(_cloud_mesh)
-		_update_editor_cloud_tint()
+		if not _uses_procedural_cloud_field():
+			_cloud_mesh = _build_clouds()
+			add_child(_cloud_mesh)
+			_update_editor_cloud_tint()
 	else:
 		add_child(_build_landmarks())
 
@@ -512,6 +514,11 @@ func _make_material(
 
 
 ## 主场景与实验场景都使用 Sky3D，远景与云分别使用对应的受光策略。
+func _uses_procedural_cloud_field() -> bool:
+	var scene := get_tree().edited_scene_root if Engine.is_editor_hint() else get_tree().current_scene
+	return scene != null and scene.find_child("ProceduralCloudField", true, false) != null
+
+
 func _uses_sky3d_lighting() -> bool:
 	if not is_inside_tree():
 		return false
