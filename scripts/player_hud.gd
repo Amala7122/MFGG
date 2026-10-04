@@ -406,7 +406,11 @@ func _build_extra_readouts() -> void:
 	_game_time_plate = ReadoutPlateScript.new()
 	_game_time_plate.name = "GameTimePlate"
 	_game_time_plate.configure(UiThemeUtil.COLOR_ACCENT, UiThemeUtil.PLATE_FOREST)
-	_game_time_plate.minimal = true
+	# 原为 minimal=true（4 点多边形）：目标是"右边界与小地图共线"，但 4 个点等于把
+	# 整条左边削成一条约 16° 的斜线，不是切角 —— 视觉上像凭空多出一个斜角，而且它是
+	# 唯一没有铜边的黑玻璃板。改用 draw_plate 后右边界依旧垂直（切角不动边），
+	# 四角 7px 切角与兄弟读数板一致。
+	_game_time_plate.minimal = false
 	_game_time_plate.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	_game_time_plate.offset_left = -MinimapScript.PANEL_SIZE - MinimapScript.MARGIN
 	_game_time_plate.offset_right = -MinimapScript.MARGIN
