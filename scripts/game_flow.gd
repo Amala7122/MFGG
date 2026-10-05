@@ -16,6 +16,7 @@ const EventBusUtil := preload("res://scripts/event_bus.gd")
 const RunStateUtil := preload("res://scripts/run_state.gd")
 const ArenaUtil := preload("res://scripts/arena.gd")
 const DisplaySettingsUtil := preload("res://scripts/display_settings.gd")
+const TerrainUtil := preload("res://scripts/terrain_field.gd")
 
 static var instance: Node
 
@@ -26,8 +27,9 @@ enum State { MENU, PLAYING, PAUSED, DYING, GAME_OVER, STAGE_CLEAR, DISPLAY_SETTI
 ## 配色与控件样式统一来自 UiTheme —— 本文件原先自带一套 COLOR_*，
 ## 与 PlayerHUD 那套已经开始漂移（"标题色"两边已经不是同一个值了）。
 const UiThemeUtil := preload("res://scripts/ui_theme.gd")
-## 菜单外框。与 HUD 共用同一支 draw_plate 画笔 —— 见 MenuPanel 文件头。
+## 菜单、按钮与战斗 HUD 共用黑玻璃材质。
 const MenuPanelScript := preload("res://scripts/menu_panel.gd")
+const GlassButtonScript := preload("res://scripts/glass_button.gd")
 ## 带字距的小号标签（副标题 / 提示行）。Label 画不出字距，而"小号 + 宽字距"
 ## 是这套 UI 里固定的一档排版。
 const TrackedLabelScript := preload("res://scripts/tracked_label.gd")
@@ -37,7 +39,7 @@ const ReadoutPlateScript := preload("res://scripts/readout_plate.gd")
 
 ## 面板内容的最小宽度。三个屏幕（菜单 / 暂停 / 结算）共用同一个值，
 ## 否则切界面时整个面板会横向抽动一下。
-const COLUMN_WIDTH := 620.0
+const COLUMN_WIDTH := 580.0
 ## 按钮宽度。面板按内容撑开，而按钮必须自己收窄 —— 否则会跟着面板铺满整行。
 const BUTTON_WIDTH := 300.0
 ## 按钮高度。50 会给主菜单凑出超出一屏的总高（窗口默认 648），44 是
@@ -45,12 +47,12 @@ const BUTTON_WIDTH := 300.0
 const BUTTON_HEIGHT := 44.0
 ## 统计读数板的尺寸。
 const STAT_WIDTH := 180.0
-const STAT_HEIGHT := 34.0
+const STAT_HEIGHT := 66.0
 
 var state: State = State.MENU
 
 var _root: Control
-## 菜单石板。三种屏幕共用它，只换强调色与文案。
+## 开始、暂停和结算共用黑玻璃内容区。
 var _panel: MenuPanelScript
 var _caption: TrackedLabelScript
 var _title: Label
@@ -65,6 +67,7 @@ var _stats_row: HBoxContainer
 var _start_arena := ""
 ## 显示设置是菜单与暂停界面共用的子页；返回时必须知道从哪一页进来。
 var _display_settings_return_state: State = State.MENU
+var _menu_camera: Camera3D
 
 
 func _ready() -> void:
@@ -107,7 +110,7 @@ func _build_ui() -> void:
 	add_child(_root)
 
 	var dim := ColorRect.new()
-	dim.color = Color(0.02, 0.03, 0.05, 0.80)
+	dim.color = Color(0.015, 0.015, 0.018, 0.48)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(dim)
@@ -117,8 +120,7 @@ func _build_ui() -> void:
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(center)
 
-	# 【石板外框】原先菜单是直接压在半透明暗幕上的一堆文字，与 HUD 的切角石板
-	# 完全不在一个世界。现在三种屏幕共用同一块石板，只换强调色。
+	# 黑玻璃内容区：使用容器布局，不再画铜边与装饰分隔线。
 	_panel = MenuPanelScript.new()
 	_panel.name = "MenuPanel"
 	center.add_child(_panel)
@@ -128,7 +130,7 @@ func _build_ui() -> void:
 	var column := VBoxContainer.new()
 	column.custom_minimum_size = Vector2(COLUMN_WIDTH, 0.0)
 	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	column.add_theme_constant_override("separation", 12)
+	column.add_theme_constant_override("separation", 16)
 	_panel.add_child(column)
 
 	# 副标题：小号拉丁字母 + 宽字距。它不承载信息，只承担"这一屏是什么语境" ——
@@ -139,11 +141,13 @@ func _build_ui() -> void:
 	column.add_child(_caption)
 
 	_title = _make_label(UiThemeUtil.VARIATION_TITLE)
+	_title.add_theme_font_size_override("font_size", 46)
+	_title.add_theme_constant_override("shadow_offset_x", 0)
+	_title.add_theme_constant_override("shadow_offset_y", 1)
 	column.add_child(_title)
-	# 标题下那道分隔线由面板画（它需要在标题的【实际】下沿，见 MenuPanel）。
-	_panel.rule_anchor = _title
 
 	_body = _make_label(UiThemeUtil.VARIATION_DIM)
+	_body.add_theme_color_override("font_color", Color(0.77, 0.80, 0.82))
 	_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(_body)
 
@@ -164,7 +168,7 @@ func _build_ui() -> void:
 
 	_actions = VBoxContainer.new()
 	_actions.alignment = BoxContainer.ALIGNMENT_CENTER
-	_actions.add_theme_constant_override("separation", 6)
+	_actions.add_theme_constant_override("separation", 10)
 	column.add_child(_actions)
 
 	_hint = TrackedLabelScript.new()
@@ -190,15 +194,13 @@ func _make_label(variation: String) -> Label:
 func _present(caption: String, accent: Color, hint: String, stats: Array = []) -> void:
 	_caption.text = caption
 	_caption.visible = not caption.is_empty()
-	_caption.color = UiThemeUtil.with_alpha(accent, 0.72)
+	_caption.color = Color(0.73, 0.77, 0.80, 0.8)
 	_hint.text = hint
-	_hint.color = UiThemeUtil.with_alpha(UiThemeUtil.COLOR_DIM, 0.7)
-	# 标题跟着强调色走：阵亡是红的、肃清是金的、常态是青的 ——
-	# 一眼就能分清"现在是哪种中断"，不需要读文字。
-	_title.add_theme_color_override("font_color", accent)
-	# 阵亡页的统计卡紧邻标题；通用分隔线会横穿卡片上沿，在此页隐藏。
-	_panel.rule_anchor = null if state == State.GAME_OVER else _title
-	_panel.configure(accent)
+	_hint.visible = not hint.is_empty()
+	_hint.color = Color(0.75, 0.78, 0.80, 0.75)
+	# 玻璃始终中性；仅结果标题用少量语义色，不给整块底板染色。
+	var title_color := accent if state == State.GAME_OVER or state == State.STAGE_CLEAR else Color(0.96, 0.97, 0.98)
+	_title.add_theme_color_override("font_color", title_color)
 	_set_stats(stats)
 	_set_overlay_visible(true)
 	_panel.play_entrance()
@@ -212,9 +214,10 @@ func _set_stats(entries: Array) -> void:
 	_stats_row.visible = not entries.is_empty()
 	for entry in entries:
 		var plate := ReadoutPlateScript.new()
+		plate.glass_style = true
 		var has_sub := not String(entry.get("sub", "")).is_empty()
 		plate.custom_minimum_size = Vector2(STAT_WIDTH, STAT_HEIGHT + (12.0 if has_sub else 0.0))
-		plate.configure(UiThemeUtil.COLOR_ACCENT)
+		plate.configure(Color(0.94, 0.96, 0.97))
 		plate.set_readout(
 			String(entry.get("label", "")),
 			String(entry.get("value", "")),
@@ -233,27 +236,21 @@ func _clear_arena_row() -> void:
 
 ## 重建按钮列表。actions 为 [{ "text": String, "callback": Callable }]。
 ##
-## 按钮逐个淡入（错开 40 毫秒）：静止地一次性出现，读起来就是"一堆控件"；
-## 有先后地把视线从上往下带一遍，读起来才是"一屏菜单"。
-## 首个按钮仍然立刻取得焦点，键盘用户不受动效影响。
+## 与整块菜单一起淡入，保留原生焦点与键盘操作。
 func _set_actions(actions: Array, focus_index: int = 0) -> void:
 	for child in _actions.get_children():
 		child.queue_free()
 	var focus_target: Button = null
 	var index := 0
 	for action in actions:
-		var button := Button.new()
+		var button := GlassButtonScript.new()
 		button.text = String(action["text"])
-		# size_flags 收窄 + custom_minimum_size 定宽：容器是 620 宽的列，
+		# size_flags 收窄 + custom_minimum_size 定宽：按钮不跟随整列铺满。
 		# 不这么写按钮会被拉成通栏，四个等宽通栏按钮比现在要"廉价"得多。
 		button.custom_minimum_size = Vector2(BUTTON_WIDTH, BUTTON_HEIGHT)
 		button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		button.pressed.connect(action["callback"] as Callable)
 		_actions.add_child(button)
-		button.modulate.a = 0.0
-		var tween := button.create_tween()
-		tween.tween_property(button, "modulate:a", 1.0, 0.16) \
-			.set_delay(0.08 + float(index) * 0.04).set_ease(Tween.EASE_OUT)
 		index += 1
 		if index - 1 == focus_index:
 			focus_target = button
@@ -272,29 +269,34 @@ func _set_overlay_visible(enabled: bool) -> void:
 
 func _enter_menu() -> void:
 	state = State.MENU
+	_ensure_menu_camera()
 	_title.text = "遗迹星球"
-	# 只有一张图时，地图名从"选择行"挪进正文 —— 玩家仍然要知道自己站在哪。
-	var arena_name := String(
-		ArenaUtil.get_params(_first_arena_id()).get("label", _first_arena_id())
-	)
-	# 【正文比原先短】石板的上下内边距要占掉八十多像素，而 648 高的窗口装不下
-	# 原来那九行。删掉的都是同义重复（"生存模式"说两遍、"如何输入"说三遍），
-	# 信息一个没少 —— 排不下时先删重复，而不是先缩字号。
-	_set_body(
-		"战场：%s　生存模式　·　敌人无限刷新　·　武器随等级成长\n\n" % arena_name
-		+ "WASD 移动　空格 跳跃　Shift 翻滚　Ctrl 冲刺\n"
-		+ "左键 开火　右键 瞄准狙击　R 换弹　E 手雷　Q 震地脉冲\n"
-		+ "V 自由观察　ESC 暂停\n"
-	)
+	_set_body("")
 	_build_arena_row()
 	_set_actions([
 		{"text": "开始游戏", "callback": _on_start},
 		{"text": "显示设置", "callback": _on_open_display_settings},
 		{"text": "退出", "callback": _on_quit},
 	])
-	_present("SURVIVAL ARENA", UiThemeUtil.COLOR_ACCENT, "方向键选择　·　Enter 确认")
+	_present("", Color.WHITE, "")
 	get_tree().paused = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+## 开始页还未生成玩家，因此用静态镜头展示真实遗迹，而不是空白底色。
+## 相机随场景重载自动释放，不参与战斗或改变玩家相机。
+func _ensure_menu_camera() -> void:
+	var scene := get_tree().current_scene
+	if scene == null or scene.get_node_or_null("Ground") == null:
+		return
+	if not is_instance_valid(_menu_camera):
+		_menu_camera = Camera3D.new()
+		_menu_camera.name = "MainMenuCamera"
+		_menu_camera.fov = 66
+		scene.add_child(_menu_camera)
+		_menu_camera.position = Vector3(12, TerrainUtil.height_at(12, 30) + 6, 30)
+		_menu_camera.look_at(Vector3(0, TerrainUtil.height_at(0, -10) + 3, -10))
+	_menu_camera.make_current()
 
 
 ## 正文只有一个调用点这件事值得守住：它同时要管"有没有内容"（空正文会把
@@ -318,7 +320,7 @@ func _build_arena_row() -> void:
 	for id in ArenaUtil.get_order():
 		var arena_id := String(id)
 		var params := ArenaUtil.get_params(arena_id)
-		var button := Button.new()
+		var button := GlassButtonScript.new()
 		# ▶ 标记当前选中项。不用 disabled：那读起来像"这张图不能选"，
 		# 而这里的意思是"已经选好它了"。
 		button.text = ("▶ %s" % params.get("label", arena_id)) if arena_id == _start_arena \

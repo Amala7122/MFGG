@@ -28,6 +28,7 @@ const FLASH_DECAY := 3.0
 ## 只有"击杀数"这种偶尔跳一次的量才适合闪光。
 var pulse_on_change := false
 var minimal := false
+var glass_style := false # 菜单统计卡；与 minimal 时钟布局区分。
 
 var _font: Font
 var _accent := UiThemeUtil.COLOR_ACCENT
@@ -46,7 +47,7 @@ var _flash := 0.0
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_font = UiThemeUtil.get_font()
-	if minimal:
+	if minimal or glass_style:
 		UiThemeUtil.install_black_glass(self)
 	# 平时不跑 _process：这块板在绝大多数帧里什么都不做。
 	set_process(false)
@@ -93,6 +94,9 @@ func set_readout(label: String, value: String, sub: String = "") -> void:
 func _draw() -> void:
 	# 闪光量并入强调色：板边与数值同时亮一下，而不是另外加一层盖在上面。
 	var accent := UiThemeUtil.shade(_accent, _flash * 0.45)
+	if glass_style:
+		_draw_glass_stat()
+		return
 	if minimal:
 		# 无框黑玻璃时钟，与小地图及 Q 共用右基线。
 		UiThemeUtil.draw_black_glass(self, PackedVector2Array([
@@ -143,3 +147,11 @@ func _draw() -> void:
 		self, _font, Vector2(PAD, size.y - 8.0), _sub,
 		FONT_SUB, UiThemeUtil.with_alpha(UiThemeUtil.COLOR_DIM, 0.85), 0.6
 	)
+
+
+func _draw_glass_stat() -> void:
+	UiThemeUtil.draw_black_glass(self, UiThemeUtil.bevel_points(Rect2(Vector2.ZERO, size), 7))
+	draw_string(_font, Vector2(14, 22), _label, HORIZONTAL_ALIGNMENT_LEFT, size.x - 28, 12, Color(0.73, 0.77, 0.80))
+	draw_string(_font, Vector2(14, 50), _value, HORIZONTAL_ALIGNMENT_LEFT, size.x - 28, 22, Color(0.96, 0.97, 0.98))
+	if not _sub.is_empty():
+		draw_string(_font, Vector2(14, size.y - 10), _sub, HORIZONTAL_ALIGNMENT_LEFT, size.x - 28, 10, Color(0.73, 0.77, 0.80))

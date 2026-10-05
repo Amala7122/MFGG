@@ -6,6 +6,7 @@ uniform vec2 corners[8];
 uniform int corner_count = 4;
 uniform vec2 panel_origin;
 uniform vec2 panel_size;
+uniform float surface_opacity : hint_range(0.0, 1.0) = 1.0;
 varying vec2 local_position;
 
 void vertex() {
@@ -13,6 +14,8 @@ void vertex() {
 }
 
 void fragment() {
+	// 保留父级 CanvasItem 的透明度，菜单/按钮/文字才能同步淡入。
+	float inherited_alpha = COLOR.a;
 	float edge_distance = 10000.0;
 	bool inside = true;
 	for (int i = 0; i < 8; i++) {
@@ -43,5 +46,5 @@ void fragment() {
 	glass += vec3(top_light);
 	float edge = 1.0 - smoothstep(0.35 * pixel, 1.05 * pixel, edge_distance);
 	glass = mix(glass, vec3(0.78, 0.83, 0.85), edge * (inside ? 0.48 : 0.32));
-	COLOR = vec4(glass, mask);
+	COLOR = vec4(glass, mask * surface_opacity * inherited_alpha);
 }

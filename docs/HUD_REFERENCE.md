@@ -36,6 +36,16 @@
 
 ## 回归验收
 
+菜单与拾取通知沿用同一黑玻璃：`menu_panel.gd` 提供内容底板，`glass_button.gd` 保留原生按钮交互，`readout_plate.gd` 的 `glass_style` 使用上下两行统计，避免标签与大读数挤在同一基线。开始页只有「遗迹星球」、必要的关卡选择与开始/设置/退出按钮，不含玩法介绍或操作表。背景为真实场景的静态相机，开局重载时释放。
+
+拾取通知仍最多三条、2.8 秒后消失；普通生命/弹药补给仍不额外弹文字。黑玻璃底层与文字一同淡出，右边界跟随地图，纵向避开地图、时钟和 FPS。长文字截断，避免越出底板。
+
+玻璃着色器输出保留输入 `COLOR.a`（父节点的调制透明度），另外用 `surface_opacity` 控制各条通知的生命周期，防止菜单文字淡入时玻璃抢先出现。参见 [Godot CanvasItem 的 COLOR 输入/输出说明](https://docs.godotengine.org/en/stable/tutorials/shaders/shader_reference/canvas_item_shader.html#color-and-texture)。
+
+项目名称改为「遗迹星球」。用固定的自定义用户目录保留原有 `godot-zelda` 存档/显示设置路径（Windows 为 `Godot/app_userdata/godot-zelda`），不移动或覆盖存档。参见 [Godot 用户目录说明](https://docs.godotengine.org/en/4.6/classes/class_projectsettings.html#class-projectsettings-property-application-config-use-custom-user-dir)。
+
+运行 `tests/test_ui_surfaces.gd` 检查开始/设置/暂停/结算的状态切换、布局及通知生命周期；附加 `-- --capture` 在 `visual_captures/ui_surfaces/` 生成实际截图。
+
 运行 `tests/capture_hud_review.gd`，生成项目同级 `visual_captures/hud_review/` 中七张实际游戏截图：白天、低血量/冷却/装填、夜雨、波间休整、1280×720、三位数弹匣、2560×1440 与 115% UI 缩放。
 
 脚本逐状态检查底部/右侧基线、技能组与地图等宽，以及玻璃多边形可三角化、E 的平行斜边、Q 的五点轮廓。自动检查不能代替最终视觉验收；截图必须与参考图对照查看。

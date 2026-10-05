@@ -10,7 +10,10 @@ config_version=5
 
 [application]
 
-config/name="godot-zelda"
+config/name="遗迹星球"
+config/use_custom_user_dir=true
+config/custom_user_dir_name="Godot/app_userdata/godot-zelda"
+config/custom_user_dir_name.linux="godot/app_userdata/godot-zelda"
 run/main_scene="res://scenes/hyrule_field.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
