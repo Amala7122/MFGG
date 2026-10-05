@@ -46,6 +46,8 @@ var _flash := 0.0
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_font = UiThemeUtil.get_font()
+	if minimal:
+		UiThemeUtil.install_black_glass(self)
 	# 平时不跑 _process：这块板在绝大多数帧里什么都不做。
 	set_process(false)
 
@@ -92,10 +94,31 @@ func _draw() -> void:
 	# 闪光量并入强调色：板边与数值同时亮一下，而不是另外加一层盖在上面。
 	var accent := UiThemeUtil.shade(_accent, _flash * 0.45)
 	if minimal:
-		# 左侧斜切、右侧垂直：右边界可与小地图和 Q 卡严格共线。
+		# 无框黑玻璃时钟，与小地图及 Q 共用右基线。
 		UiThemeUtil.draw_black_glass(self, PackedVector2Array([
-			Vector2(7, 0), Vector2(size.x, 0), Vector2(size.x, size.y), Vector2(0, size.y),
+			Vector2(7, 0), Vector2(size.x, 0), Vector2(size.x, size.y - 7),
+			Vector2(size.x - 8, size.y), Vector2(0, size.y), Vector2(0, 7),
 		]))
+		var sun := Vector2(24, size.y * 0.5)
+		var hour := int(_value.substr(0, 2))
+		if hour >= 6 and hour < 18:
+			draw_circle(sun, 4, Color(0.8, 0.96, 0.98))
+			for i in 8:
+				var ray := Vector2.from_angle(float(i) * TAU / 8.0)
+				draw_line(sun + ray * 6.5, sun + ray * 10, Color(0.8, 0.96, 0.98), 1.3, true)
+		else:
+			var moon := PackedVector2Array()
+			for i in 25:
+				var angle := lerpf(PI * 0.3, PI * 1.7, float(i) / 24.0)
+				moon.append(sun + Vector2.from_angle(angle) * 8)
+			for i in 25:
+				var angle := lerpf(PI * 1.5, PI * 0.5, float(i) / 24.0)
+				moon.append(sun + Vector2(4.7, 0) + Vector2.from_angle(angle) * 6.47)
+			draw_colored_polygon(moon, Color(0.8, 0.96, 0.98))
+		var time_width := _font.get_string_size(_value, HORIZONTAL_ALIGNMENT_LEFT, -1, 19).x
+		draw_string(_font, Vector2(size.x - 24 - time_width, size.y * 0.5 + 7), _value,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color(0.68, 0.94, 0.97))
+		return
 	else:
 		UiThemeUtil.draw_plate(self, Rect2(Vector2.ZERO, size), accent, _plate_variant)
 	var baseline := size.y * 0.5 + float(FONT_VALUE) * 0.36

@@ -113,7 +113,7 @@ const VITALS_TOP := 16.0
 const KILL_PLATE_WIDTH := 108.0
 const KILL_PLATE_HEIGHT := 26.0
 ## 游戏时钟独立放在小地图上方，避免重新占用地图内容区。
-const GAME_TIME_PLATE_HEIGHT := 24.0
+const GAME_TIME_PLATE_HEIGHT := 30.0
 ## 生存读数板的宽度。它是"当前局"最核心的一个数，所以给得比击杀宽。
 const SURVIVAL_PLATE_WIDTH := 220.0
 const SURVIVAL_PLATE_HEIGHT := 26.0
@@ -286,7 +286,7 @@ func _place_right_column() -> void:
 	if _minimap != null:
 		var minimap_top := _minimap_top()
 		_minimap.offset_top = minimap_top
-		_minimap.offset_bottom = minimap_top + MinimapScript.PANEL_SIZE
+		_minimap.offset_bottom = minimap_top + MinimapScript.PANEL_HEIGHT
 	var next_top := _below_minimap()
 	if _game_time_plate != null:
 		_game_time_plate.offset_top = next_top
@@ -300,11 +300,11 @@ func _place_right_column() -> void:
 
 ## 小地图下沿再留一点缝的位置。
 func _below_minimap() -> float:
-	return _minimap_top() + MinimapScript.PANEL_SIZE + LAYOUT_GAP * 2.0
+	return _minimap_top() + MinimapScript.PANEL_HEIGHT + LAYOUT_GAP
 
 
 func _minimap_top() -> float:
-	return MinimapScript.MARGIN
+	return MinimapScript.TOP_MARGIN
 
 
 ## 波次横幅。内容由 wave_director 的快照字典决定，HUD 只负责转发 ——
@@ -406,11 +406,8 @@ func _build_extra_readouts() -> void:
 	_game_time_plate = ReadoutPlateScript.new()
 	_game_time_plate.name = "GameTimePlate"
 	_game_time_plate.configure(UiThemeUtil.COLOR_ACCENT, UiThemeUtil.PLATE_FOREST)
-	# 原为 minimal=true（4 点多边形）：目标是"右边界与小地图共线"，但 4 个点等于把
-	# 整条左边削成一条约 16° 的斜线，不是切角 —— 视觉上像凭空多出一个斜角，而且它是
-	# 唯一没有铜边的黑玻璃板。改用 draw_plate 后右边界依旧垂直（切角不动边），
-	# 四角 7px 切角与兄弟读数板一致。
-	_game_time_plate.minimal = false
+	# 战斗时钟采用参考图的中性玻璃皮肤，不沿用菜单的铜边面板。
+	_game_time_plate.minimal = true
 	_game_time_plate.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	_game_time_plate.offset_left = -MinimapScript.PANEL_SIZE - MinimapScript.MARGIN
 	_game_time_plate.offset_right = -MinimapScript.MARGIN
@@ -473,7 +470,7 @@ func _build_minimap(player: Node3D, camera: Camera3D) -> void:
 	_minimap.offset_left = -MinimapScript.PANEL_SIZE - MinimapScript.MARGIN
 	_minimap.offset_right = -MinimapScript.MARGIN
 	_minimap.offset_top = _minimap_top()
-	_minimap.offset_bottom = _minimap_top() + MinimapScript.PANEL_SIZE
+	_minimap.offset_bottom = _minimap_top() + MinimapScript.PANEL_HEIGHT
 	_aim_ui.add_child(_minimap)
 
 

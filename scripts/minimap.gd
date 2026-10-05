@@ -23,13 +23,15 @@ const UiThemeUtil := preload("res://scripts/ui_theme.gd")
 const ConfigUtil := preload("res://scripts/game_config.gd")
 const ArenaUtil := preload("res://scripts/arena.gd")
 
-const TEX_SIZE := 128
+const TEX_SIZE := 512
 ## 小地图显示的世界半径上限（米）。必须明显小于地形半宽，否则采样框会超出贴图。
 ## 实际取值还会按当前竞技场的体量收紧（见 _ready）。
 const WORLD_RANGE_MAX := 52.0
 ## 控件边长与距屏幕边距（由 PlayerHUD 用来摆位）。
-const PANEL_SIZE := 124.0
-const MARGIN := 16.0
+const PANEL_SIZE := 162.0
+const PANEL_HEIGHT := 148.0
+const MARGIN := 22.0
+const TOP_MARGIN := 20.0
 
 const BLIP_RADIUS := 2.2
 const PICKUP_RADIUS := 1.8
@@ -43,7 +45,7 @@ const ENEMY_DIRECTION_MARKER_INSET := ENEMY_DIRECTION_MARKER_SIZE + 1.5
 const REFRESH_INTERVAL := 1.0 / 20.0
 
 ## 地形与黑玻璃断面之间的极窄留白。它只负责收住贴图边缘，不形成外框。
-const FRAME := 1.5
+const FRAME := 0.0
 
 var _terrain_texture: ImageTexture
 var _player: Node3D
@@ -109,20 +111,52 @@ func set_camera(camera: Camera3D) -> void:
 func _build_terrain_texture() -> ImageTexture:
 	var image := Image.create(TEX_SIZE, TEX_SIZE, false, Image.FORMAT_RGBA8)
 	var span := _extent * 2.0
+	# 地形采样一次，细图由双线性插值生成；去掉地表微噪声，不把草地画成雷达色块。
+	const GRID := 129
+	var heights := PackedFloat32Array()
+	heights.resize(GRID * GRID)
+	for iz in GRID:
+		for ix in GRID:
+			heights[iz * GRID + ix] = TerrainFieldUtil.height_at(-_extent + span * ix / (GRID - 1), -_extent + span * iz / (GRID - 1))
 	for iz in range(TEX_SIZE):
-		var z := -_extent + span * (float(iz) + 0.5) / float(TEX_SIZE)
+		var gz := float(iz) / (TEX_SIZE - 1) * (GRID - 1)
+		var z0 := mini(floori(gz), GRID - 2)
+		var tz := gz - z0
 		for ix in range(TEX_SIZE):
-			var x := -_extent + span * (float(ix) + 0.5) / float(TEX_SIZE)
-			var height := TerrainFieldUtil.height_at(x, z)
+			var gx := float(ix) / (TEX_SIZE - 1) * (GRID - 1)
+			var x0 := mini(floori(gx), GRID - 2)
+			var tx := gx - x0
+			var a := heights[z0 * GRID + x0]
+			var b := heights[z0 * GRID + x0 + 1]
+			var c := heights[(z0 + 1) * GRID + x0]
+			var d := heights[(z0 + 1) * GRID + x0 + 1]
+			var height := lerpf(lerpf(a, b, tx), lerpf(c, d, tx), tz)
 			var color := _terrain_color(height)
-			# 等高线只出现在有坡度的地方，平地不会因为高度恰好为 0 而整片变线。
-			var slope := absf(TerrainFieldUtil.height_at(x + 0.7, z) - height) \
-				+ absf(TerrainFieldUtil.height_at(x, z + 0.7) - height)
-			var phase := fposmod(height + 20.0, 0.85)
-			var contour_distance := minf(phase, 0.85 - phase)
-			if slope > 0.025 and contour_distance < 0.045:
-				color = color.darkened(0.14)
+			var slope := absf(b - a) + absf(c - a)
+			var phase := fposmod(height, 0.7)
+			var line_width := clampf(slope * GRID / TEX_SIZE * 0.35, 0.015, 0.065)
+			var contour := 1.0 - smoothstep(line_width * 0.3, line_width, minf(phase, 0.7 - phase))
+			if height > 0.28 and slope > 0.035:
+				color = color.lerp(Color(0.63, 0.71, 0.51), contour * 0.18)
+			# 西北来的柔光塑造山坡，而非把海拔量化为四大色块。
+			color = color.lightened(clampf((a - b + a - c) * 0.12, 0, 0.18))
+			color = color.darkened(clampf((b - a + c - a) * 0.1, 0, 0.18))
 			image.set_pixel(ix, iz, color)
+	# 实际树冠的地图投影，启动时烘焙，之后不逐帧遍历场景树。
+	var scene := get_tree().current_scene
+	if scene != null:
+		for node in scene.find_children("*", "Node3D", true, false):
+			var tree := node as Node3D
+			if not tree.scene_file_path.ends_with("stylized_tree.tscn") and not tree.scene_file_path.ends_with("stylized_pine.tscn"):
+				continue
+			var center := _world_to_texture(tree.global_position)
+			var radius := maxf(3.0, 2.6 * tree.global_basis.get_scale().x / span * TEX_SIZE)
+			for py in range(maxi(0, floori(center.y - radius)), mini(TEX_SIZE, ceili(center.y + radius))):
+				for px in range(maxi(0, floori(center.x - radius)), mini(TEX_SIZE, ceili(center.x + radius))):
+					var offset := (Vector2(px, py) - center) / radius
+					var coverage := (1.0 - smoothstep(0.5, 1.0, offset.length())) * 0.58
+					var canopy := Color(0.15, 0.27, 0.16).lightened(maxf(0, -offset.x - offset.y) * 0.09)
+					image.set_pixel(px, py, image.get_pixel(px, py).lerp(canopy, coverage))
 	return ImageTexture.create_from_image(image)
 
 
@@ -134,10 +168,8 @@ func _build_terrain_texture() -> ImageTexture:
 ## 但它和场景、和其余面板终于是同一套阴天低饱和。
 func _terrain_color(height: float) -> Color:
 	var t := clampf(height / 5.0, 0.0, 1.0)
-	# 四档色阶而不是连续渐变：地图也遵循场景的低多边形切面语言。
-	t = floorf(t * 3.999) / 3.0
-	var low := Color(0.055, 0.14, 0.085, 1.0)
-	var high := Color(0.22, 0.32, 0.18, 1.0)
+	var low := Color(0.10, 0.21, 0.15, 1.0)
+	var high := Color(0.36, 0.43, 0.24, 1.0)
 	return low.lerp(high, t)
 
 
@@ -151,31 +183,35 @@ func _draw() -> void:
 	if _terrain_texture == null or not is_instance_valid(_player):
 		return
 	# 先铺中性黑玻璃，地形只画在内缩后的内容区。
-	UiThemeUtil.draw_black_glass(self, PackedVector2Array([
-		Vector2.ZERO, Vector2(size.x, 0), Vector2(size.x, size.y), Vector2(0, size.y),
-	]))
+	var shape := PackedVector2Array([Vector2(7, 0), Vector2(size.x, 0), size, Vector2(0, size.y), Vector2(0, 7)])
+	UiThemeUtil.draw_black_glass(self, shape)
 	var content := _content()
 	var span_px := _world_range * 2.0 / (_extent * 2.0) * float(TEX_SIZE)
-	var half := span_px * 0.5
+	var source_size := Vector2(span_px, span_px * content.size.y / content.size.x)
+	var half := source_size * 0.5
 	var player_tex := _world_to_texture(_player.global_position)
 	# 停止滚动：采样框必须完整落在贴图内。
 	var center := Vector2(
-		clampf(player_tex.x, half, float(TEX_SIZE) - half),
-		clampf(player_tex.y, half, float(TEX_SIZE) - half)
+		clampf(player_tex.x, half.x, float(TEX_SIZE) - half.x),
+		clampf(player_tex.y, half.y, float(TEX_SIZE) - half.y)
 	)
-	var source := Rect2(center - Vector2(half, half), Vector2(span_px, span_px))
-	draw_texture_rect_region(_terrain_texture, content, source)
+	var source := Rect2(center - half, source_size)
+	var uvs := PackedVector2Array()
+	for p in shape:
+		uvs.append((source.position + p / size * source.size) / float(TEX_SIZE))
+	draw_polygon(shape, PackedColorArray([Color(1, 1, 1, 0.90)]), uvs, _terrain_texture)
 	_draw_world_features(source, span_px)
 	_draw_pickups(source, span_px)
 	# 指北针要盖住地形与道路，但【必须】在敌人方向箭头之前画 ——
 	# 否则正北偏上的敌人箭头会被这块 18×15 的底板吃掉。见 _draw_compass。
-	_draw_compass()
 	_draw_enemies(source, span_px)
 	_draw_player(source, span_px)
 	_draw_frame(content)
+	_draw_compass()
 
 
 func _draw_world_features(source: Rect2, span_px: float) -> void:
+	var road_index := 0
 	for value in _roads:
 		if not (value is Dictionary):
 			continue
@@ -191,10 +227,27 @@ func _draw_world_features(source: Rect2, span_px: float) -> void:
 		var display_size := road_size
 		if String(road.get("material", "")) != "court":
 			display_size.x *= 0.58
-		var outer := _map_rect(pos, display_size + Vector2(edge * 1.3, edge * 1.3), yaw, source, span_px)
-		var inner := _map_rect(pos, display_size, yaw, source, span_px)
-		draw_colored_polygon(outer, Color(0.18, 0.25, 0.14, 0.92))
-		draw_colored_polygon(inner, Color(0.50, 0.34, 0.18, 0.88))
+		if String(road.get("material", "")) == "court":
+			draw_colored_polygon(_map_rect(pos, display_size, yaw, source, span_px), Color(0.49, 0.52, 0.43, 0.55))
+		else:
+			# 与道路生成器同一条中线，不凭空画直十字或伪造河流。
+			var path := PackedVector2Array()
+			var seed := 131 + road_index * 977 + int(absf(pos.x) * 17 + absf(pos.y) * 31)
+			var phase := float(seed % 29) * 0.37
+			for station in 65:
+				var u := float(station) / 64.0
+				var shift := lerpf(float(road.get("curve_start", 0)), float(road.get("curve_end", 0)), smoothstep(0, 1, u))
+				if ArenaUtil.resolve_id() == "sanctum" and edge > 0:
+					shift += sin(u * TAU + phase) * 1.2 * sin(PI * u)
+				else:
+					shift += (sin(u * TAU * 1.35 + phase) * 0.22 + sin(u * TAU * 3.7 + phase * 0.61) * 0.09) * pow(sin(PI * u), 2)
+				# Godot 绕 Y 正旋转，与二维 x/z 旋转符号相反。
+				var world := pos + Vector2(shift, (u - 0.5) * road_size.y).rotated(-deg_to_rad(yaw))
+				path.append(_to_map(Vector3(world.x, 0, world.y), source, span_px))
+			var road_width := clampf(display_size.x * content_scale_factor() * 0.30, 1.7, 4.0)
+			draw_polyline(path, Color(0.1, 0.16, 0.1, 0.65), road_width + 1.8, true)
+			draw_polyline(path, Color(0.84, 0.67, 0.40, 0.94), road_width, true)
+		road_index += 1
 
 	for value in _props:
 		if not (value is Dictionary):
@@ -225,8 +278,12 @@ func _draw_world_features(source: Rect2, span_px: float) -> void:
 		var footprint := Vector2(float(dimensions[0]), float(dimensions[2]))
 		var yaw := float(prop.get("yaw", 0.0))
 		var polygon := _map_rect(pos, footprint, yaw, source, span_px)
-		draw_colored_polygon(polygon, Color(0.43, 0.45, 0.42, 0.82))
-		draw_polyline(UiThemeUtil.closed(polygon), Color(0.76, 0.77, 0.70, 0.30), 0.7, true)
+		draw_colored_polygon(polygon, Color(0.48, 0.53, 0.47, 0.70))
+		draw_polyline(UiThemeUtil.closed(polygon), Color(0.77, 0.80, 0.73, 0.65), 0.8, true)
+
+
+func content_scale_factor() -> float:
+	return _content().size.x / (_world_range * 2.0)
 
 
 func _pair(value: Variant) -> Vector2:
@@ -238,7 +295,7 @@ func _pair(value: Variant) -> Vector2:
 
 func _map_rect(center: Vector2, dimensions: Vector2, yaw: float, source: Rect2, span_px: float) -> PackedVector2Array:
 	var half := dimensions * 0.5
-	var radians := deg_to_rad(yaw)
+	var radians := -deg_to_rad(yaw)
 	var out := PackedVector2Array()
 	for local in [Vector2(-half.x, -half.y), Vector2(half.x, -half.y), Vector2(half.x, half.y), Vector2(-half.x, half.y)]:
 		var world := center + (local as Vector2).rotated(radians)
@@ -383,8 +440,8 @@ func _draw_player(source: Rect2, span_px: float) -> void:
 	var nose := center + facing * ARROW_RADIUS
 	var left := center - facing * ARROW_RADIUS * 0.6 + side * ARROW_RADIUS * 0.72
 	var right := center - facing * ARROW_RADIUS * 0.6 - side * ARROW_RADIUS * 0.72
-	draw_colored_polygon(PackedVector2Array([nose, left, right]), Color(0.95, 0.98, 1.0, 1.0))
 	draw_circle(center, ARROW_RADIUS + 2.0, Color(0.55, 0.92, 1.0, 0.22))
+	draw_colored_polygon(PackedVector2Array([nose, left, center - facing * 1.2, right]), Color(0.84, 0.98, 1.0, 1.0))
 
 
 ## 内容区收边：只保留一圈极淡的青发丝线。
@@ -392,12 +449,14 @@ func _draw_player(source: Rect2, span_px: float) -> void:
 ## 发丝线不是为了"描边"，是为了把地形和石头框之间那条生硬的接缝盖掉 ——
 ## 否则贴图边缘与面板内圈之间会出现一条色差细缝。
 func _draw_frame(content: Rect2) -> void:
-	draw_rect(content, Color(0.85, 0.89, 0.87, 0.18), false, 0.7)
+	var shine := PackedVector2Array([Vector2(7, 0), Vector2(size.x * 0.66, 0), Vector2(size.x * 0.08, size.y), Vector2(0, size.y), Vector2(0, 7)])
+	draw_polygon(shine, PackedColorArray([Color(1, 1, 1, 0.12), Color(1, 1, 1, 0.045), Color(1, 1, 1, 0.005), Color(1, 1, 1, 0.025), Color(1, 1, 1, 0.12)]))
+	draw_polyline(PackedVector2Array([Vector2(0, 7), Vector2(7, 0), Vector2(size.x, 0)]), Color(0.9, 0.97, 1, 0.28), 0.65, true)
 
 
 ## 指北针。单独成函数是因为它的画序有要求：必须在 _draw_enemies 之前调用，
 ## 否则正北偏上的敌人方向箭头会被这块 18×15 的底板盖住。
 ## N 本身比箭头"更基础"，但箭头是可行动信息，不能被装饰元素吃掉。
 func _draw_compass() -> void:
-	draw_rect(Rect2(size.x * 0.5 - 9, 3, 18, 15), Color(0.02, 0.04, 0.05, 0.65))
-	draw_string(UiThemeUtil.get_font(), Vector2(size.x * 0.5 - 4, 14), "N", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.94, 0.96, 0.93))
+	draw_string_outline(UiThemeUtil.get_font(), Vector2(size.x * 0.5 - 4.5, 17), "N", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, 1, Color(0, 0, 0, 0.4))
+	draw_string(UiThemeUtil.get_font(), Vector2(size.x * 0.5 - 4.5, 17), "N", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.94, 0.96, 0.98))

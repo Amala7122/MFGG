@@ -13,6 +13,10 @@ func _run() -> void:
 	change_scene_to_file("res://scenes/hyrule_field.tscn")
 	for i in range(24):
 		await process_frame
+	# 只修改本次运行，不保存个人显示配置。
+	root.mode = Window.MODE_WINDOWED
+	root.size = Vector2i(1920, 1080)
+	root.content_scale_factor = 1.0
 	var game_flow := root.get_node("GameFlow")
 	game_flow.visible = false
 	game_flow.process_mode = Node.PROCESS_MODE_DISABLED
@@ -24,6 +28,12 @@ func _run() -> void:
 	player.get_node("CameraPivot/SpringArm3D/Camera3D").make_current()
 	player.set_physics_process(false)
 	player.set_process(false)
+	# 静态标志用于验收小地图；不刷战斗实体、不修改真实波次逻辑。
+	for point in [Vector2(-27, 7), Vector2(23, 19), Vector2(31, -9), Vector2(-18, -21), Vector2(18, 49), Vector2(-38, 43)]:
+		var marker := Node3D.new()
+		current_scene.add_child(marker)
+		marker.global_position = Vector3(point.x, Terrain.height_at(point.x, point.y), point.y)
+		marker.add_to_group("enemies")
 	var hud: Node = player.get("_hud")
 	if not _verify_alignment(hud):
 		quit(1)
@@ -32,10 +42,15 @@ func _run() -> void:
 	var time := current_scene.get_node("WeatherEnvironment/Sky3D/TimeOfDay")
 	time.set("game_time_enabled", false)
 	CapturePaths.ensure_dir("hud_review")
-	for mode in ["day", "cooldown", "night", "between_waves", "small_window"]:
+	for mode in ["day", "cooldown", "night", "between_waves", "small_window", "large_ammo", "ui_scale"]:
 		if mode == "small_window":
 			root.mode = Window.MODE_WINDOWED
 			root.size = Vector2i(1280, 720)
+		elif mode == "ui_scale":
+			root.size = Vector2i(2560, 1440)
+			root.content_scale_factor = 1.15
+		elif mode == "large_ammo":
+			root.size = Vector2i(1920, 1080)
 		time.set("current_time", 0.0 if mode == "night" else 14.0)
 		weather.set_rain_amount(1.0 if mode == "night" else 0.0)
 		weather.set_fog_amount(0.48 if mode == "night" else 0.06)
@@ -45,6 +60,8 @@ func _run() -> void:
 		hud.set_health(27 if mode == "cooldown" else 100, 100)
 		hud.set_shield(0 if mode == "cooldown" else 70, 70)
 		hud.get("_weapon_panel").update_state(4 if mode == "cooldown" else 30, 30, 180, mode == "cooldown", 0.56, 1, 1, 20)
+		if mode == "large_ammo":
+			hud.get("_weapon_panel").update_state(376, 430, 150, false, 0, 1, 1, 20)
 		hud.get("_weapon_panel").update_sniper(5, 5, 0.0, 20)
 		hud.set_abilities(3.2 if mode == "cooldown" else 0.0, 6.0 if mode == "cooldown" else 0.0)
 		hud.get("_wave_banner").update_wave({"stage":1,"arena_label":"寂石圣所","wave":2,"total_waves":4,"state":"交战中"})
@@ -70,6 +87,9 @@ func _run() -> void:
 			quit(1)
 			return
 		await RenderingServer.frame_post_draw
+		if not _verify_alignment(hud) or not _verify_glass_geometry(hud):
+			quit(1)
+			return
 		var path := CapturePaths.file("hud_review/%s.png" % mode)
 		root.get_texture().get_image().save_png(path)
 		print("[HUD 预览] ", path)
@@ -95,3 +115,23 @@ func _check(condition: bool, message: String) -> bool:
 		return true
 	push_error(message)
 	return false
+
+
+func _verify_glass_geometry(hud: Node) -> bool:
+	var ok := true
+	for key in ["_vitals", "_ability_bar", "_weapon_panel", "_game_time_plate"]:
+		var control := hud.get(key) as Control
+		ok = _check(control.has_meta("hud_glass_layers"), key + " 缺少玻璃底层") and ok
+		if not control.has_meta("hud_glass_layers"):
+			continue
+		for glass in control.get_meta("hud_glass_layers"):
+			var shape: PackedVector2Array = glass.get("_shape")
+			ok = _check(shape.size() >= 4, key + " 轮廓退化为三角形") and ok
+			ok = _check(Geometry2D.triangulate_polygon(shape).size() == (shape.size() - 2) * 3, key + " 轮廓自交或无效") and ok
+	var abilities := hud.get("_ability_bar") as Control
+	var layers: Array = abilities.get_meta("hud_glass_layers")
+	var e: PackedVector2Array = layers[0].get("_shape")
+	var q: PackedVector2Array = layers[1].get("_shape")
+	ok = _check(e.size() == 4 and is_equal_approx(e[0].x - e[3].x, e[1].x - e[2].x), "E 必须是同向斜边的平行四边形") and ok
+	ok = _check(q.size() == 5 and absf(q[1].x - q[2].x) < 4, "Q 必须保持直右边及右下切角") and ok
+	return ok

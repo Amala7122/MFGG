@@ -4,11 +4,12 @@ extends Control
 const UiThemeUtil := preload("res://scripts/ui_theme.gd")
 const ConfigUtil := preload("res://scripts/game_config.gd")
 ## 技能组总宽严格等于小地图边长；PlayerHUD 负责让 Q 的最右点与地图右边对齐。
-const PANEL_WIDTH := 124.0
-const PANEL_HEIGHT := 36.0
-const E_CARD_WIDTH := 56.0
-const Q_CARD_WIDTH := 64.0
-const CARD_GAP := 4.0
+const PANEL_WIDTH := 162.0
+const PANEL_HEIGHT := 46.0
+const E_CARD_WIDTH := 82.0
+const Q_CARD_WIDTH := 83.0
+# 斜面轮廓的包围盒略有交叠，实际边缘仍留有清晰间距。
+const CARD_GAP := -3.0
 var _font: Font
 var _grenade_remaining := 0.0
 var _skill_remaining := 0.0
@@ -20,6 +21,7 @@ var _ready_flash := Vector2.ZERO
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_font = UiThemeUtil.get_font()
+	UiThemeUtil.install_black_glass(self, 2)
 	_grenade_total = maxf(ConfigUtil.get_float("abilities.grenade.cooldown", 6.0), 0.01)
 	_skill_total = maxf(ConfigUtil.get_float("abilities.skill.cooldown", 9.0), 0.01)
 	set_process(false)
@@ -53,30 +55,34 @@ func _card(at: Vector2, width: float, key: String, remaining: float, total: floa
 	if grenade:
 		# E 是规整平行四边形；两个斜边方向一致。
 		points = PackedVector2Array([
-			at + Vector2(8, 0), at + Vector2(width, 0),
-			at + Vector2(width - 8, PANEL_HEIGHT), at,
+			at + Vector2(19, 0), at + Vector2(width, 0),
+			at + Vector2(width - 19, PANEL_HEIGHT), at + Vector2(0, PANEL_HEIGHT),
 		])
 	else:
-		# Q 保留与左下弹药板相同的“直左边 + 斜右边”轮廓。
+		# 参考图中的 Q：左边斜切，右边近乎垂直，下右角短切角。
 		points = PackedVector2Array([
-			at, at + Vector2(width, 0),
-			at + Vector2(width - 10, PANEL_HEIGHT), at + Vector2(0, PANEL_HEIGHT),
+			at + Vector2(18, 0), at + Vector2(width, 0),
+			at + Vector2(width - 3, PANEL_HEIGHT - 8),
+			at + Vector2(width - 11, PANEL_HEIGHT), at + Vector2(0, PANEL_HEIGHT),
 		])
-	UiThemeUtil.draw_black_glass(self, points)
+	UiThemeUtil.draw_black_glass(self, points, Vector2.ZERO, 0 if grenade else 1)
 	if flash > 0:
 		draw_colored_polygon(points, Color(1.0, 1.0, 1.0, flash * 0.14))
 	# 按键与图标同行，避免对角排布留下大块空白。
-	var center := at + Vector2(width - 16, 17)
+	var center := at + Vector2(width - 28, PANEL_HEIGHT * 0.5)
+	draw_set_transform(center, 0, Vector2(1.2, 1.2))
+	center = Vector2.ZERO
 	if grenade:
 		draw_colored_polygon(PackedVector2Array([center + Vector2(-7,-4), center + Vector2(-4,-9), center + Vector2(4,-9), center + Vector2(7,-4), center + Vector2(7,6), center + Vector2(3,10), center + Vector2(-4,10), center + Vector2(-7,5)]), color)
 		draw_line(center + Vector2(-1,-11), center + Vector2(4,-11), color, 2.4, true)
 		draw_line(center + Vector2(4,-11), center + Vector2(8,-7), color, 1.8, true)
 	else:
 		draw_polyline(PackedVector2Array([center+Vector2(-12,0),center+Vector2(-7,0),center+Vector2(-4,-8),center+Vector2(0,9),center+Vector2(4,-9),center+Vector2(7,0),center+Vector2(12,0)]), color, 2.1, true)
-	var key_size := _font.get_string_size(key, HORIZONTAL_ALIGNMENT_LEFT, -1, 13)
-	draw_string(_font, at + Vector2(12 - key_size.x * 0.5, 22), key, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.92,0.95,0.93,0.9))
-	draw_line(at + Vector2(24, 7), at + Vector2(24, 29), Color(1,1,1,0.10), 1.0)
+	draw_set_transform(Vector2.ZERO)
+	var key_size := _font.get_string_size(key, HORIZONTAL_ALIGNMENT_LEFT, -1, 15)
+	draw_string(_font, at + Vector2(24 - key_size.x * 0.5, 29), key, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.97,0.98,0.98,0.96))
+	draw_line(at + Vector2(36, 11), at + Vector2(36, 36), Color(1,1,1,0.10), 0.65)
 	if not ready:
-		var cooldown_width := width - 14.0
-		draw_rect(Rect2(at + Vector2(4, 32), Vector2(cooldown_width, 2)), Color(1,1,1,0.1))
-		draw_rect(Rect2(at + Vector2(4, 32), Vector2(cooldown_width * (1 - clampf(remaining / total, 0, 1)), 2)), Color(0.78,0.84,0.84,0.82))
+		var cooldown_width := width - 32.0
+		draw_rect(Rect2(at + Vector2(12, 40), Vector2(cooldown_width, 1.5)), Color(1,1,1,0.1))
+		draw_rect(Rect2(at + Vector2(12, 40), Vector2(cooldown_width * (1 - clampf(remaining / total, 0, 1)), 1.5)), Color(0.78,0.84,0.84,0.82))

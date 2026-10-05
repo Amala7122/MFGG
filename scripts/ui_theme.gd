@@ -16,6 +16,7 @@ extends RefCounted
 
 const THEME_PATH := "res://theme/game_theme.tres"
 const FONT_PATH := "res://theme/fonts/NotoSansSC-wght.ttf"
+const GlassScript := preload("res://scripts/hud_glass.gd")
 
 # ---------------------------------------------------------------- 主题变体名
 # 控件用这些名字取样式，不要再去各自写死颜色与字号。
@@ -256,8 +257,25 @@ static func closed(points: PackedVector2Array) -> PackedVector2Array:
 
 ## 中性黑色玻璃。轮廓由调用者决定，本函数只负责统一材质：清晰边缘、
 ## 半透明黑色主体和非常克制的内部明暗层次。没有彩色玻璃、厚包边或外发光。
-static func draw_black_glass(ci: CanvasItem, points: PackedVector2Array) -> void:
+static func install_black_glass(ci: CanvasItem, count: int = 1) -> void:
+	var layers: Array = []
+	for i in count:
+		var glass := GlassScript.new()
+		glass.name = "GlassSurface%d" % i
+		ci.add_child(glass)
+		layers.append(glass)
+	ci.set_meta("hud_glass_layers", layers)
+
+
+static func draw_black_glass(ci: CanvasItem, points: PackedVector2Array, origin: Vector2 = Vector2.ZERO, slot: int = 0) -> void:
 	if points.size() < 3:
+		return
+	if ci.has_meta("hud_glass_layers"):
+		var layers: Array = ci.get_meta("hud_glass_layers")
+		layers[slot].set_shape(points, origin)
+		# 与模糊底层分开绘制的清晰断面，不随背景采样变糊。
+		ci.draw_polyline(closed(points), Color(0.85, 0.91, 0.93, 0.43), 0.7, true)
+		ci.draw_line(points[0], points[1], Color(0.96, 0.98, 1, 0.38), 0.7, true)
 		return
 	var shadow := points.duplicate()
 	for i in range(shadow.size()):
@@ -276,7 +294,7 @@ static func draw_black_glass(ci: CanvasItem, points: PackedVector2Array) -> void
 	var colors := PackedColorArray()
 	for point in points:
 		var depth := clampf((point.y - min_y) / span, 0.0, 1.0)
-		colors.append(Color(0.012, 0.013, 0.015, lerpf(0.62, 0.50, depth)))
+		colors.append(Color(0.025, 0.026, 0.028, lerpf(0.64, 0.48, depth)))
 	ci.draw_polygon(points, colors)
 	# 宽而淡的内部折射面。它完全收在轮廓里，只改变亮度，不给玻璃染色。
 	var width := maxf(max_x - min_x, 1.0)
@@ -287,9 +305,44 @@ static func draw_black_glass(ci: CanvasItem, points: PackedVector2Array) -> void
 		Vector2(min_x + width * 0.27, max_y - inset),
 		Vector2(min_x + width * 0.02, max_y - inset),
 	])
-	ci.draw_colored_polygon(reflection, Color(1.0, 1.0, 1.0, 0.045))
-	# 这条线不是装饰边框，而是玻璃断面的一丝中性反光；透明度刻意压低。
-	ci.draw_polyline(closed(points), Color(0.88, 0.90, 0.90, 0.11), 0.8, true)
+	# 所有反光都与真实轮廓求交，不能向平行四边形外溢出。
+	for clipped in Geometry2D.intersect_polygons(points, reflection):
+		var reflected := PackedColorArray()
+		for point in clipped:
+			var depth := clampf((point.y - min_y) / span, 0.0, 1.0)
+			reflected.append(Color(1, 1, 1, lerpf(0.16, 0.015, depth)))
+		ci.draw_polygon(clipped, reflected)
+	var sweep := PackedVector2Array([
+		Vector2(max_x - width * 0.02, min_y), Vector2(max_x, min_y),
+		Vector2(min_x + width * 0.50, max_y), Vector2(min_x + width * 0.35, max_y),
+	])
+	for clipped in Geometry2D.intersect_polygons(points, sweep):
+		ci.draw_colored_polygon(clipped, Color(1, 1, 1, 0.065))
+	# 一像素的玻璃断面，而非装饰边框或外发光。
+	ci.draw_polyline(closed(points), Color(0.87, 0.92, 0.94, 0.36), 0.65, true)
+	for i in points.size():
+		var a := points[i]
+		var b := points[(i + 1) % points.size()]
+		if is_equal_approx(a.y, min_y) and is_equal_approx(b.y, min_y):
+			ci.draw_line(a, b, Color(1, 1, 1, 0.36), 0.8, true)
+
+
+## 圆头进度条，细密纵向渐变只存在于填充内部。
+static func draw_pill(ci: CanvasItem, rect: Rect2, color: Color, gradient: bool = false) -> void:
+	if rect.size.x <= 0.0:
+		return
+	var shape := StyleBoxFlat.new()
+	shape.bg_color = color
+	shape.set_corner_radius_all(ceili(rect.size.y * 0.5))
+	shape.corner_detail = 12
+	shape.anti_aliasing = true
+	ci.draw_style_box(shape, rect)
+	if gradient and rect.size.x > rect.size.y:
+		var shine := StyleBoxFlat.new()
+		shine.bg_color = Color(1, 1, 1, 0.13)
+		shine.set_corner_radius_all(ceili(rect.size.y * 0.3))
+		shine.corner_detail = 12
+		ci.draw_style_box(shine, Rect2(rect.position + Vector2(1, 1), Vector2(rect.size.x - 2, rect.size.y * 0.35)))
 
 
 ## 切角矩形的八个顶点（左上 / 右上 / 右下 / 左下各切一刀）。

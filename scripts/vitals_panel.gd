@@ -3,13 +3,13 @@ extends Control
 ## 下方中央生命与护盾：半透明底、连续色条，保留伤害残影与低血量反馈。
 
 const UiThemeUtil := preload("res://scripts/ui_theme.gd")
+const HEART_ICON := preload("res://assets/hud/heart.svg")
+const SHIELD_ICON := preload("res://assets/hud/shield.svg")
 
 ## 面板尺寸。PlayerHUD 用它来排布（不想让两处各写一份坐标）。
-const PANEL_WIDTH := 228.0
-const PANEL_HEIGHT := 40.0
+const PANEL_WIDTH := 242.0
+const PANEL_HEIGHT := 50.0
 
-## 分段刻度数。10 段对应"每段 10 点生命"，比一根连续条更容易估出还剩几成。
-const SEGMENTS := 10
 ## 残影：停留时间 + 之后每秒回落的比例。停留是为了让"刚掉了多少"看得见，
 ## 否则残影在受击的同一帧就开始缩，等于没画。
 const GHOST_HOLD := 0.32
@@ -21,15 +21,13 @@ const LOW_RATIO := 0.3
 # 全部相对面板左上角，画的时候只读这些常量，不在 _draw 里现算。
 const ROW_HEIGHT := 18.0
 const ROW_GAP := 4.0
-const ICON_WIDTH := 36.0
-const VALUE_WIDTH := 82.0
+const ICON_WIDTH := 46.0
+const VALUE_WIDTH := 47.0
 const BAR_LEFT := ICON_WIDTH + VALUE_WIDTH + 6.0
-## 底板是梯形：左右两条边在整高内各内收 10px（见 _draw 的 glass 多边形）。
-## 右留白必须覆盖这条边的损失量，否则第二行护盾条的右下角会戳出轮廓 ——
-## 原来的 8 正好差 1px（条右端 220 vs 该处右边界 219）。
-const BAR_RIGHT_PAD := 12.0
+## 右留白覆盖底板斜边，护盾条不越过玻璃轮廓。
+const BAR_RIGHT_PAD := 24.0
 const BAR_TOP_INSET := 4.0
-const BAR_HEIGHT := 10.0
+const BAR_HEIGHT := 9.0
 const FONT_VALUE := 10
 
 var _font: Font
@@ -57,6 +55,7 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_process(true)
 	_font = UiThemeUtil.get_font()
+	UiThemeUtil.install_black_glass(self)
 
 
 func _process(delta: float) -> void:
@@ -142,15 +141,15 @@ func _shield_ints() -> Array:
 
 func _draw() -> void:
 	var glass := PackedVector2Array([
-		Vector2(10, 0), Vector2(size.x, 0),
-		Vector2(size.x - 10, size.y), Vector2(0, size.y),
+		Vector2(24, 0), Vector2(size.x, 0),
+		Vector2(size.x - 24, size.y), Vector2(0, size.y),
 	])
 	UiThemeUtil.draw_black_glass(self, glass)
 	var accent := UiThemeUtil.COLOR_HEALTH
 	if is_low():
 		accent = UiThemeUtil.shade(UiThemeUtil.COLOR_HEALTH, _pulse() * 0.30)
-	_draw_health(0.0, accent)
-	_draw_shield(ROW_HEIGHT + ROW_GAP)
+	_draw_health(6.0, accent)
+	_draw_shield(6.0 + ROW_HEIGHT + ROW_GAP)
 
 
 func _draw_health(top: float, accent: Color) -> void:
@@ -185,23 +184,17 @@ func _draw_stat_row(
 	top: float, text: String, _value_color: Color, fill: Color,
 	ratio: float, ghost: float, heart: bool, _accent: Color
 ) -> void:
-	# 图标中心取【图标列中点】。底板左边从 (10,0) 斜到 (0,size.y)，
-	# 原来固定在 x=10 会让第一行心形的左瓣挂到斜边外约 3px。
-	var center := Vector2(ICON_WIDTH * 0.5, top + ROW_HEIGHT * 0.5)
-	draw_set_transform(center, 0, Vector2(0.43, 0.43))
-	if heart:
-		_draw_heart(Vector2.ZERO, fill)
-	else:
-		_draw_shield_icon(Vector2.ZERO, fill)
-	draw_set_transform(Vector2.ZERO)
+	# 留出斜边安全区；矢量图标与文字保持原生清晰度。
+	var center := Vector2(35, top + ROW_HEIGHT * 0.5)
+	draw_texture_rect(HEART_ICON if heart else SHIELD_ICON, Rect2(center - Vector2(6.5, 6.5), Vector2(13, 13)), false)
 	draw_string(_font, Vector2(ICON_WIDTH + 2.0, top + 13), text, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_VALUE, Color(0.94, 0.96, 0.94))
-	# 用上面声明的三列度量，而不是硬编码 82 / size.x-90：后者让色条从数值列内部就开始
-	# （声明的值列到 118，条却从 82 起 = 重叠 36px），右端还会越过梯形右边。
+	# 数字与色条分列；不将数值叠在色条上。
 	var bar := Rect2(BAR_LEFT, top + BAR_TOP_INSET, size.x - BAR_LEFT - BAR_RIGHT_PAD, BAR_HEIGHT)
-	draw_rect(bar, Color(1, 1, 1, 0.11))
+	UiThemeUtil.draw_pill(self, bar, Color(1, 1, 1, 0.11))
 	if ghost > ratio:
-		draw_rect(Rect2(bar.position, Vector2(bar.size.x * clampf(ghost, 0, 1), bar.size.y)), Color(1, 0.89, 0.8, 0.48))
-	draw_rect(Rect2(bar.position, Vector2(bar.size.x * clampf(ratio, 0, 1), bar.size.y)), fill)
+		UiThemeUtil.draw_pill(self, Rect2(bar.position, Vector2(bar.size.x * clampf(ghost, 0, 1), bar.size.y)), Color(1, 0.89, 0.8, 0.48))
+	var vivid := Color(1, 0.24, 0.31) if heart else Color(0.23, 0.94, 0.97)
+	UiThemeUtil.draw_pill(self, Rect2(bar.position, Vector2(bar.size.x * clampf(ratio, 0, 1), bar.size.y)), vivid, true)
 
 func _draw_heart(center: Vector2, color: Color) -> void:
 	var points := PackedVector2Array([
