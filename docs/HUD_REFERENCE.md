@@ -10,6 +10,10 @@
 - 主弹药只倾斜字形，文字基线水平。默认只显示当前弹匣、容量、备弹；装填时才增加进度提示。
 - 常驻战斗 HUD 不恢复武器等级、伤害、击杀统计或狙击信息条。既有数据接口仍保留。
 
+字形变换特别注意：`FontVariation.variation_transform` 的 FreeType 分量传递顺序不同于 Canvas 的矩阵列顺序。正确横向切变使用 `Transform2D(Vector2(1, s), Vector2(0, 1), Vector2.ZERO)`；不能写成 `Vector2(1, 0), Vector2(s, 1)`，后者会纵向错切字形。[Godot 4.7.2 字体实现](https://github.com/godotengine/godot/blob/4.7.2-stable/modules/text_server_adv/text_server_adv.cpp) 可查 `FT_Matrix` 的分量顺序。
+
+运行 `tests/test_ammo_typography.gd` 比较 0–9 与 `/` 在 23、35、46、60 四个字号的实际轮廓：每个点的 y 必须不变，x 只随高度变化。该测试覆盖 44 个字形/字号组合，另以旧变换作为负对照，避免再靠更换正负号猜方向。附加 `-- --capture` 会生成带水平辅助线的修改前后对照图 `visual_captures/hud_review/ammo_typography.png`。
+
 ## 逻辑尺寸（1152×648 排版空间）
 
 | 组件 | 宽×高 | 说明 |

@@ -5,6 +5,7 @@ const UiThemeUtil := preload("res://scripts/ui_theme.gd")
 const PANEL_WIDTH := 210.0
 const PANEL_HEIGHT := 96.0
 const MARGIN := 26.0
+const NUMBER_SLANT := 0.22
 var _font: Font
 var _number_font: FontVariation
 var _ammo := 0
@@ -21,11 +22,18 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_font = UiThemeUtil.get_font()
 	UiThemeUtil.install_black_glass(self)
-	_number_font = FontVariation.new()
-	_number_font.base_font = load(UiThemeUtil.FONT_PATH) as Font
-	_number_font.variation_opentype = {0x77676874: 900}
-	# FontVariation 的变换在字形空间执行（y 向上），正切变是向右倾的斜体。
-	_number_font.variation_transform = Transform2D(Vector2(1, 0), Vector2(0.22, 1), Vector2.ZERO)
+	_number_font = make_number_font()
+
+
+static func make_number_font() -> FontVariation:
+	var font := FontVariation.new()
+	font.base_font = load(UiThemeUtil.FONT_PATH) as Font
+	font.variation_opentype = {0x77676874: 900}
+	# 注意：FontVariation 将分量以 FreeType 的行顺序传入，不等同于 Canvas
+	# 使用 Transform2D 的列顺序。x.y 在这里是横向切变：x'=x+s*y, y'=y
+	# （字形坐标 y 向上）。误写 y.x 会变成 y'=y+s*x，造成纵向错切。
+	font.variation_transform = Transform2D(Vector2(1, NUMBER_SLANT), Vector2(0, 1), Vector2.ZERO)
+	return font
 
 func update_state(ammo: int, capacity: int, reserve: int, reloading: bool,
 		reload_ratio: float, _level: int, _pellets: int, _damage: float) -> void:
