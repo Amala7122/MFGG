@@ -4,6 +4,7 @@ extends CharacterBody3D
 ## 不会因为少了 autoload 就整个脚本报错。
 const GameFlowUtil := preload("res://scripts/game_flow.gd")
 const AudioUtil := preload("res://scripts/audio_manager.gd")
+const CombatFXUtil := preload("res://scripts/combat_fx.gd")
 const EventBusUtil := preload("res://scripts/event_bus.gd")
 const ConfigUtil := preload("res://scripts/game_config.gd")
 const TerrainFieldUtil := preload("res://scripts/terrain_field.gd")
@@ -114,6 +115,25 @@ var _dodge_cooldown := 0.0
 var _grenade_cooldown := 0.0
 var _skill_cooldown := 0.0
 var _damage_invulnerability := 0.0
+## ── juice 底座（ruin-star 移植）────────────────────────────────────
+## 受击顿帧计时：CombatFX.hitstop() 会调 apply_hitstop()，_tick_timers 里消费。
+var _hitstop_timer := 0.0
+## 击退冲量：apply_knockback() 设置，_update_movement 顶部消费并逐帧衰减。
+var _knockback_velocity := Vector3.ZERO
+var _knockback_time := 0.0
+## 相机创伤抖动：apply_camera_shake() 累加，_update_camera 里按平方衰减。
+var _camera_trauma := 0.0
+## FOV 冲击：trigger_fov_punch() 累加，_update_camera 里衰减。
+var _fov_punch := 0.0
+## 冲刺 FOV 位移与落地下沉（相机表现）。
+var _sprint_fov_offset := 0.0
+var _landing_dip := 0.0
+## 翻滚残影生成计时。
+var _ghost_spawn_timer := 0.0
+## 电影镜头期间锁定玩家操作。
+var _cinematic_locked := false
+## 共鸣系统引用（尚未接线，保留以便后续接入；guarded 调用当前为静默跳过）。
+var _resonance: Node = null
 var _fall_speed := 0.0
 var _was_grounded := true
 ## 死亡不是一个瞬时跳转：先让角色与镜头完成倒地，再把结算事件交给 GameFlow。
@@ -412,6 +432,7 @@ func _tick_timers(delta: float) -> void:
 	_grenade_cooldown = maxf(_grenade_cooldown - delta, 0.0)
 	_skill_cooldown = maxf(_skill_cooldown - delta, 0.0)
 	_damage_invulnerability = maxf(_damage_invulnerability - delta, 0.0)
+	_hitstop_timer = maxf(_hitstop_timer - delta, 0.0)
 	_regenerate(delta)
 
 
@@ -439,21 +460,52 @@ func _update_camera(delta: float) -> void:
 	if _weapon:
 		yaw += _weapon.view_kick.y
 		pitch += _weapon.view_kick.x
+	# juice：相机创伤抖动（平方衰减，越强抖得越狠）
+	if _camera_trauma > 0.001:
+		_camera_trauma = maxf(_camera_trauma - delta * 2.2, 0.0)
+		var shake := _camera_trauma * _camera_trauma
+		var now := float(Time.get_ticks_msec()) * 0.001
+		yaw += sin(now * 38.0) * (0.024 * shake)
+		pitch += cos(now * 44.0) * (0.018 * shake)
 	camera_pivot.rotation.y = yaw
 	camera_pivot.rotation.x = clampf(pitch, deg_to_rad(-80.0), deg_to_rad(75.0))
 	var zoom := minf(fov_smooth * delta, 1.0)
+	# juice：冲刺 FOV 位移 / FOV 冲击 / 落地下沉
+	var sprint_fov_target := 4.5 if _sprinting and not _aiming else 0.0
+	_sprint_fov_offset = move_toward(_sprint_fov_offset, sprint_fov_target, delta * 16.0)
+	_fov_punch = move_toward(_fov_punch, 0.0, delta * 24.0)
+	_landing_dip = move_toward(_landing_dip, 0.0, delta * 1.8)
 	if camera:
-		camera.fov = lerpf(camera.fov, sniper_fov if _aiming else hip_fov, zoom)
+		camera.fov = lerpf(camera.fov, sniper_fov if _aiming else hip_fov, zoom) + _fov_punch + _sprint_fov_offset
 	if spring_arm:
 		spring_arm.spring_length = lerpf(
 			spring_arm.spring_length, sniper_spring_length if _aiming else hip_spring_length, zoom
 		)
-		spring_arm.position = spring_arm.position.lerp(
-			sniper_arm_offset if _aiming else hip_arm_offset, zoom
-		)
+		var target_offset := (sniper_arm_offset if _aiming else hip_arm_offset) - Vector3.UP * _landing_dip
+		spring_arm.position = spring_arm.position.lerp(target_offset, zoom)
 
 
 func _update_movement(delta: float) -> void:
+	# juice：受击顿帧期间不接受移动输入（约 30ms 的打击停顿）
+	if _hitstop_timer > 0.0:
+		return
+	# juice：击退期间由冲量接管水平速度，并逐帧衰减
+	if _knockback_time > 0.0:
+		_knockback_time -= delta
+		velocity.x = _knockback_velocity.x
+		velocity.z = _knockback_velocity.z
+		velocity.y = maxf(velocity.y, _knockback_velocity.y)
+		_knockback_velocity = _knockback_velocity.move_toward(Vector3.ZERO, 34.0 * delta)
+		if not is_on_floor():
+			velocity.y -= gravity * delta
+		return
+	# juice：电影镜头期间锁操作，只保留重力与减速
+	if _cinematic_locked:
+		velocity.x = move_toward(velocity.x, 0.0, deceleration * delta)
+		velocity.z = move_toward(velocity.z, 0.0, deceleration * delta)
+		if not is_on_floor():
+			velocity.y -= gravity * delta
+		return
 	if not is_on_floor():
 		velocity.y -= gravity * delta
 		_fall_speed = minf(_fall_speed, velocity.y)
@@ -509,6 +561,11 @@ func _start_roll(direction: Vector3) -> void:
 	_dodge_cooldown = dodge_cooldown_time
 	# 翻滚前段给无敌帧，用来躲弹幕。
 	_damage_invulnerability = maxf(_damage_invulnerability, dodge_invulnerability)
+	# juice：翻滚反馈（手柄震动 + 破风声 + 残影）
+	apply_rumble(0.2, 0.0, 0.2)
+	AudioUtil.play("whoosh", -2.0, randf_range(0.95, 1.1))
+	_ghost_spawn_timer = 0.0
+	_spawn_roll_ghost()
 
 
 func _advance_roll(delta: float) -> void:
@@ -517,6 +574,10 @@ func _advance_roll(delta: float) -> void:
 	var current_speed := dodge_speed * lerpf(0.35, 1.0, remaining)
 	velocity.x = _roll_direction.x * current_speed
 	velocity.z = _roll_direction.z * current_speed
+	_ghost_spawn_timer -= delta
+	if _ghost_spawn_timer <= 0.0:
+		_ghost_spawn_timer = 0.065
+		_spawn_roll_ghost()
 	if _roll_time <= 0.0:
 		_rolling = false
 
@@ -646,8 +707,13 @@ func _update_landing(delta: float) -> void:
 	var grounded := is_on_floor()
 	if grounded and not _was_grounded:
 		var impact := clampf(absf(_fall_speed) / 14.0, 0.0, 1.0)
-		if _rig and impact > 0.05:
-			_rig.land(impact)
+		if impact > 0.05:
+			# juice：落地下沉（相机弹簧臂）+ 重落地的闷响
+			_landing_dip = impact * 0.22
+			if _rig:
+				_rig.land(impact)
+			if impact > 0.18:
+				AudioUtil.play("hurt", -16.0, 0.58)
 	if grounded:
 		_fall_speed = 0.0
 		_safe_ground_time += delta
@@ -882,3 +948,82 @@ func get_shield() -> float:
 
 func get_max_shield() -> float:
 	return max_shield
+
+
+# ────────────────── juice 底座（ruin-star 移植）──────────────────────
+
+## 受击顿帧：由 CombatFX.hitstop() 调用；_tick_timers 里递减，_update_movement 顶部生效。
+func apply_hitstop(duration: float) -> void:
+	_hitstop_timer = maxf(_hitstop_timer, duration)
+
+
+## 手柄震动反馈（普通连发轻震，狙击/破招重震）。
+func apply_rumble(weak: float, strong: float, duration: float) -> void:
+	Input.start_joy_vibration(0, clampf(weak, 0.0, 1.0), clampf(strong, 0.0, 1.0), maxf(duration, 0.02))
+
+
+## 施加击退冲量（爆炸、震地脉冲、Boss 重击）。
+func apply_knockback(impulse: Vector3, duration: float = 0.3) -> void:
+	_knockback_velocity = impulse
+	_knockback_time = maxf(duration, 0.1)
+
+
+## 相机创伤抖动（0..1.8，平方衰减）。
+func apply_camera_shake(trauma: float = 1.0) -> void:
+	_camera_trauma = clampf(_camera_trauma + trauma, 0.0, 1.8)
+
+
+## FOV 冲击（开火/爆发/受击时短暂拉远视角）。
+func trigger_fov_punch(amount: float) -> void:
+	_fov_punch = clampf(_fov_punch + amount, 0.0, 4.5)
+
+
+## 电影镜头期间锁定玩家操作（冲刺/瞄准/翻滚一并中断）。
+func set_cinematic_locked(locked: bool) -> void:
+	_cinematic_locked = locked
+	if locked:
+		_sprinting = false
+		_aiming = false
+		_rolling = false
+
+
+func is_cinematic_locked() -> bool:
+	return _cinematic_locked
+
+
+## 震地脉冲破招回调：HUD 提示 + 共鸣完美闪避充能（共鸣未接线时静默跳过）。
+func on_shockwave_parry(count: int) -> void:
+	if _hud:
+		_hud.show_notice("震地破招·完美格挡 ×%d！" % count, "shield")
+	if _resonance != null:
+		_resonance.on_perfect_dodge()
+
+
+## 翻滚残影：把当前模型网格克隆成半透明蓝色残像并淡出。
+func _spawn_roll_ghost() -> void:
+	if not player_model or not is_inside_tree():
+		return
+	var scene := get_tree().current_scene
+	if not scene:
+		return
+	var ghost := Node3D.new()
+	scene.add_child(ghost)
+	var ghost_mat := StandardMaterial3D.new()
+	ghost_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ghost_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	ghost_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	ghost_mat.albedo_color = Color(0.25, 0.82, 1.0, 0.42)
+	ghost_mat.render_priority = 1
+	for mesh_node in player_model.find_children("*", "MeshInstance3D", true, false):
+		var m := mesh_node as MeshInstance3D
+		if not m or not m.visible or not m.mesh:
+			continue
+		var clone := MeshInstance3D.new()
+		clone.mesh = m.mesh
+		clone.material_override = ghost_mat
+		clone.global_transform = m.global_transform
+		clone.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		ghost.add_child(clone)
+	var tween := ghost.create_tween()
+	tween.tween_property(ghost_mat, "albedo_color:a", 0.0, 0.28).set_ease(Tween.EASE_OUT)
+	tween.tween_callback(ghost.queue_free)
