@@ -458,3 +458,13 @@ func update_feedback(delta: float) -> void:
 
 func update_health_label() -> void:
 	health_label.text = "%s  %d/%d" % [enemy_title, ceili(health), ceili(max_health)]
+
+
+## juice：被震地脉冲破招——陷入硬直并后仰（B 的近战怪没有蓄力技能，故不取消技能）。
+func parry() -> void:
+	_stagger_time = _stagger_duration * 1.5
+	_stagger_velocity = -global_transform.basis.z * 7.5
+	hit_flash_time = 0.15
+	_visuals.set_flash(true)
+	if _rig:
+		_rig.flinch()

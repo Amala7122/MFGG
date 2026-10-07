@@ -49,6 +49,13 @@ func setup(start: Vector3, landing: Vector3, duration: float, color: Color) -> v
 	# 【它播在落点，不是跟着弹体飞】—— 音频管理只支持定点播放。
 	# 但"哨音来自落点方向 + 频率下坠"已经足够读成"有东西正砸过来"。
 	AudioUtil.play_at("mortar", landing, -4.0)
+	# juice：加入敌方弹丸组，供震地脉冲破招检索
+	add_to_group("enemy_projectiles")
+
+
+## 被玩家震地脉冲格挡打碎。
+func deflect() -> void:
+	queue_free()
 
 
 func _physics_process(delta: float) -> void:

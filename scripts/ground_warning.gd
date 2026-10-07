@@ -24,8 +24,15 @@ var visual_only := false
 
 
 func _ready() -> void:
+	# juice：加入危险区组，供震地脉冲破招检索（shockwave._parry_and_intercept）
+	add_to_group("ground_hazards")
 	timer = warning_duration
 	add_child(_attack_area)
+
+
+## 被玩家震地脉冲驱散：等价于取消本次落点预警（供 shockwave 破招链路调用）。
+func dispel() -> void:
+	cancel()
 
 
 func setup(radius: float, delay: float, blast_damage: float, color: Color) -> void:

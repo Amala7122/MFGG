@@ -49,6 +49,9 @@ func setup(
 	($Aura as MeshInstance3D).scale = Vector3.ONE
 	apply_color(new_color)
 	look_at(global_position + direction, Vector3.UP, true)
+	# juice：加入敌方弹丸组，供震地脉冲破招检索
+	if not is_in_group("enemy_projectiles"):
+		add_to_group("enemy_projectiles")
 
 
 func apply_color(new_color: Color) -> void:
@@ -112,7 +115,15 @@ func _physics_process(delta: float) -> void:
 
 ## 交还对象池。调用方无需持有引用，也不需要再做任何清理。
 func _retire() -> void:
+	# 池化回收前退出破招检索组，避免组里残留已回收的弹丸
+	if is_in_group("enemy_projectiles"):
+		remove_from_group("enemy_projectiles")
 	PoolUtil.release(POOL_KEY, self)
+
+
+## 被玩家震地脉冲格挡偏折。
+func deflect() -> void:
+	_retire()
 
 
 ## 命中反馈：打中玩家用受击色、打中场景用中性色。

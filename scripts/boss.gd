@@ -505,3 +505,18 @@ static func _parse_behavior(name: String) -> Behavior:
 			return Behavior.BARRAGE
 		_:
 			return Behavior.CHARGE
+
+
+## juice：被震地脉冲破招——蓄力/出手阶段直接打断并进入硬直。
+func parry() -> void:
+	if _dead:
+		return
+	if _step == Step.WINDUP or _step == Step.STRIKE:
+		_step = Step.RECOVER
+		_step_timer = _recover_duration * 1.6
+		_action_cooldown = 2.4
+		if _warning != null and is_instance_valid(_warning):
+			_warning.queue_free()
+			_warning = null
+		_flash = 0.25
+		AudioUtil.play_at("hit", global_position, 2.0, 0.7)

@@ -26,12 +26,17 @@ const AudioUtil := preload("res://scripts/audio_manager.gd")
 const TerrainFieldUtil := preload("res://scripts/terrain_field.gd")
 const PoolUtil := preload("res://scripts/object_pool.gd")
 const BulletPoolKey := "enemy_bullet"
+## juice：狙击红线（telegraph）+ 可见重弹 + 高威胁技能限流 + 命中特效
+const TelegraphUtil := preload("res://scripts/telegraph.gd")
+const SniperBulletScript := preload("res://scripts/sniper_bullet.gd")
+const SkillLimiterUtil := preload("res://scripts/skill_limiter.gd")
+const CombatFXUtil := preload("res://scripts/combat_fx.gd")
 
 ## 右臂 IK 要抓的握把位置（GunPivot 局部空间）。
 ## 取在机匣靠后处，枪身随弹幕形态变形时也仍然合理。
 const GRIP_OFFSET := Vector3(0.0, -0.09, -0.14)
 
-enum PatternType { FAN, AIMED_BURST, SPIRAL_RING, BULLET_WALL, MORTAR }
+enum PatternType { FAN, AIMED_BURST, SPIRAL_RING, BULLET_WALL, MORTAR, SNIPER }
 enum MovementStyle { SIDE_STEP, ORBIT, ADVANCE_RETREAT }
 
 static var next_global_fire_msec: int
@@ -73,6 +78,10 @@ var _locked_aim := Vector3.FORWARD
 var _locked_landing := Vector3.ZERO
 var _landing_valid := false
 var _pending_mortars: Array[WeakRef] = []
+# juice：狙击锁定红线状态（复用主线的 _aim_locked 协议，不再另建一套锁定机制）
+var _sniper_line: Telegraph = null
+var _sniper_locked := false
+var _sniper_locked_point := Vector3.ZERO
 var _stagger_time: float = 0.0
 var _stagger_velocity := Vector3.ZERO
 ## 重新选目标的倒计时，见 RETARGET_INTERVAL。
@@ -405,12 +414,26 @@ func update_firing(delta: float, distance: float) -> void:
 			fire_aimed_burst_round()
 		return
 	if attack_queued:
-		if not can_attack_from_current_view():
+		# 狙击红线一旦瞄准必须射击到底：玩家靠躲避子弹，而不是靠脱离视野取消
+		var is_sniper_shot := _is_sniper_pattern()
+		if not is_sniper_shot and not can_attack_from_current_view():
 			cancel_attack_charge()
 			return
 		attack_charge_time = maxf(attack_charge_time - delta, 0.0)
+		# 红线跟随目标头部
+		if _sniper_line != null and is_instance_valid(_sniper_line) and not _sniper_locked:
+			if is_instance_valid(target):
+				_sniper_locked_point = target.global_position + Vector3.UP * 0.8
+			_sniper_line.update_line(muzzle.global_position, _sniper_locked_point)
 		if not _aim_locked and attack_charge_time <= _charge_duration * 0.35:
 			_lock_aim()
+			# 复用主线的锁定时机：主线锁瞄准的同时把红线钉死
+			if _sniper_line != null and is_instance_valid(_sniper_line) and not _sniper_locked:
+				_sniper_locked = true
+				if is_instance_valid(target):
+					_sniper_locked_point = target.global_position + Vector3.UP * 0.8
+				_sniper_line.lock_in()
+				AudioUtil.play_at("shot", muzzle.global_position, -8.0, 2.2)
 		var progress := 1.0 - attack_charge_time / maxf(_charge_duration, 0.01)
 		muzzle_glow.light_energy = 5.0 if _aim_locked else 3.5 + sin(progress * 18.0) * 1.5
 		charge_orb.visible = true
@@ -425,10 +448,21 @@ func update_firing(delta: float, distance: float) -> void:
 			and Time.get_ticks_msec() >= next_global_fire_msec \
 			and distance < detection_range * _fire_range_ratio \
 			and can_attack_from_current_view():
+		var is_sniper := _is_sniper_pattern()
+		if is_sniper and not SkillLimiterUtil.can_start("sniper_lock", 1):
+			return
 		attack_queued = true
-		attack_charge_time = _charge_duration
+		attack_charge_time = _charge_duration * (1.35 if is_sniper else 1.0)
 		_aim_locked = false
 		_landing_valid = false
+		if is_sniper:
+			SkillLimiterUtil.acquire("sniper_lock")
+			var target_head := target.global_position + Vector3.UP * 0.8
+			_sniper_locked_point = target_head
+			_sniper_line = TelegraphUtil.create_line(
+				get_tree().current_scene, muzzle.global_position, target_head, attack_charge_time
+			)
+			_sniper_locked = false
 		# 在准备前排队，不能让已经亮起的预警反复延长。
 		next_global_fire_msec = Time.get_ticks_msec() + _global_fire_cooldown_ms
 
@@ -475,6 +509,13 @@ func cancel_attack_charge() -> void:
 	fire_cooldown = maxf(fire_cooldown, 0.8)
 	muzzle_glow.light_energy = 0.65
 	charge_orb.visible = false
+	# juice：狙击红线与限流一并清理
+	if _sniper_line != null and is_instance_valid(_sniper_line):
+		_sniper_line.cancel()
+		_sniper_line = null
+	if _sniper_locked or _is_sniper_pattern():
+		SkillLimiterUtil.release("sniper_lock")
+	_sniper_locked = false
 
 
 func fire_pattern() -> void:
@@ -484,6 +525,8 @@ func fire_pattern() -> void:
 	match pattern_type:
 		PatternType.MORTAR:
 			fire_mortar_warning()
+		PatternType.SNIPER:
+			fire_sniper_shot()
 		PatternType.AIMED_BURST:
 			burst_remaining = 3
 			burst_timer = 0.0
@@ -512,6 +555,39 @@ func fire_pattern() -> void:
 	recoil_time = 0.12
 	if burst_remaining == 0:
 		_aim_locked = false
+
+
+## 是否为狙击型敌人。
+##
+## 只认 pattern_type（由 enemy_roster.entries[].ranged_pattern = 5 显式配置），
+## 刻意不做标题匹配：主线里「点射游骑兵」是 AIMED_BURST 单位，若按标题含
+## 「游骑兵」判定，会把它误变成狙击兵。
+func _is_sniper_pattern() -> bool:
+	return pattern_type == PatternType.SNIPER
+
+
+## juice：发射可见的超音速狙击重弹（带电离尾迹与近身呼啸），随后清理红线与限流。
+func fire_sniper_shot() -> void:
+	AudioUtil.play_at("sniper", muzzle.global_position, 2.4, 1.05)
+	var from_pos := muzzle.global_position
+	var to_pos := _sniper_locked_point if (_sniper_locked or not _sniper_locked_point.is_zero_approx()) \
+		else (target.global_position + Vector3.UP * 0.8 if is_instance_valid(target) \
+		else from_pos - global_transform.basis.z * 40.0)
+	var dir := (to_pos - from_pos).normalized()
+	if dir.is_zero_approx():
+		dir = -global_transform.basis.z
+	var scene := get_tree().current_scene if get_tree() else null
+	if scene:
+		# 枪口爆破烈焰
+		CombatFXUtil.spawn_impact(scene, from_pos, dir, bullet_color, 2.0)
+		var bullet := SniperBulletScript.new()
+		scene.add_child(bullet)
+		bullet.setup(from_pos, dir, self, projectile_damage * _damage_scale * 2.3, bullet_color)
+	if _sniper_line != null and is_instance_valid(_sniper_line):
+		_sniper_line.cancel()
+		_sniper_line = null
+	SkillLimiterUtil.release("sniper_lock")
+	_sniper_locked = false
 
 
 func fire_mortar_warning() -> void:
@@ -669,3 +745,14 @@ func animate_movement(delta: float) -> void:
 
 func update_health_label() -> void:
 	health_label.text = "%s  %d/%d" % [enemy_title, ceili(health), ceili(max_health)]
+
+
+## juice：被震地脉冲破招——打断蓄力并陷入硬直（供 shockwave 破招链路调用）。
+func parry() -> void:
+	cancel_attack_charge()
+	_stagger_time = _stagger_duration * 1.5
+	_stagger_velocity = -global_transform.basis.z * 7.5
+	hit_flash_time = 0.15
+	_visuals.set_flash(true)
+	if _rig:
+		_rig.flinch()
