@@ -334,3 +334,7 @@ func _apply(node: Node3D, target: Vector3, weight: float) -> void:
 		lerp_angle(node.rotation.y, target.y, weight),
 		lerp_angle(node.rotation.z, target.z, weight)
 	)
+
+## juice：死亡特效接管模型后解除引用（避免 rig 继续更新已脱离的尸体）。
+func release_model() -> void:
+	_model = null

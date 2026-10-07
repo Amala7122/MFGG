@@ -95,6 +95,7 @@ var _random := RandomNumberGenerator.new()
 # ---------------------------------------------------------------- 生命周期
 
 func _ready() -> void:
+	instance = self
 	_spawn_cfg = ConfigUtil.get_dictionary("spawn")
 	if String(_spawn_cfg.get("mode", "waves")) != "waves":
 		# 明确保留的退路：endless 模式下本节点不介入。
@@ -490,3 +491,36 @@ func is_active() -> bool:
 
 func get_state() -> State:
 	return _state
+
+
+# ── juice：死亡特效登记与「最后一个敌人」判定（ruin-star 移植）──────────
+
+## 单例注册（静态入口在未注册时返回安全默认值）。
+static var instance: Node = null
+
+## 最近一次死亡特效与其位置，供波次收尾镜头引用。
+var _last_killed_pos := Vector3.ZERO
+var _last_death_fx: Node3D = null
+
+
+## 静态入口：本敌人是否是当前波的最后一个。
+static func is_last_enemy(enemy: Node3D) -> bool:
+	if instance != null and is_instance_valid(instance):
+		return instance.call("check_is_last_enemy", enemy)
+	return false
+
+
+## 静态入口：登记死亡特效。
+static func notify_death_fx(fx: Node3D, pos: Vector3) -> void:
+	if instance != null and is_instance_valid(instance):
+		instance.call("register_death_fx", fx, pos)
+
+
+func register_death_fx(fx: Node3D, pos: Vector3) -> void:
+	_last_death_fx = fx
+	_last_killed_pos = pos
+
+
+func check_is_last_enemy(enemy: Node3D) -> bool:
+	return _state == State.FIGHT and _spawn_budget <= 0 \
+		and _alive.size() <= 1 and (_alive.is_empty() or _alive.has(enemy))

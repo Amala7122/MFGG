@@ -1,5 +1,17 @@
 extends CharacterBody3D
 
+signal died(enemy: Node3D)
+
+## juice：死亡特效与波次接口
+const EnemyDeathFXUtil := preload("res://scripts/enemy_death_fx.gd")
+const CombatFXUtil := preload("res://scripts/combat_fx.gd")
+const WaveDirectorUtil := preload("res://scripts/wave_director.gd")
+
+## juice：死亡流程与「过量击杀」记录（决定尸体爆炸规模）。
+var _dying := false
+var _last_overkill: float = 0.0
+
+
 const PICKUP_SCENE: PackedScene = preload("res://scenes/pickup.tscn")
 ## 用 preload 而不是裸类名：全局类名依赖 .godot 的 class 缓存，
 ## 新建脚本在编辑器扫描之前无法被其他脚本按名字引用。
@@ -397,6 +409,7 @@ func take_damage(amount: float) -> void:
 	health -= amount * (1.0 - _armor)
 	preload("res://scripts/combat_telemetry.gd").enemy_damaged(self, before)
 	if health <= 0.0:
+		_last_overkill = absf(health)
 		die()
 		return
 	hit_flash_time = 0.1
@@ -406,16 +419,50 @@ func take_damage(amount: float) -> void:
 
 
 func die() -> void:
+	if _dying:
+		return
+	_dying = true
+	hit_flash_time = 0.0
+	_visuals.set_flash(false)
 	cancel_attack()
-	set_physics_process(false)
 	_credit_killer()
-	# 掉落表在配置里（drops 段）：总概率与各类型权重都可调，不写死。
+	# 掉落表在配置里（drops 段）。
 	var drop := PickupUtil.roll_drop("melee")
-	if drop >= 0:
+	var scene: Node = (get_tree().current_scene if get_tree() else null) if is_inside_tree() else null
+	if not scene:
+		scene = get_parent()
+	var my_pos := global_position if is_inside_tree() else position
+	if drop >= 0 and scene:
 		var pickup := PICKUP_SCENE.instantiate()
-		get_tree().current_scene.add_child(pickup)
-		pickup.global_position = global_position + Vector3(0.0, 0.2, 0.0)
+		scene.add_child(pickup)
+		if pickup.is_inside_tree():
+			pickup.global_position = my_pos + Vector3(0.0, 0.2, 0.0)
+		else:
+			pickup.position = my_pos + Vector3(0.0, 0.2, 0.0)
 		pickup.call("configure", drop)
+	# juice：死亡瞬间退出敌人组并关闭碰撞 —— 不再吃伤害、不再挡路
+	remove_from_group("enemies")
+	collision_layer = 0
+	collision_mask = 0
+	if is_instance_valid(health_label):
+		health_label.visible = false
+	if scene:
+		CombatFXUtil.spawn_impact(scene, my_pos + Vector3.UP * 0.9, Vector3.UP, Color(1.0, 0.45, 0.2, 1.0), 1.8)
+	# juice：尸体 / 碎块 / 倒地演出
+	var is_last := WaveDirectorUtil.is_last_enemy(self)
+	var is_large := _is_large_enemy()
+	var death_fx: Node3D = null
+	if scene and is_instance_valid(enemy_model):
+		if is_large:
+			death_fx = EnemyDeathFXUtil.spawn_large(scene, enemy_model, my_pos, _armor_color, false, is_last)
+		else:
+			var overkill_ratio := clampf(_last_overkill / maxf(max_health * 0.38, 1.0), 0.0, 2.2)
+			var overkill_scale := 1.0 + overkill_ratio * 0.65
+			death_fx = EnemyDeathFXUtil.spawn_small(scene, enemy_model, my_pos, _armor_color, is_last, overkill_scale)
+	if death_fx != null:
+		WaveDirectorUtil.notify_death_fx(death_fx, my_pos)
+	_rig.release_model()
+	died.emit(self)
 	queue_free()
 
 
@@ -468,3 +515,13 @@ func parry() -> void:
 	_visuals.set_flash(true)
 	if _rig:
 		_rig.flinch()
+
+
+## juice：大体型敌人（更大的尸体爆炸与更长的演出）。
+func _is_large_enemy() -> bool:
+	return scale.x >= 1.25 \
+		or enemy_title.contains("巨型") \
+		or enemy_title.contains("大型") \
+		or enemy_title.contains("重装") \
+		or enemy_title.contains("重型") \
+		or enemy_title.contains("破坏者")

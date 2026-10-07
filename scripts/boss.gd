@@ -1,4 +1,7 @@
 extends CharacterBody3D
+signal died(enemy: Node3D)
+const EnemyDeathFXUtil := preload("res://scripts/enemy_death_fx.gd")
+const WaveDirectorUtil := preload("res://scripts/wave_director.gd")
 ## Boss：每个阶段（一张竞技场）一个，数据来自 game_config.json 的 bosses 段。
 ##
 ## ── 与普通敌人的差异（也是它为什么是独立脚本）──────────────────────
@@ -220,20 +223,36 @@ func _die() -> void:
 	if _dead:
 		return
 	_dead = true
+	_flash = 0.0
+	if _material:
+		_material.emission = Color(0.18, 0.02, 0.24, 1.0)
+		_material.emission_energy_multiplier = 0.5
 	EventBusUtil.emit_boss_updated(false, _title, 0.0, _max_health)
 	AudioUtil.play_at("explosion", global_position, -2.0)
+	# juice：退出敌人组并关闭碰撞，交给死亡特效接管
+	remove_from_group("enemies")
+	set_physics_process(false)
+	collision_layer = 0
+	collision_mask = 0
 	var scene := get_tree().current_scene
+	var death_fx: Node3D = null
 	if scene:
-		# 死亡要"看得见"：一圈火花 + 一个飘字，避免它静悄悄地消失。
-		for index in range(8):
-			var angle := TAU * float(index) / 8.0
+		if is_instance_valid(_visual):
+			death_fx = EnemyDeathFXUtil.spawn_large(
+				scene, _visual, global_position, Color(0.34, 0.09, 0.4), true, true
+			)
+		for index in range(12):
+			var angle := TAU * float(index) / 12.0
 			CombatFXUtil.spawn_impact(
 				scene,
-				global_position + Vector3(cos(angle) * 1.4, 1.2, sin(angle) * 1.4),
+				global_position + Vector3(cos(angle) * 1.8, 1.4, sin(angle) * 1.8),
 				Vector3.UP,
 				Color(1.0, 0.6, 0.2, 1.0),
-				2.4
+				2.8
 			)
+	if death_fx != null:
+		WaveDirectorUtil.notify_death_fx(death_fx, global_position)
+	died.emit(self)
 	queue_free()
 
 
