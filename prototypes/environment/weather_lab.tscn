@@ -1,4 +1,4 @@
-[gd_scene format=3 uid="uid://wy1u4bti4b6v"]
+[gd_scene format=3]
 
 [ext_resource type="PackedScene" path="res://scenes/stylized_tree.tscn" id="2_tree"]
 [ext_resource type="Script" uid="uid://cltea6a0weien" path="res://scripts/world_decor.gd" id="5_decor"]
