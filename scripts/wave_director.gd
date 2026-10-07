@@ -240,7 +240,6 @@ func _tick_boss() -> void:
 	if is_instance_valid(_boss):
 		return
 	# Boss 已经消失（被击杀了）。
-	var boss := _boss
 	_boss = null
 	_state = State.CLEARED
 	_stuck = 0.0
@@ -258,8 +257,12 @@ func _tick_boss() -> void:
 	var scene := get_tree().current_scene
 	if scene:
 		scene.add_child(kill_cam)
-	var boss_pos := boss.global_position if is_instance_valid(boss) else _player_position()
-	kill_cam.start(boss, boss_pos, true, 3.0)
+	# 取景目标必须经过校验：_boss 在这里已经无效（本函数正是被"Boss 不见了"唤醒的）
+	var focus := _cinematic_focus()
+	var boss_pos := _last_killed_pos if not _last_killed_pos.is_zero_approx() else _player_position()
+	if is_instance_valid(focus):
+		boss_pos = focus.global_position
+	kill_cam.start(focus, boss_pos, true, 3.0)
 	var player := get_tree().get_first_node_in_group(GROUP_PLAYER)
 	if player and player.get("_hud") != null:
 		var hud: Node = player.get("_hud")
@@ -312,6 +315,10 @@ func _start_wave() -> void:
 	_spawn_budget = _count_for_wave(_wave)
 	_spawn_cooldown = 0.0
 	_wave_spawned = 0
+	# juice：清掉上一波的取景状态，避免特写对着早已消失的目标
+	_last_killed_enemy = null
+	_last_death_fx = null
+	_last_killed_pos = Vector3.ZERO
 	_note_progress()
 	RunStateUtil.set_progress(_stage, _wave - 1)
 	print("[波次] 阶段 %d 第 %d/%d 波开始：%d 个敌人" % [_stage, _wave, _total_waves, _spawn_budget])
@@ -325,7 +332,7 @@ func _finish_wave() -> void:
 	RunStateUtil.set_progress(_stage, _wave)
 	print("[波次] 第 %d 波清空，休整 %.1f 秒，启动终结慢动作特写" % [_wave, _timer])
 	_publish()
-	_play_wave_clear_cinematic(_wave, _total_waves, _last_killed_enemy, _last_killed_pos)
+	_play_wave_clear_cinematic(_wave, _total_waves, _cinematic_focus(), _last_killed_pos)
 
 
 ## juice：波次肃清慢动作特写，并在演完后请求"波间强化三选一"。
@@ -367,6 +374,7 @@ func _start_boss() -> void:
 	if _spawner == null:
 		return
 	_boss = _spawner.call("spawn_boss", _boss_id, _pick_anchor()) as Node3D
+	_connect_death_focus(_boss)
 	_state = State.BOSS
 	_stuck = 0.0
 	print("[波次] 阶段 %d 全部波次结束，Boss 出场：%s" % [_stage, String(bcfg.get("label", _boss_id))])
@@ -418,8 +426,6 @@ func _spawn_one() -> void:
 
 func _on_enemy_gone(enemy: Node3D) -> void:
 	_alive.erase(enemy)
-	# juice：记下最后一个被击杀的敌人，供波次肃清特写取景
-	_last_killed_enemy = enemy
 	# 有敌人被清掉就是进展（下一波迟早会开始），把看门狗清零。
 	_note_progress()
 
@@ -442,7 +448,9 @@ func _purge_dead() -> void:
 func _make_enemy(entry: Dictionary, position: Vector3) -> Node3D:
 	if _spawner == null:
 		return null
-	return _spawner.call("spawn_enemy", entry, position, float(_weapon_level)) as Node3D
+	var enemy := _spawner.call("spawn_enemy", entry, position, float(_weapon_level)) as Node3D
+	_connect_death_focus(enemy)
+	return enemy
 
 
 func _pick_entry() -> Dictionary:
@@ -580,3 +588,34 @@ func register_death_fx(fx: Node3D, pos: Vector3) -> void:
 func check_is_last_enemy(enemy: Node3D) -> bool:
 	return _state == State.FIGHT and _spawn_budget <= 0 \
 		and _alive.size() <= 1 and (_alive.is_empty() or _alive.has(enemy))
+
+
+## juice：在敌人【死亡瞬间】记下取景目标。
+##
+## 必须挂在 died 信号上，不能等 tree_exited —— 后者触发时节点已被 queue_free，
+## 把那个引用传给 typed 参数（Node3D）会在参数类型检查处直接报
+## "previously freed is not a subclass of the expected argument class"。
+func _connect_death_focus(enemy: Node3D) -> void:
+	if enemy == null or not enemy.has_signal("died"):
+		return
+	if not enemy.is_connected("died", _on_enemy_died):
+		enemy.connect("died", _on_enemy_died)
+
+
+func _on_enemy_died(enemy: Node3D) -> void:
+	if not is_instance_valid(enemy):
+		return
+	_last_killed_enemy = enemy
+	_last_killed_pos = enemy.global_position
+
+
+## juice：特写取景目标。
+##
+## 优先用仍在场上的死亡特效节点（尸体/碎块，存活数秒），其次才是敌人引用；
+## 两者都必须过 is_instance_valid —— 已释放的对象一律回退到 null（镜头改用落点坐标）。
+func _cinematic_focus() -> Node3D:
+	if is_instance_valid(_last_death_fx):
+		return _last_death_fx
+	if is_instance_valid(_last_killed_enemy):
+		return _last_killed_enemy
+	return null
