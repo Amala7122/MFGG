@@ -287,7 +287,12 @@ static func impact_allies(area: Node3D, caster: Node3D, info: Dictionary) -> voi
 			if not impulse.is_zero_approx():
 				actor_context["impact_velocity"] = impulse
 		Telemetry.hurt_enemy(actor, float(area.damage), actor_context)
-		if not is_instance_valid(actor) or actor.is_queued_for_deletion() or float(actor.get("health")) <= 0.0:
+		if not is_instance_valid(actor) or actor.is_queued_for_deletion():
+			continue
+		# 不暴露 health 的 actor（例如只提供 get_health() 的 Boss）按"存活"处理。
+		# 绝不能对 null 调 float()：那会抛 Nonexistent 'float' constructor 崩掉整局。
+		var actor_health: Variant = actor.get("health")
+		if actor_health != null and float(actor_health) <= 0.0:
 			continue
 		if reaction != null:
 			reaction.call("receive_impact", area.global_position)

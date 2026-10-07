@@ -63,6 +63,18 @@ var _boss_id := ""
 var _title := "BOSS"
 var _max_health := 2600.0
 var _health := 2600.0
+
+## 兼容层：外部系统（战斗反应、攻击区域、共鸣、浮游卫士…）统一按 "health" 读血量，
+## 而 Boss 内部用 _health。属性别名把两者接起来。
+##
+## 【为什么必须有】Boss 会进入 enemies 组，而项目里多处写成
+## float(actor.get("health"))；Boss 没有 health 时那里取到 null，
+## float(null) 会抛 "Invalid call. Nonexistent 'float' constructor." 直接崩掉整局。
+var health: float:
+	get:
+		return _health
+	set(value):
+		_health = value
 var _move_speed := 4.6
 var _touch_damage := 26.0
 var _weak_ratio := 0.34
