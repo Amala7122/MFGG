@@ -668,6 +668,8 @@ func _update_presentation(delta: float) -> void:
 		)
 	if not _hud:
 		return
+	if _hud.has_method("set_sprint"):
+		_hud.set_sprint(_sprinting)
 	_hud.set_survival(survival_time, best_survival_time)
 	_hud.set_abilities(_grenade_cooldown, _skill_cooldown)
 	# 生命与护盾都必须每帧刷新，不能只在受伤时推送。

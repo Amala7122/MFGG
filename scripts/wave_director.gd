@@ -23,6 +23,8 @@ const ArenaUtil := preload("res://scripts/arena.gd")
 const EventBusUtil := preload("res://scripts/event_bus.gd")
 const TerrainFieldUtil := preload("res://scripts/terrain_field.gd")
 const RunStateUtil := preload("res://scripts/run_state.gd")
+const AudioUtil := preload("res://scripts/audio_manager.gd")
+const CinematicKillCamScript := preload("res://scripts/cinematic_kill_cam.gd")
 
 # 只用来查"战局是否在进行中"。game_flow 不 preload wave_director，因此无环。
 const GameFlowUtil := preload("res://scripts/game_flow.gd")
@@ -238,14 +240,38 @@ func _tick_boss() -> void:
 	if is_instance_valid(_boss):
 		return
 	# Boss 已经消失（被击杀了）。
+	var boss := _boss
 	_boss = null
 	_state = State.CLEARED
 	_stuck = 0.0
 	RunStateUtil.set_progress(_stage, _total_waves)
-	print("[波次] 阶段 %d 通过（%s）" % [_stage, String(_arena.get("label", ""))])
+	print("[波次] 阶段 %d 通过（%s），启动 Boss 击杀慢动作特写" % [_stage, String(_arena.get("label", ""))])
 	_publish()
-	EventBusUtil.emit_stage_cleared(_stage)
 	set_process(false)
+
+	# juice：Boss 击杀慢动作特写（0.15 倍速 + 环绕镜头）
+	Engine.time_scale = 0.15
+	AudioUtil.play("explode", 4.0, 0.65)
+	AudioUtil.play("shockwave", 3.0, 0.45)
+	var kill_cam := CinematicKillCamScript.new()
+	kill_cam.name = "BossClearKillCam"
+	var scene := get_tree().current_scene
+	if scene:
+		scene.add_child(kill_cam)
+	var boss_pos := boss.global_position if is_instance_valid(boss) else _player_position()
+	kill_cam.start(boss, boss_pos, true, 3.0)
+	var player := get_tree().get_first_node_in_group(GROUP_PLAYER)
+	if player and player.get("_hud") != null:
+		var hud: Node = player.get("_hud")
+		if hud.has_method("show_notice"):
+			hud.call("show_notice", "◆ 区域霸主讨伐完成 · 战局肃清 ◆", "victory")
+	# 用 ignore_time_scale 的真实计时器，等慢动作演完再结算
+	var timer := get_tree().create_timer(3.0, true, false, true)
+	timer.timeout.connect(func():
+		CinematicKillCamScript.dismiss_active()
+		Engine.time_scale = 1.0
+		EventBusUtil.emit_stage_cleared(_stage)
+	)
 
 
 func _advance() -> void:
@@ -297,8 +323,35 @@ func _finish_wave() -> void:
 	_timer = maxf(float(_wave_cfg.get("intermission", 6.0)), 0.0)
 	_note_progress()
 	RunStateUtil.set_progress(_stage, _wave)
-	print("[波次] 第 %d 波清空，休整 %.1f 秒" % [_wave, _timer])
+	print("[波次] 第 %d 波清空，休整 %.1f 秒，启动终结慢动作特写" % [_wave, _timer])
 	_publish()
+	_play_wave_clear_cinematic(_wave, _total_waves, _last_killed_enemy, _last_killed_pos)
+
+
+## juice：波次肃清慢动作特写，并在演完后请求"波间强化三选一"。
+func _play_wave_clear_cinematic(
+	cleared_wave: int, total_waves: int, last_enemy: Node3D = null, last_pos: Vector3 = Vector3.ZERO
+) -> void:
+	Engine.time_scale = 0.15
+	AudioUtil.play("pickup", 3.0, 0.45)
+	AudioUtil.play("shockwave", 2.0, 0.5)
+	var kill_cam := CinematicKillCamScript.new()
+	kill_cam.name = "WaveClearKillCam"
+	var scene := get_tree().current_scene
+	if scene:
+		scene.add_child(kill_cam)
+	kill_cam.start(last_enemy, last_pos, false, 2.2)
+	var player := get_tree().get_first_node_in_group(GROUP_PLAYER)
+	if player and player.get("_hud") != null:
+		var hud: Node = player.get("_hud")
+		if hud.has_method("show_notice"):
+			hud.call("show_notice", "◆ 第 %d 波肃清 ◆" % cleared_wave, "upgrade")
+	var timer := get_tree().create_timer(2.2, true, false, true)
+	timer.timeout.connect(func():
+		CinematicKillCamScript.dismiss_active()
+		Engine.time_scale = 1.0
+		EventBusUtil.emit_upgrade_pick_requested(cleared_wave, total_waves)
+	)
 
 
 func _start_boss() -> void:
@@ -365,6 +418,8 @@ func _spawn_one() -> void:
 
 func _on_enemy_gone(enemy: Node3D) -> void:
 	_alive.erase(enemy)
+	# juice：记下最后一个被击杀的敌人，供波次肃清特写取景
+	_last_killed_enemy = enemy
 	# 有敌人被清掉就是进展（下一波迟早会开始），把看门狗清零。
 	_note_progress()
 
@@ -501,6 +556,7 @@ static var instance: Node = null
 ## 最近一次死亡特效与其位置，供波次收尾镜头引用。
 var _last_killed_pos := Vector3.ZERO
 var _last_death_fx: Node3D = null
+var _last_killed_enemy: Node3D = null
 
 
 ## 静态入口：本敌人是否是当前波的最后一个。

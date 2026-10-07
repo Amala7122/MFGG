@@ -14,6 +14,8 @@ const SaveUtil := preload("res://scripts/save_manager.gd")
 const PoolUtil := preload("res://scripts/object_pool.gd")
 const EventBusUtil := preload("res://scripts/event_bus.gd")
 const RunStateUtil := preload("res://scripts/run_state.gd")
+const CinematicKillCamScript := preload("res://scripts/cinematic_kill_cam.gd")
+const CinematicActionCamScript := preload("res://scripts/cinematic_action_cam.gd")
 const ArenaUtil := preload("res://scripts/arena.gd")
 const DisplaySettingsUtil := preload("res://scripts/display_settings.gd")
 const TerrainUtil := preload("res://scripts/terrain_field.gd")
@@ -465,7 +467,14 @@ func _apply_start_arena(arena_id: String) -> void:
 		RunStateUtil.set_progress(index + 1, 0)
 
 
+## juice：任何流程切换都先撤掉电影镜头，避免镜头卡在特写上。
+func _dismiss_cinematics() -> void:
+	CinematicKillCamScript.dismiss_active()
+	CinematicActionCamScript.dismiss_active()
+
+
 func _resume_play() -> void:
+	_dismiss_cinematics()
 	state = State.PLAYING
 	_set_overlay_visible(false)
 	get_tree().paused = false
@@ -473,6 +482,7 @@ func _resume_play() -> void:
 
 
 func _enter_pause() -> void:
+	_dismiss_cinematics()
 	state = State.PAUSED
 	_title.text = "已 暂 停"
 	_clear_arena_row()
@@ -513,6 +523,7 @@ func _on_resume() -> void:
 
 
 func _on_restart() -> void:
+	_dismiss_cinematics()
 	AudioUtil.play("ui")
 	# 清掉上一局的池化对象，避免把旧场景的实例带进新一局。
 	PoolUtil.clear_all()
@@ -534,6 +545,7 @@ func _on_quit() -> void:
 
 
 func _enter_game_over(survival: float, kills: int) -> void:
+	_dismiss_cinematics()
 	if state == State.GAME_OVER:
 		return
 	state = State.GAME_OVER
@@ -579,6 +591,7 @@ func _preview_game_over() -> void:
 ## 所以这里给的是"进入下一区域"，并且明确告诉玩家武装会保留 ——
 ## 不然玩家会以为换图等于重开，不敢往下走。
 func _enter_stage_cleared(stage: int) -> void:
+	_dismiss_cinematics()
 	if state == State.DYING or state == State.GAME_OVER or state == State.STAGE_CLEAR:
 		return
 	state = State.STAGE_CLEAR

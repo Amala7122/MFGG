@@ -117,7 +117,8 @@ func trigger(normal: Vector3, color: Color, scale_multiplier: float = 1.0) -> vo
 	_flash.scale = Vector3.ONE * _scale_factor
 	# 法线接近竖直时必须换一个 up，否则 look_at 会因方向与 up 平行而报错。
 	var safe_up := Vector3.UP if absf(safe_normal.dot(Vector3.UP)) < 0.92 else Vector3.FORWARD
-	_flash.look_at(_flash.global_position + safe_normal, safe_up)
+	if _flash.is_inside_tree():
+		_flash.look_at(_flash.global_position + safe_normal, safe_up)
 
 	_light.light_color = color
 	_light.light_energy = BASE_LIGHT_ENERGY * _scale_factor
@@ -154,3 +155,4 @@ func _process(delta: float) -> void:
 	_flash_material.emission_energy_multiplier = BASE_FLASH_ENERGY * fade * fade
 	_flash.scale = Vector3.ONE * (_scale_factor * (1.0 + progress * 0.9))
 	_light.light_energy = BASE_LIGHT_ENERGY * _scale_factor * fade
+

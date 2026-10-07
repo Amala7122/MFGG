@@ -66,6 +66,11 @@ func _deactivate() -> void:
 	_active = false
 	_danger = 0.0
 	_beat_timer = 0.0
+	AudioUtil.set_low_health_danger(0.0)
+
+
+func _exit_tree() -> void:
+	AudioUtil.set_low_health_danger(0.0)
 
 
 func _process(delta: float) -> void:
@@ -79,6 +84,9 @@ func _process(delta: float) -> void:
 			_beat_timer += lerpf(_interval_safe, _interval_critical, _danger)
 			_envelope = 1.0
 			AudioUtil.play("heartbeat", -7.0)
+		AudioUtil.set_low_health_danger(_danger)
+	else:
+		AudioUtil.set_low_health_danger(0.0)
 	var intensity := 0.0
 	if _active:
 		intensity = lerpf(_rest_intensity, _max_intensity, _danger)
