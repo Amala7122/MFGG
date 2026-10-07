@@ -6,6 +6,8 @@ const GameFlowUtil := preload("res://scripts/game_flow.gd")
 const AudioUtil := preload("res://scripts/audio_manager.gd")
 const CombatFXUtil := preload("res://scripts/combat_fx.gd")
 const UpgradePoolScript := preload("res://scripts/upgrade_pool.gd")
+const ResonanceScript := preload("res://scripts/resonance.gd")
+const FloatingWispScript := preload("res://scripts/floating_wisp.gd")
 const TelegraphUtil := preload("res://scripts/telegraph.gd")
 const EventBusUtil := preload("res://scripts/event_bus.gd")
 const RunStateUtil := preload("res://scripts/run_state.gd")
@@ -274,6 +276,16 @@ func _setup_components() -> void:
 	add_child(_hud)
 	# 相机给受击方向指示器判定"前方"，自身给小地图定位。
 	_hud.setup(aim_ui, camera, self)
+	# juice：遗迹共鸣（HUD 由事件总线收发）与浮游卫士
+	_resonance = ResonanceScript.new()
+	_resonance.name = "Resonance"
+	add_child(_resonance)
+	_resonance.setup(self, _hud)
+
+	_wisp = FloatingWispScript.new()
+	_wisp.name = "FloatingWisp"
+	add_child(_wisp)
+	_wisp.setup(self, camera)
 	# juice：订阅波间赐福（选择结果由 game_flow 广播）
 	EventBusUtil.subscribe_upgrade_chosen(_on_upgrade_chosen)
 
@@ -596,7 +608,16 @@ func _update_combat(delta: float) -> void:
 	var captured := _is_aim_captured()
 	_aiming = _held("aim") and captured and not _rolling and not _free_look
 	var trigger := _held("shoot") and captured and not _rolling
-	if _just("reload"):
+	# juice：遗迹共鸣释放（R / F 键；能量未满时按键仍是普通换弹）
+	var burst_requested := _just("reload") or Input.is_action_just_pressed("reload") \
+		or Input.is_key_pressed(KEY_F)
+	var burst_fired := false
+	if _resonance != null:
+		_resonance.update(delta, false)
+		if _resonance.is_ready() and burst_requested:
+			_resonance.perform_burst()
+			burst_fired = true
+	if _just("reload") and not burst_fired:
 		_weapon.start_reload()
 	_handle_grenade()
 	_handle_skill()
@@ -771,6 +792,9 @@ func take_damage(
 			_rig.flash_hit()
 		return
 	if _damage_invulnerability > 0.0 or health <= 0.0:
+		# juice：翻滚无敌期间挨到攻击 = 完美闪避，回充共鸣能量
+		if _rolling and _resonance != null:
+			_resonance.on_perfect_dodge()
 		return
 	amount = maxf(amount, 0.0)
 	# 护盾与生命从这次改动起走两套独立的计算：
@@ -786,12 +810,25 @@ func take_damage(
 	# 倍率为 1.0 时下面两式退化成 min(shield, amount) 与 amount - absorbed，
 	# 与改动前逐位相同 —— 所有没传倍率的调用方（远程兵、Boss、弹幕、炮击）
 	# 行为完全不变，便于单独隔离测试这一组改动。
+	var prev_shield := shield
 	var scale := clampf(shield_damage_scale, 0.01, 10.0)
 	var absorbed_raw := minf(shield / scale, amount)
 	shield = maxf(shield - absorbed_raw * scale, 0.0)
 	# 先扣护盾，溢出部分才进生命。护盾吸完就"碎"，不会挡住溢出伤害 ——
 	# 否则高护盾等于一段无敌时间，生存压力会消失。
 	health = maxf(health - (amount - absorbed_raw), 0.0)
+	# juice：护盾被打穿 → 共鸣充能激增 + 破盾反馈
+	if prev_shield > 0.0 and shield <= 0.0:
+		if _resonance != null:
+			_resonance.on_shield_break()
+		AudioUtil.play("shield_break", 4.0, 1.0)
+		apply_rumble(0.6, 0.85, 0.3)
+		CombatFXUtil.hitstop(self, 0.045)
+		apply_camera_shake(0.85)
+		if _hud and _hud.has_method("flash_shield_break"):
+			_hud.flash_shield_break()
+	if _resonance != null:
+		_resonance.on_player_hit(amount)
 	# 任何一次受击都重置两个计时器：这就是"停火才回血"的全部机制。
 	_shield_regen_timer = _shield_regen_delay
 	_health_regen_timer = _health_regen_delay
@@ -895,6 +932,8 @@ func register_enemy_kill() -> void:
 		try_heal(4.0)
 	if RunStateUtil.has_perk("chain_lightning"):
 		_trigger_chain_lightning()
+	if _resonance != null:
+		_resonance.on_enemy_kill()
 
 
 func upgrade_weapon() -> bool:
@@ -1009,6 +1048,8 @@ func is_cinematic_locked() -> bool:
 func on_shockwave_parry(count: int) -> void:
 	if _hud:
 		_hud.show_notice("震地破招·完美格挡 ×%d！" % count, "shield")
+	if _resonance != null:
+		_resonance.on_perfect_dodge()
 	if _resonance != null:
 		_resonance.on_perfect_dodge()
 

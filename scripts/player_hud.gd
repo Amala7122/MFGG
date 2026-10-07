@@ -12,6 +12,7 @@ const EventBusUtil := preload("res://scripts/event_bus.gd")
 const ConfigUtil := preload("res://scripts/game_config.gd")
 const AudioUtil := preload("res://scripts/audio_manager.gd")
 const SpeedLinesOverlayScript := preload("res://scripts/speed_lines_overlay.gd")
+const ResonanceBarScript := preload("res://scripts/resonance_bar.gd")
 ## 配色与字号全部来自统一主题，本文件不再自带 COLOR_* 常量
 ## （原先与 game_flow.gd 各写一份，两边已经开始漂移）。
 const UiThemeUtil := preload("res://scripts/ui_theme.gd")
@@ -43,6 +44,7 @@ var _legacy_health_bar: ProgressBar
 var _legacy_health_label: Label
 var _damage_overlay: ColorRect
 var _speed_lines: SpeedLinesOverlayScript
+var _resonance_bar: ResonanceBarScript
 ## 击杀 / 生存两块读数原先各是一条 Label（拼一句文本），现已由读数板取代。
 ## 与生命条一样：只隐藏、不删除场景里的原节点。
 var _legacy_kill_label: Label
@@ -177,6 +179,7 @@ func setup(aim_ui: CanvasLayer, camera: Camera3D = null, player: Node3D = null) 
 	if _damage_overlay:
 		_damage_overlay.visible = false
 	_build_speed_lines()
+	_build_resonance_bar()
 	_build_crosshair()
 	_build_hit_marker()
 	_build_damage_direction(camera)
@@ -357,6 +360,22 @@ func _apply_theme(control: Control, variation: String) -> void:
 	control.theme = _theme
 	if not variation.is_empty():
 		control.theme_type_variation = variation
+
+
+## juice：遗迹共鸣进度条（条子自己订阅 EventBus 的 resonance_changed，无需每帧推）。
+func _build_resonance_bar() -> void:
+	_resonance_bar = ResonanceBarScript.new()
+	_resonance_bar.name = "ResonanceBar"
+	_resonance_bar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_resonance_bar.offset_left = -ResonanceBarScript.BAR_WIDTH / 2.0
+	_resonance_bar.offset_right = ResonanceBarScript.BAR_WIDTH / 2.0
+	_resonance_bar.offset_top = (
+		-VitalsPanelScript.PANEL_HEIGHT - 18.0 - ResonanceBarScript.BAR_HEIGHT - 4.0
+	)
+	_resonance_bar.offset_bottom = -VitalsPanelScript.PANEL_HEIGHT - 18.0 - 4.0
+	_resonance_bar.pivot_offset = Vector2(ResonanceBarScript.BAR_WIDTH / 2.0, ResonanceBarScript.BAR_HEIGHT)
+	_resonance_bar.scale = Vector2(0.88, 0.88)
+	_aim_ui.add_child(_resonance_bar)
 
 
 ## juice：冲刺速度线（ruin-star 移植；由 player 每帧推 _sprinting）。
