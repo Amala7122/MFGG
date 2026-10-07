@@ -11,6 +11,7 @@ const UiThemeUtil := preload("res://scripts/ui_theme.gd")
 
 var _intensity := 0.0
 var _kill := false
+var _headshot := false
 
 
 func _ready() -> void:
@@ -18,11 +19,13 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 
-## 触发一次命中闪现；is_kill 为 true 时用击杀色。
-func flash(is_kill: bool = false) -> void:
+## 触发一次命中闪现；is_kill 为 true 时用击杀色，is_headshot 为 true 时用爆头标记。
+func flash(is_kill: bool = false, is_headshot: bool = false) -> void:
 	_kill = is_kill
+	_headshot = is_headshot
 	_intensity = 1.0
 	queue_redraw()
+
 
 
 func is_active() -> bool:
@@ -40,10 +43,11 @@ func _draw() -> void:
 	if _intensity <= 0.0:
 		return
 	var center := size * 0.5
-	var base := UiThemeUtil.COLOR_DANGER if _kill else UiThemeUtil.COLOR_PAPER
+	var base := UiThemeUtil.COLOR_DANGER if _kill else (Color(1.0, 0.85, 0.22, 1.0) if _headshot else UiThemeUtil.COLOR_PAPER)
 	var color := Color(base.r, base.g, base.b, _intensity)
-	var width := LINE_WIDTH * (0.65 + _intensity * 0.5)
-	var reach := ARM_OFFSET + ARM_LENGTH * (0.5 + _intensity * 0.5)
+	var width := LINE_WIDTH * (0.65 + _intensity * 0.5) * (1.25 if _headshot else 1.0)
+	var reach := ARM_OFFSET + ARM_LENGTH * (0.5 + _intensity * 0.5) * (1.2 if _headshot else 1.0)
+
 	var directions: Array[Vector2] = [
 		Vector2(1.0, 1.0), Vector2(-1.0, 1.0), Vector2(1.0, -1.0), Vector2(-1.0, -1.0)
 	]

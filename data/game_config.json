@@ -88,11 +88,13 @@
     "magazine_capacity": 30,
     "reload_duration": 1.35,
     "spread": {
-      "_doc": "散布（度）。base_degrees 是腰射底噪，bloom 是连射时的累积与回复，ads_multiplier 是开镜收束，movement_penalty 是移动中的惩罚。",
+      "_doc": "散布半角（度）。腰射 = base_degrees + 连射 bloom + 移动速度比例 × movement_degrees，移动项独立相加，不放大 bloom。movement_degrees 对应基准跑速，疾跑最多按 1.6 倍计算。右键为零散布狙击。准星按实际相机投影显示水平 / 垂直散布边界。",
       "base_degrees": 0.55,
       "bloom_per_shot": 0.85,
       "bloom_decay": 5.5,
       "max_bloom_degrees": 6.5,
+      "movement_degrees": 1.0
+    ,
       "ads_multiplier": 0.35,
       "movement_penalty": 1.8
     },
@@ -1246,6 +1248,17 @@
       "mortar": [1.3, 880.0, 190.0, 0.5, 0.12, 0.9],
       "ui": [0.09, 880.0, 1200.0, 4.0, 0.0, 0.35],
       "heartbeat": [0.2, 88.0, 42.0, 3.2, 0.22, 1.0]
+    ,
+      "bullet_whiz": [0.16, 1500.0, 310.0, 4.2, 0.42, 0.85],
+      "footstep": [0.07, 190.0, 55.0, 7.0, 0.42, 0.38],
+      "shield_break": [0.32, 1850.0, 160.0, 4.8, 0.55, 1.0],
+      "wisp_shot": [0.12, 1180.0, 360.0, 5.2, 0.12, 0.45]
+    ,
+      "casing_clink": [0.045, 2600.0, 1900.0, 9.0, 0.06, 0.22],
+      "hit_flesh": [0.1, 420.0, 95.0, 4.6, 0.68, 0.58],
+      "hit_metal": [0.11, 2100.0, 640.0, 6.2, 0.12, 0.65],
+      "hit_stone": [0.09, 720.0, 180.0, 6.5, 0.72, 0.48],
+      "whoosh": [0.18, 540.0, 110.0, 3.8, 0.65, 0.75]
     }
   },
 
@@ -1292,5 +1305,31 @@
       { "name": "waterfall_lip", "pos": [114.0, 96.0, -322.0], "look_at": [104.0, 84.0, -351.0], "fov": 49.0 },
       { "name": "waterfall_oblique", "pos": [147.0, 91.0, -287.0], "look_at": [104.0, 60.0, -345.0], "fov": 48.0 }
     ]
+  },
+  "resonance": {
+    "_doc": "遗迹共鸣能量系统参数。受击、闪避、击杀积蓄能量，满载后长按 R 触发毁灭爆发。",
+    "max_energy": 100.0,
+    "overflow_cap": 200.0,
+    "charge_on_hit": 10.0,
+    "charge_on_dodge": 20.0,
+    "charge_on_kill": 4.0,
+    "charge_on_shield_break": 28.0,
+    "burst_radius": 20.0,
+    "burst_damage_base": 520.0,
+    "burst_damage_per_energy": 9.5,
+    "burst_push": 28.0,
+    "burst_hold_seconds": 0.65
+  },
+  "wisp": {
+    "_doc": "战术浮游卫士：盘旋在玩家身旁的战术支援无人机，主要协助玩家警戒并射击后方与侧翼视野盲区（>65°）的偷袭敌人，攻击力偏低但具备稳定自保骚扰与遇袭预警价值。",
+    "enabled": true,
+    "damage": 9.0,
+    "fire_rate": 1.35,
+    "range": 22.0,
+    "blind_spot_angle": 65.0,
+    "projectile_speed": 42.0,
+    "color": [0.25, 0.88, 1.0, 1.0],
+    "ceasefire_min_enemies": 1,
+    "_ceasefire_doc": "战场剩余敌人小于或等于该数量时浮游卫士停火（默认1：仅剩最后1个敌人时不抢人头射击，留由玩家亲自终结触发慢动作特写）"
   }
 }

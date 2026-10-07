@@ -44,6 +44,11 @@ const SIG_WEAPON_LEVEL_CHANGED := &"weapon_level_changed"
 const SIG_WAVE_UPDATED := &"wave_updated"
 const SIG_BOSS_UPDATED := &"boss_updated"
 const SIG_STAGE_CLEARED := &"stage_cleared"
+const SIG_RESONANCE_CHANGED := &"resonance_changed"
+const SIG_RESONANCE_BURST := &"resonance_burst"
+const SIG_UPGRADE_PICK_REQUESTED := &"upgrade_pick_requested"
+const SIG_UPGRADE_CHOSEN := &"upgrade_chosen"
+const SIG_PERFECT_DODGE := &"perfect_dodge"
 
 ## autoload 实例。未注册时为 null，所有转发函数自动降级为空操作。
 static var instance: Node
@@ -88,6 +93,26 @@ signal boss_updated(active: bool, title: String, current: float, maximum: float)
 ## 接收：game_flow.gd —— "显示通过面板 → 切下一个竞技场"属于流程节奏，
 ## 不该散落在战斗节点里，所以这里只报告事实。
 signal stage_cleared(stage: int)
+
+## ── juice 侧新增（ruin-star 移植） ──────────────────────────────
+## 共鸣能量变化。发送：resonance.gd。接收：resonance_bar.gd。
+signal resonance_changed(current: float, max_energy: float, overflow_cap: float)
+
+
+## 共鸣爆发。发送：resonance.gd。
+signal resonance_burst(power: float)
+
+
+## 波次结束请求弹强化三选一。发送：wave_director.gd。接收：game_flow.gd。
+signal upgrade_pick_requested(wave: int, total_waves: int)
+
+
+## 玩家选定了强化。发送：game_flow.gd。接收：player.gd。
+signal upgrade_chosen(upgrade_id: String)
+
+
+## 完美闪避。发送：resonance.gd（充能提示用）。
+signal perfect_dodge()
 
 
 func _ready() -> void:
@@ -159,3 +184,55 @@ static func subscribe_boss_updated(callback: Callable) -> void:
 static func subscribe_stage_cleared(callback: Callable) -> void:
 	if instance:
 		instance.connect(SIG_STAGE_CLEARED, callback)
+
+
+## ── juice 侧转发函数（与上面 signal 一一对应）──────────────────────
+
+static func emit_resonance_changed(current: float, max_energy: float, overflow_cap: float) -> void:
+	if instance:
+		instance.emit_signal(SIG_RESONANCE_CHANGED, current, max_energy, overflow_cap)
+
+
+static func subscribe_resonance_changed(callback: Callable) -> void:
+	if instance:
+		instance.connect(SIG_RESONANCE_CHANGED, callback)
+
+
+static func emit_resonance_burst(power: float) -> void:
+	if instance:
+		instance.emit_signal(SIG_RESONANCE_BURST, power)
+
+
+static func subscribe_resonance_burst(callback: Callable) -> void:
+	if instance:
+		instance.connect(SIG_RESONANCE_BURST, callback)
+
+
+static func emit_upgrade_pick_requested(wave: int, total_waves: int) -> void:
+	if instance:
+		instance.emit_signal(SIG_UPGRADE_PICK_REQUESTED, wave, total_waves)
+
+
+static func subscribe_upgrade_pick_requested(callback: Callable) -> void:
+	if instance:
+		instance.connect(SIG_UPGRADE_PICK_REQUESTED, callback)
+
+
+static func emit_upgrade_chosen(upgrade_id: String) -> void:
+	if instance:
+		instance.emit_signal(SIG_UPGRADE_CHOSEN, upgrade_id)
+
+
+static func subscribe_upgrade_chosen(callback: Callable) -> void:
+	if instance:
+		instance.connect(SIG_UPGRADE_CHOSEN, callback)
+
+
+static func emit_perfect_dodge() -> void:
+	if instance:
+		instance.emit_signal(SIG_PERFECT_DODGE)
+
+
+static func subscribe_perfect_dodge(callback: Callable) -> void:
+	if instance:
+		instance.connect(SIG_PERFECT_DODGE, callback)

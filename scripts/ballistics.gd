@@ -181,9 +181,12 @@ static func play_hit_feedback(
 ) -> void:
 	var target := collider as Node
 	var is_enemy := target != null and target.is_in_group("enemies")
+	var is_metal := false
+	if is_enemy and target != null:
+		is_metal = target.is_in_group("boss") or float(target.get("_armor")) > 0.15
 	play_hit_feedback_flagged(
 		scene, position, normal, is_enemy, amount, headshot, killed,
-		impact_scale, marker
+		impact_scale, marker, is_metal, target
 	)
 
 
@@ -200,24 +203,53 @@ static func play_hit_feedback_flagged(
 	headshot: bool,
 	killed: bool,
 	impact_scale: float = 1.0,
-	marker: bool = true
+	marker: bool = true,
+	is_metal: bool = false,
+	target: Node = null
 ) -> void:
 	if not scene:
 		return
-	var color: Color = CombatFX.COLOR_WORLD_HIT
+	var color: Color = CombatFX.COLOR_STONE_HIT
 	if is_enemy:
-		color = HEADSHOT_COLOR if headshot else CombatFX.COLOR_ENEMY_HIT
-	CombatFX.spawn_impact(scene, position, normal, color, impact_scale)
+		if headshot:
+			color = HEADSHOT_COLOR
+		elif is_metal:
+			color = CombatFX.COLOR_METAL_HIT
+		else:
+			color = CombatFX.COLOR_FLESH_HIT
+
+	var final_impact_scale := impact_scale * (1.2 if is_metal else 1.0)
+	CombatFX.spawn_impact(scene, position, normal, color, final_impact_scale)
+
 	if not is_enemy:
-		# 打地形：压低音量并降调，与打中敌人的反馈明确区分开。
-		AudioUtil.play_at("hit", position, -15.0, 0.7)
+		# 打地形/世界：播放碎石崩裂音效，区分地表弹坑与垂直掩体穿透弹孔
+		AudioUtil.play_at("hit_stone", position, -11.0, randf_range(0.95, 1.05))
+		var is_heavy := amount >= 100.0 or impact_scale > 1.2
+		if normal.dot(Vector3.UP) >= 0.35:
+			CombatFX.spawn_ground_crater(scene, position, normal, is_heavy)
+		else:
+			CombatFX.spawn_bullet_hole(scene, position, normal, is_heavy)
 		return
-	AudioUtil.play_at("headshot" if headshot else "hit", position, -8.0)
+
+	# 敌人受击材质分化：区分重甲/Boss (金属跳弹) 与 普通生物/无护甲 (沉闷肉身冲击)
+	if is_metal:
+		AudioUtil.play_at("hit_metal", position, -6.5, randf_range(0.96, 1.05))
+	else:
+		AudioUtil.play_at("hit_flesh", position, -6.5, randf_range(0.96, 1.05))
+
+	if headshot:
+		AudioUtil.play_at("headshot", position, -6.0)
 	if killed:
 		AudioUtil.play_at("kill", position, -5.0)
+
+	# 暴击 / 爆头 / 狙击贯通局部顿帧（Hitstop）
+	var hitstop_node: Node = target if is_instance_valid(target) else scene
+	if headshot:
+		CombatFX.hitstop(hitstop_node, 0.038)
+	elif amount >= 150.0:
+		CombatFX.hitstop(hitstop_node, 0.028)
 	var emphasis := 1.75 if headshot else clampf(impact_scale * 1.2, 0.7, 2.0)
 	CombatFX.spawn_damage_number(scene, position + Vector3.UP * 0.32, amount, color, emphasis)
-	# 准星命中标记属于屏幕 UI：本模块是无状态工具类，拿不到 HUD 引用，
-	# 所以通过事件总线广播，由 PlayerHUD 订阅。
+	# 准星命中标记属于屏幕 UI：由 PlayerHUD 订阅
 	if marker:
 		EventBusUtil.emit_hit_confirmed(headshot, killed)

@@ -26,6 +26,7 @@ const RunStateUtil := preload("res://scripts/run_state.gd")
 
 const BallisticsUtil := preload("res://scripts/ballistics.gd")
 const AudioUtil := preload("res://scripts/audio_manager.gd")
+const CombatFXUtil := preload("res://scripts/combat_fx.gd")
 const EventBusUtil := preload("res://scripts/event_bus.gd")
 const ConfigUtil := preload("res://scripts/game_config.gd")
 
@@ -36,6 +37,10 @@ const WEAPON_RIG_PATH := "PlayerModel/WeaponRig"
 ## （weapon.sniper.*、_sniper_ammo…），所以这里只能按约定名去 list 里查它的分类。
 const SNIPER_WEAPON_ID := "sniper"
 const RECOIL_PIVOT_PATH := WEAPON_RIG_PATH + "/RecoilPivot"
+const SHOT_COLLISION_MASK := 5
+const WORLD_COLLISION_MASK := 1
+const SHOT_SURFACE_MARGIN := 0.02
+const SPREAD_PITCH_RATIO := 0.6
 
 ## 腰射 / 开镜 两种持枪位置（PlayerModel 局部空间）。
 const HIP_POSITION := Vector3(-0.05, 0.3, 0.2)
@@ -65,8 +70,8 @@ const FOREGRIP_OFFSET := Vector3(0.0, -0.105, 0.26)
 @export var bloom_per_shot := 0.85
 @export var max_bloom_degrees := 6.5
 @export var bloom_decay := 5.5
-@export var ads_spread_multiplier := 0.35
-@export var movement_spread_penalty := 1.8
+## 基准跑速下额外增加的角度，独立于连射 bloom；疾跑按速度比例增加。
+@export var movement_spread_degrees := 1.0
 
 @export_category("狙击模式（按住右键瞄准）")
 @export var sniper_shots_per_second := 1.15
@@ -206,11 +211,8 @@ func _read_feel_config() -> void:
 	bloom_per_shot = maxf(ConfigUtil.get_float("weapon.spread.bloom_per_shot", 0.85), 0.0)
 	bloom_decay = maxf(ConfigUtil.get_float("weapon.spread.bloom_decay", 5.5), 0.0)
 	max_bloom_degrees = maxf(ConfigUtil.get_float("weapon.spread.max_bloom_degrees", 6.5), 0.0)
-	ads_spread_multiplier = clampf(
-		ConfigUtil.get_float("weapon.spread.ads_multiplier", 0.35), 0.0, 2.0
-	)
-	movement_spread_penalty = maxf(
-		ConfigUtil.get_float("weapon.spread.movement_penalty", 1.8), 0.0
+	movement_spread_degrees = maxf(
+		ConfigUtil.get_float("weapon.spread.movement_degrees", 1.0), 0.0
 	)
 
 	sniper_shots_per_second = maxf(
@@ -432,8 +434,8 @@ func get_foregrip_world() -> Vector3:
 func fire() -> void:
 	if not _weapon_rig or not _muzzle:
 		return
-	var aim_point := get_aim_point()
-	var base_direction := (aim_point - _muzzle.global_position).normalized()
+	# 散布在相机瞄准方向上采样；枪口只负责检查实际发射路径是否被挡住。
+	var base_direction := -_camera.global_basis.z if _camera else _muzzle.global_basis.z
 	if _aiming:
 		if _sniper_ammo <= 0 or _sniper_reload_timer > 0.0:
 			return
@@ -457,6 +459,18 @@ func fire() -> void:
 	_set_muzzle_flash(true)
 	AudioUtil.play("sniper" if _aiming else "shot", -4.0)
 
+	# juice：手柄震动反馈（普通连发轻微快震，狙击重炮强沉震）
+	if is_instance_valid(_host) and _host.has_method("apply_rumble"):
+		_host.call("apply_rumble", 0.35 if _aiming else 0.15, 0.55 if _aiming else 0.08, 0.12 if _aiming else 0.05)
+
+	# juice：物理抛壳（朝右上方抛出）
+	var eject_scene := _host.get_tree().current_scene if is_instance_valid(_host) else null
+	if eject_scene:
+		var eject_dir := _weapon_rig.global_basis.x * 2.8 + _weapon_rig.global_basis.y * 2.2 - _weapon_rig.global_basis.z * 0.8
+		var eject_vel := eject_dir * _rng.randf_range(0.9, 1.25)
+		var eject_pos := _muzzle.global_position - _weapon_rig.global_basis.z * 0.35
+		CombatFXUtil.eject_casing(eject_scene, eject_pos, eject_vel, _aiming)
+
 
 ## 腰射：按当前武器的【分类】决定打几颗弹丸（冲锋枪 = 1 颗；散弹枪类 = 扇形多颗），
 ## 射速随武器等级提升。
@@ -465,13 +479,14 @@ func _fire_rapid(base_direction: Vector3) -> void:
 	var pattern_spread := get_pattern_spread_degrees()
 	var pellets := get_pellet_count()
 	var camera_right := _camera.global_basis.x if _camera else Vector3.RIGHT
+	var camera_up := _camera.global_basis.y if _camera else Vector3.UP
 	for index in range(pellets):
 		var yaw := 0.0
 		if pellets > 1:
 			yaw = deg_to_rad(lerpf(-pattern_spread, pattern_spread, float(index) / float(pellets - 1)))
 		yaw += _rng.randf_range(-spread, spread)
-		var pitch := _rng.randf_range(-spread, spread) * 0.6
-		var direction := base_direction.rotated(Vector3.UP, yaw).rotated(camera_right, pitch)
+		var pitch := _rng.randf_range(-spread, spread) * SPREAD_PITCH_RATIO
+		var direction := base_direction.rotated(camera_up, yaw).rotated(camera_right, pitch)
 		# 玩家的射击固定为瞬发命中：原先的"T 键切换弹丸"已删除，
 		# 玩家侧的飞行弹（bullet.gd / sniper_bullet.gd）随之退役。
 		# 敌人弹幕仍然是飞行弹丸 —— 这个不对称是刻意保留的：
@@ -496,7 +511,7 @@ func _fire_sniper(base_direction: Vector3) -> void:
 ##
 ## 返回 Array[Dictionary]，每项含：collider / position / normal / is_enemy /
 ## headshot / amount。调用方（本地结算或服务器复算）负责施加伤害与出表现。
-func _collect_hits(direction: Vector3, sniper: bool, origin: Vector3) -> Array:
+func _collect_hits(direction: Vector3, sniper: bool, origin: Vector3, distance: float = -1.0) -> Array:
 	var hits: Array = []
 	if not is_instance_valid(_host):
 		return hits
@@ -506,51 +521,116 @@ func _collect_hits(direction: Vector3, sniper: bool, origin: Vector3) -> Array:
 	var max_targets := sniper_pierce_max_targets if sniper else 1
 	var exclude: Array[RID] = [_host.get_rid()]
 	for _i in range(maxi(max_targets, 1)):
-		var query := PhysicsRayQueryParameters3D.create(origin, origin + direction * shot_range)
-		query.collision_mask = 5
-		query.collide_with_areas = true
-		query.exclude = exclude
-		var hit := world.direct_space_state.intersect_ray(query)
+		var hit := _shot_ray(origin, origin + direction * (shot_range if distance < 0.0 else distance), exclude)
 		if hit.is_empty():
 			break
-		var collider := hit.collider as Node
-		var enemy := collider as Node3D
-		var is_enemy := enemy != null and collider.is_in_group("enemies")
-		var position: Vector3 = hit.position
-		var headshot := (
-			is_enemy and sniper
-			and BallisticsUtil.is_headshot(enemy, position.y, sniper_headshot_height_ratio)
-		)
-		var amount := get_bullet_damage()
-		if sniper:
-			amount = BallisticsUtil.damage_with_headshot(
-				BallisticsUtil.sniper_damage(_weapon_level), sniper_headshot_multiplier, headshot
-			)
-		hits.append({
-			"collider": collider,
-			"position": position,
-			"normal": hit.get("normal", Vector3.UP),
-			"is_enemy": is_enemy,
-			"headshot": headshot,
-			"amount": amount,
-		})
+		var entry := _shot_entry(hit, sniper, direction)
+		hits.append(entry)
 		# 打到地形 / 掩体：子弹被挡下，穿透到此为止。
-		if not is_enemy:
+		if not bool(entry.is_enemy):
 			break
-		exclude.append(collider.get_rid())
+		exclude.append(hit.rid)
 	return hits
 
 
-## 瞬发命中：从枪口直接打射线结算，不做飞行。
-## 这是"关闭子弹飞行时间"的实现，用来对比手感；命中规则与弹丸完全一致。
+## 两阶段瞬发命中：相机确定候选，枪口到候选的实体阻挡优先。
+## 枪管穿入掩体时，肩部到枪口的短射线仍能拦住射击。
+func _resolve_shot_hits(direction: Vector3, sniper: bool) -> Array:
+	if not is_instance_valid(_host) or not is_instance_valid(_muzzle):
+		return []
+	direction = direction.normalized()
+	if direction.is_zero_approx():
+		return []
+	var muzzle := _muzzle.global_position
+	var anchor := Vector3(_host.global_position.x,
+		_weapon_rig.global_position.y if is_instance_valid(_weapon_rig) else muzzle.y,
+		_host.global_position.z)
+	var exclude: Array[RID] = [_host.get_rid()]
+	var barrel_block := _shot_ray(anchor, muzzle, exclude, WORLD_COLLISION_MASK)
+	if not barrel_block.is_empty():
+		return [_shot_entry(barrel_block, sniper, direction)]
+	var camera_origin := _camera.global_position if is_instance_valid(_camera) else anchor
+	# 第三人称相机在玩家身后；射程仍从玩家发射位置计量。
+	var camera_range := shot_range + camera_origin.distance_to(muzzle)
+	var candidates := _collect_hits(direction, sniper, camera_origin, camera_range)
+	var in_range: Array = []
+	for entry: Dictionary in candidates:
+		if muzzle.distance_to(entry.position) > shot_range + SHOT_SURFACE_MARGIN:
+			break
+		in_range.append(entry)
+	candidates = in_range
+	var aim_point: Vector3 = candidates[0].position if not candidates.is_empty() else camera_origin + direction * camera_range
+	# 贴脸命中点可能位于枪口后方，但仍在肩部前方，改从肩部检查，避免倒打射线。
+	if (aim_point - anchor).dot(direction) < 0.0:
+		return []
+	var origin := anchor if (aim_point - muzzle).dot(direction) <= SHOT_SURFACE_MARGIN else muzzle
+	var physical_direction := (aim_point - origin).normalized()
+	if physical_direction.is_zero_approx():
+		physical_direction = direction
+	if origin.distance_to(aim_point) > shot_range:
+		aim_point = origin + physical_direction * shot_range
+	var obstruction := _shot_ray(origin, aim_point + physical_direction * SHOT_SURFACE_MARGIN, exclude)
+	if not obstruction.is_empty():
+		var collider := obstruction.collider as Node
+		if collider == null or not collider.is_in_group("enemies"):
+			return [_shot_entry(obstruction, sniper, physical_direction)]
+		if candidates.is_empty() or collider != candidates[0].collider:
+			# 枪口前的另一名敌人确实挡住枪线，按这条实体路径结算与穿透。
+			return _collect_hits(physical_direction, sniper, origin)
+	# 枪口已在瞄准敌人体内时也使用相机的表面命中点，保留正确的爆头位置。
+	return candidates
+
+
+func _shot_ray(from: Vector3, to: Vector3, exclude: Array[RID], mask: int = SHOT_COLLISION_MASK) -> Dictionary:
+	if from.is_equal_approx(to) or not is_instance_valid(_host) or _host.get_world_3d() == null:
+		return {}
+	var query := PhysicsRayQueryParameters3D.create(from, to, mask, exclude)
+	query.collide_with_areas = true
+	query.hit_from_inside = true
+	return _host.get_world_3d().direct_space_state.intersect_ray(query)
+
+
+func get_combat_threat() -> Dictionary:
+	return {"origin": _muzzle.global_position if is_instance_valid(_muzzle) else _host.global_position,
+		"camera": _camera.global_position if is_instance_valid(_camera) else _host.global_position,
+		"range": shot_range}
+
+
+func _shot_entry(hit: Dictionary, sniper: bool, direction: Vector3) -> Dictionary:
+	var collider := hit.collider as Node
+	var enemy := collider as Node3D
+	var is_enemy := enemy != null and collider.is_in_group("enemies")
+	var position: Vector3 = hit.position
+	var normal: Vector3 = hit.get("normal", Vector3.ZERO)
+	# 内部起点没有表面法线，不能把枪口高度误当爆头位置；反馈也需要有效法线。
+	var headshot := is_enemy and sniper and not normal.is_zero_approx() and BallisticsUtil.is_headshot(enemy, position.y, sniper_headshot_height_ratio)
+	var amount := get_bullet_damage()
+	if sniper:
+		amount = BallisticsUtil.damage_with_headshot(BallisticsUtil.sniper_damage(_weapon_level), sniper_headshot_multiplier, headshot)
+	return {"collider": collider, "position": position,
+		"normal": -direction if normal.is_zero_approx() else normal,
+		"is_enemy": is_enemy, "headshot": headshot, "amount": amount}
+
+
 func _fire_hitscan(direction: Vector3, sniper: bool) -> void:
 	if not is_instance_valid(_host) or not _muzzle:
 		return
 	var scene := _host.get_tree().current_scene
 	if not scene:
 		return
-	var origin := _muzzle.global_position
-	var hits := _collect_hits(direction, sniper, origin)
+	var hits := _resolve_shot_hits(direction, sniper)
+
+	# juice：弹道光迹（Hitscan 专用），瞬间出现并迅速淡出
+	var tracer_origin := _muzzle.global_position
+	var tracer_end := tracer_origin + direction * shot_range
+	if not hits.is_empty():
+		tracer_end = hits[-1]["position"]
+	CombatFXUtil.spawn_tracer(
+		scene, tracer_origin, tracer_end,
+		Color(1.0, 0.45, 0.1) if sniper else Color(1.0, 0.8, 0.4),
+		0.05 if sniper else 0.02
+	)
+
 	if hits.is_empty():
 		return
 	var impact_scale := 1.4 if sniper else 1.0
@@ -559,9 +639,15 @@ func _fire_hitscan(direction: Vector3, sniper: bool) -> void:
 		var killed := BallisticsUtil.apply_damage(
 			entry["collider"], entry["amount"], entry["position"], entry["headshot"], get_meta(&"combat_context", {})
 		)
+		# juice：命中材质分化（重甲/Boss = 金属跳弹）
+		var collider_node := entry["collider"] as Node
+		var is_metal := false
+		if entry["is_enemy"] and is_instance_valid(collider_node):
+			is_metal = collider_node.is_in_group("boss") or float(collider_node.get("_armor")) > 0.15
 		BallisticsUtil.play_hit_feedback_flagged(
 			scene, entry["position"], entry["normal"], entry["is_enemy"],
-			entry["amount"], entry["headshot"], killed, impact_scale, true
+			entry["amount"], entry["headshot"], killed, impact_scale, true,
+			is_metal, collider_node
 		)
 
 
@@ -587,31 +673,30 @@ func get_aim_point() -> Vector3:
 		return _muzzle.global_position + Vector3.FORWARD * shot_range
 	var ray_origin := _camera.global_position
 	var ray_end := ray_origin - _camera.global_basis.z * shot_range
-	var query := PhysicsRayQueryParameters3D.create(ray_origin, ray_end)
+	var exclude: Array[RID] = []
 	if is_instance_valid(_host):
-		query.exclude = [_host.get_rid()]
-	var hit := _camera.get_world_3d().direct_space_state.intersect_ray(query)
+		exclude.append(_host.get_rid())
+	var hit := _shot_ray(ray_origin, ray_end, exclude)
 	return hit.position if hit else ray_end
 
 
 # ---------------------------------------------------------------- 扩散
 
-## 当前总散布（度）= 基础 + bloom + 移动惩罚，ADS 下整体收窄。
+## 当前发射模式的随机散布半角（度）= 基础 + bloom + 独立移动角度。
+## 右键实际切换到零散布狙击，并非给主武器套一个 ADS 倍率。
 func get_current_spread_degrees() -> float:
-	var spread := base_spread_degrees + _bloom
-	spread *= 1.0 + _movement_ratio * movement_spread_penalty
 	if _aiming:
-		spread *= ads_spread_multiplier
-	return spread
+		return 0.0
+	return base_spread_degrees + _bloom + _movement_ratio * movement_spread_degrees
 
 
-## bloom 占上限的比例，供 HUD 准星扩散使用。
-func get_bloom_ratio() -> float:
-	var reference := maxf(max_bloom_degrees, 0.01)
-	var ratio := (base_spread_degrees + _bloom) / (base_spread_degrees + reference)
+## HUD 与实际弹丸共用的水平 / 垂直散布半角，包含多弹丸图案的外沿。
+func get_spread_angles_degrees() -> Vector2:
 	if _aiming:
-		ratio *= ads_spread_multiplier
-	return clampf(ratio, 0.0, 1.0)
+		return Vector2.ZERO
+	var spread := get_current_spread_degrees()
+	var pattern := get_pattern_spread_degrees() if get_pellet_count() > 1 else 0.0
+	return Vector2(spread + pattern, spread * SPREAD_PITCH_RATIO)
 
 
 # ---------------------------------------------------------------- 弹匣

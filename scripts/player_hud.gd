@@ -10,6 +10,7 @@ extends Node
 
 const EventBusUtil := preload("res://scripts/event_bus.gd")
 const ConfigUtil := preload("res://scripts/game_config.gd")
+const AudioUtil := preload("res://scripts/audio_manager.gd")
 ## 配色与字号全部来自统一主题，本文件不再自带 COLOR_* 常量
 ## （原先与 game_flow.gd 各写一份，两边已经开始漂移）。
 const UiThemeUtil := preload("res://scripts/ui_theme.gd")
@@ -47,6 +48,7 @@ var _legacy_survival_label: Label
 var _weapon_label: Label
 var _ability_bar: AbilityBarScript
 var _crosshair: DynamicCrosshair
+var _camera: Camera3D
 var _hit_marker: HitMarker
 
 var _vitals: VitalsPanelScript
@@ -140,6 +142,7 @@ var _boss_bar: BossBarScript
 ## player 只用于小地图定位；传 null 时小地图不画东西。
 func setup(aim_ui: CanvasLayer, camera: Camera3D = null, player: Node3D = null) -> void:
 	_aim_ui = aim_ui
+	_camera = camera
 	_theme = UiThemeUtil.get_theme()
 	# 订阅命中确认。HUD 随场景重载被释放时，Godot 会自动断开这个连接。
 	EventBusUtil.subscribe_hit_confirmed(_on_hit_confirmed)
@@ -356,6 +359,7 @@ func _apply_theme(control: Control, variation: String) -> void:
 func _build_crosshair() -> void:
 	_crosshair = DynamicCrosshair.new()
 	_crosshair.name = "DynamicCrosshair"
+	_crosshair.camera = _camera
 	_aim_ui.add_child(_crosshair)
 
 
@@ -554,7 +558,7 @@ func _build_death_overlay() -> void:
 
 # ---------------------------------------------------------------- 每帧
 
-func update(delta: float, bloom_ratio: float, aiming: bool, reloading: bool) -> void:
+func update(delta: float, spread_angles_degrees: Vector2, aiming: bool, reloading: bool) -> void:
 	_damage_flash_time = maxf(_damage_flash_time - delta, 0.0)
 	_fps_refresh_time -= delta
 	if _fps_label != null and _fps_refresh_time <= 0.0:
@@ -563,7 +567,7 @@ func update(delta: float, bloom_ratio: float, aiming: bool, reloading: bool) -> 
 	if _damage_overlay:
 		_damage_overlay.visible = _damage_flash_time > 0.0
 	if _crosshair:
-		_crosshair.spread = bloom_ratio
+		_crosshair.spread_angles_degrees = spread_angles_degrees
 		_crosshair.aiming = aiming
 		_crosshair.reloading = reloading
 	_refresh_weapon_panel(reloading)
@@ -693,13 +697,15 @@ func set_abilities(grenade_remaining: float, skill_remaining: float) -> void:
 
 ## EventBus.hit_confirmed 的接收端。headshot 只用于将来区分标记样式，
 ## 当前命中标记的视觉只区分"是否击杀"。
-func _on_hit_confirmed(_headshot: bool, killed: bool) -> void:
-	flash_hit_marker(killed)
+func _on_hit_confirmed(headshot: bool, killed: bool) -> void:
+	flash_hit_marker(killed, headshot)
+	if headshot:
+		AudioUtil.play("headshot", 1.5, 1.25)
 
 
-func flash_hit_marker(kill: bool = false) -> void:
+func flash_hit_marker(kill: bool = false, headshot: bool = false) -> void:
 	if _hit_marker:
-		_hit_marker.flash(kill)
+		_hit_marker.flash(kill, headshot)
 
 
 func flash_damage() -> void:

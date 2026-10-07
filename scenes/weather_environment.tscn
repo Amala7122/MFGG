@@ -13,6 +13,7 @@
 [ext_resource type="Script" uid="uid://rolxgc2l3jsk" path="res://scripts/sky3d_experiment_controller.gd" id="21_sky_controller"]
 [ext_resource type="Script" path="res://scripts/weather_system.gd" id="22_rain_controller"]
 [ext_resource type="Script" path="res://scripts/weather_snow_layer.gd" id="41_snow_layer"]
+[ext_resource type="Script" path="res://scripts/weather_timeline.gd" id="23_timeline"]
 [ext_resource type="Script" path="res://scripts/procedural_cloud_field.gd" id="42_cloud_field"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_7jmfh"]
@@ -232,3 +233,6 @@ light_color = Color(0.46, 0.56, 0.82, 1)
 light_energy = 0.5058434
 light_volumetric_fog_energy = 0.0
 light_specular = 0.0
+
+[node name="WeatherTimeline" type="Node" parent="."]
+script = ExtResource("23_timeline")

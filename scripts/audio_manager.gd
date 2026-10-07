@@ -28,11 +28,26 @@ var _next_spatial := 0
 var _spatial_host: Node = null
 var _rng := RandomNumberGenerator.new()
 
+# ── juice 侧音频（ruin-star 移植）──
+# 侧链闪避（Audio Ducking）：大招/特写时压低细碎枪声
+var _duck_timer := 0.0
+var _duck_attenuation_db := -9.0
+const DUCKABLE_KEYS := ["shot", "enemy_shot", "hit", "hurt", "wisp_shot", "hit_metal", "hit_flesh", "hit_stone"]
+# 连杀音调阶梯（Multi-Kill Pitch Escalation）
+var _kill_combo := 0
+var _last_kill_time := 0.0
+# 濒死低通滤波（Low-Pass Filter）
+var _lpf_effect: AudioEffectLowPassFilter = null
+var _lpf_index := -1
+var _low_health_danger := 0.0
+var _current_cutoff := 20500.0
+
 
 func _ready() -> void:
 	instance = self
 	_rng.randomize()
 	_build_bank()
+	_setup_low_pass_filter()
 	for _index in range(VOICE_COUNT):
 		var player := AudioStreamPlayer.new()
 		add_child(player)
@@ -110,6 +125,15 @@ const BANK_FALLBACK := {
 	"ui": [0.09, 880.0, 1200.0, 4.0, 0.0, 0.35],
 	# 低频闷响：低血量时由 LowHealthOverlay 按危险程度加速播放。
 	"heartbeat": [0.2, 88.0, 42.0, 3.2, 0.22, 1.0],
+	"wisp_shot": [0.12, 1180.0, 360.0, 5.2, 0.12, 0.45],
+	"shield_break": [0.32, 1850.0, 160.0, 4.8, 0.55, 1.0],
+	"bullet_whiz": [0.16, 1500.0, 310.0, 4.2, 0.42, 0.85],
+	"footstep": [0.07, 190.0, 55.0, 7.0, 0.42, 0.38],
+	"hit_metal": [0.11, 2100.0, 640.0, 6.2, 0.12, 0.65],
+	"hit_flesh": [0.10, 420.0, 95.0, 4.6, 0.68, 0.58],
+	"hit_stone": [0.09, 720.0, 180.0, 6.5, 0.72, 0.48],
+	"casing_clink": [0.045, 2600.0, 1900.0, 9.0, 0.06, 0.22],
+	"whoosh": [0.18, 540.0, 110.0, 3.8, 0.65, 0.75],
 }
 
 
@@ -182,9 +206,9 @@ func _play(key: String, volume_db: float, pitch: float) -> void:
 	var player := _voices[_next_voice]
 	_next_voice = (_next_voice + 1) % _voices.size()
 	player.stream = _bank[key]
-	player.volume_db = volume_db
+	player.volume_db = _calc_volume(key, volume_db)
 	# 加一点随机音高：连发时同一段波形逐发叠加会形成明显的"机关枪嗡声"。
-	player.pitch_scale = pitch * _rng.randf_range(0.96, 1.05)
+	player.pitch_scale = _calc_pitch(key, pitch) * _rng.randf_range(0.96, 1.05)
 	player.play()
 
 
@@ -199,8 +223,8 @@ func _play_at(key: String, position: Vector3, volume_db: float, pitch: float) ->
 	_next_spatial = (_next_spatial + 1) % pool.size()
 	player.global_position = position
 	player.stream = _bank[key]
-	player.volume_db = volume_db
-	player.pitch_scale = pitch * _rng.randf_range(0.94, 1.07)
+	player.volume_db = _calc_volume(key, volume_db)
+	player.pitch_scale = _calc_pitch(key, pitch) * _rng.randf_range(0.94, 1.07)
 	player.play()
 
 
@@ -225,3 +249,65 @@ func _ensure_spatial_pool() -> Array[AudioStreamPlayer3D]:
 	if not host.tree_exiting.is_connected(on_exit):
 		host.tree_exiting.connect(on_exit, CONNECT_ONE_SHOT)
 	return _spatial
+
+# ────────────────── juice 侧音频（ruin-star 移植）──────────────────
+
+func _setup_low_pass_filter() -> void:
+	_lpf_effect = AudioEffectLowPassFilter.new()
+	_lpf_effect.cutoff_hz = 20500.0
+	_lpf_effect.resonance = 0.5
+	AudioServer.add_bus_effect(0, _lpf_effect)
+	_lpf_index = AudioServer.get_bus_effect_count(0) - 1
+	AudioServer.set_bus_effect_enabled(0, _lpf_index, false)
+
+
+func _process(delta: float) -> void:
+	if _duck_timer > 0.0:
+		_duck_timer = maxf(_duck_timer - delta, 0.0)
+	if _lpf_effect != null and _lpf_index >= 0:
+		var target_cutoff := lerpf(20500.0, 480.0, _low_health_danger) if _low_health_danger > 0.001 else 20500.0
+		_current_cutoff = lerpf(_current_cutoff, target_cutoff, minf(delta * 7.5, 1.0))
+		if _low_health_danger <= 0.001 and _current_cutoff >= 20000.0:
+			if AudioServer.is_bus_effect_enabled(0, _lpf_index):
+				AudioServer.set_bus_effect_enabled(0, _lpf_index, false)
+		else:
+			if not AudioServer.is_bus_effect_enabled(0, _lpf_index):
+				AudioServer.set_bus_effect_enabled(0, _lpf_index, true)
+			_lpf_effect.cutoff_hz = _current_cutoff
+
+
+## 濒死危险值 0..1：低血量时压低高频。
+static func set_low_health_danger(danger: float) -> void:
+	if instance:
+		instance.set("_low_health_danger", clampf(danger, 0.0, 1.0))
+
+
+## 触发音频闪避：大招/特写/Boss 终结时压低细碎枪声与杂音。
+static func duck(duration: float = 1.2, attenuation_db: float = -9.0) -> void:
+	if instance:
+		instance.call("_duck", duration, attenuation_db)
+
+
+func _duck(duration: float, attenuation_db: float) -> void:
+	_duck_timer = maxf(_duck_timer, duration)
+	_duck_attenuation_db = attenuation_db
+
+
+func _calc_volume(key: String, volume_db: float) -> float:
+	var final_vol := volume_db
+	if _duck_timer > 0.0 and key in DUCKABLE_KEYS:
+		final_vol += _duck_attenuation_db
+	return final_vol
+
+
+func _calc_pitch(key: String, pitch: float) -> float:
+	var final_pitch := pitch
+	if key == "kill":
+		var now := float(Time.get_ticks_msec()) * 0.001
+		if now - _last_kill_time <= 2.2:
+			_kill_combo = mini(_kill_combo + 1, 8)
+		else:
+			_kill_combo = 0
+		_last_kill_time = now
+		final_pitch *= (1.0 + float(_kill_combo) * 0.08)
+	return final_pitch

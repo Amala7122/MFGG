@@ -26,6 +26,8 @@ static var _wave := 0
 static var _weapon_level := 1
 ## 升级模块层数：模块 id → 层数。
 static var _upgrades: Dictionary = {}
+## 选取的 Roguelite 强化卡清单（强化卡 id 列表）
+static var _perks: Array = []
 ## 历史最好阶段（跨局保留，供结算与 HUD 显示）。
 static var _best_stage := 1
 
@@ -37,6 +39,7 @@ static func begin_run() -> void:
 	_wave = 0
 	_weapon_level = 1
 	_upgrades = {}
+	_perks = []
 
 
 ## 结束一局。这里刻意不清 _best_stage —— 它是跨局的记录。
@@ -112,3 +115,23 @@ static func set_upgrade_stacks(id: String, stacks: int) -> void:
 
 static func get_upgrades() -> Dictionary:
 	return _upgrades.duplicate()
+
+
+static func add_perk(id: String) -> void:
+	_perks.append(id)
+
+
+static func has_perk(id: String) -> bool:
+	return _perks.has(id)
+
+
+static func get_perk_count(id: String) -> int:
+	var count := 0
+	for p in _perks:
+		if p == id:
+			count += 1
+	return count
+
+
+static func get_perks() -> Array:
+	return _perks.duplicate()
