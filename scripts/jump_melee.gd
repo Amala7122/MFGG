@@ -1,4 +1,6 @@
 extends RefCounted
+
+const HealthUtil := preload("res://scripts/health_util.gd")
 const SpatialQuery := preload("res://scripts/spatial_query.gd")
 ## 原地跳起的普通近战：沿真实身体移动判定挥击，落回原来的地面，不创建地面效果。
 var _body: CharacterBody3D
@@ -16,7 +18,7 @@ static func can_start(body: CharacterBody3D, target: Node3D, spec: Dictionary) -
 
 
 static func can_start_at(body: CharacterBody3D, target: Node3D, spec: Dictionary, pose: Transform3D) -> bool:
-	if not is_instance_valid(target) or float(target.get("health")) <= 0.0:
+	if not HealthUtil.is_alive(target):
 		return false
 	var offset := target.global_position - pose.origin
 	if Vector2(offset.x, offset.z).length() > float(spec.reach):
@@ -52,7 +54,7 @@ func in_strike_window(delta := 0.0) -> bool:
 func advance(delta: float) -> bool:
 	_elapsed += delta
 	var hit := false
-	if not _spent and is_instance_valid(_target) and float(_target.get("health")) > 0.0 and _elapsed >= _flight * 0.35 and _elapsed <= _flight * 0.65:
+	if not _spent and HealthUtil.is_alive(_target) and _elapsed >= _flight * 0.35 and _elapsed <= _flight * 0.65:
 		var point := Geometry3D.get_closest_point_to_segment(_target.global_position, _previous, _body.global_position)
 		var offset := _target.global_position - point
 		var flat := Vector3(offset.x, 0, offset.z)

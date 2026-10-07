@@ -1,5 +1,7 @@
 class_name ProceduralMudGolem
 extends CharacterBody3D
+
+const HealthUtil := preload("res://scripts/health_util.gd")
 const Nav := preload("res://scripts/nav_steering.gd")
 const GroundMovement := preload("res://scripts/ground_movement.gd")
 const SpatialProfile := preload("res://scripts/combat_spatial_profile.gd")
@@ -94,7 +96,7 @@ func _p(key: String) -> float:
 
 
 func _physics_process(delta: float) -> void:
-	if current_state == State.ATTACK and (not is_instance_valid(_attack_target) or float(_attack_target.get("health")) <= 0.0):
+	if current_state == State.ATTACK and not HealthUtil.is_alive(_attack_target):
 		_stop_action()
 		_finish_action()
 	if current_state == State.DEAD:
@@ -109,7 +111,7 @@ func _physics_process(delta: float) -> void:
 		return
 	var desired := Vector3.ZERO
 	if ai_enabled and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK]:
-		if is_instance_valid(target) and float(target.get("health")) > 0.0:
+		if HealthUtil.is_alive(target):
 			var offset := target.global_position - global_position
 			offset.y = 0.0
 			var distance := offset.length()

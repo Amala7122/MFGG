@@ -1,5 +1,7 @@
 extends CharacterBody3D
 
+const HealthUtil := preload("res://scripts/health_util.gd")
+
 signal died(enemy: Node3D)
 
 ## juice：死亡特效与波次接口
@@ -274,7 +276,7 @@ func _update_behavior(delta: float) -> void:
 		velocity.y -= gravity * delta
 	attack_cooldown = maxf(attack_cooldown - delta, 0.0)
 	if _attack_elapsed >= 0.0:
-		if not is_instance_valid(_attack_target) or float(_attack_target.get("health")) <= 0.0:
+		if not HealthUtil.is_alive(_attack_target):
 			cancel_attack()
 		else:
 			_update_attack(delta)
@@ -286,7 +288,7 @@ func _update_behavior(delta: float) -> void:
 	# 【目标一旦不能打了，立刻重选，不等定时器】
 	# 只靠每 RETARGET_INTERVAL 秒选一次的话，玩家阵亡之后敌人会继续
 	# 对着尸体打上最多 1.5 秒。
-	if not is_instance_valid(target) or float(target.get("health")) <= 0.0:
+	if not HealthUtil.is_alive(target):
 		_retarget_timer = 0.0
 	_retarget_timer -= delta
 	if _retarget_timer <= 0.0:
@@ -351,7 +353,7 @@ func _update_behavior(delta: float) -> void:
 
 
 func attack() -> void:
-	if _attack_elapsed >= 0.0 or health <= 0.0 or _stagger_time > 0.0 or not is_instance_valid(target) or float(target.get("health")) <= 0.0:
+	if _attack_elapsed >= 0.0 or health <= 0.0 or _stagger_time > 0.0 or not HealthUtil.is_alive(target):
 		return
 	_attack_target = target
 	_attack_duration = maxf(attack_interval * 0.85, 0.5)

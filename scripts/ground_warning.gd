@@ -1,5 +1,7 @@
 extends Node3D
 
+const HealthUtil := preload("res://scripts/health_util.gd")
+
 const TargetingUtil := preload("res://scripts/targeting.gd")
 const AttackArea := preload("res://scripts/enemy_attack_area.gd")
 var _attack_area := AttackArea.new()
@@ -64,7 +66,7 @@ func _attacker_alive() -> bool:
 	if _attacker == null:
 		return true
 	var actor := _attacker.get_ref() as Node3D
-	return is_instance_valid(actor) and not actor.is_queued_for_deletion() and float(actor.get("health")) > 0.0
+	return HealthUtil.is_alive(actor)
 
 
 func apply_color() -> void:

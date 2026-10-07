@@ -1,5 +1,7 @@
 class_name ProceduralSedimentTitan
 extends CharacterBody3D
+
+const HealthUtil := preload("res://scripts/health_util.gd")
 const Nav := preload("res://scripts/nav_steering.gd")
 const GroundMovement := preload("res://scripts/ground_movement.gd")
 const JumpLanding := preload("res://scripts/jump_landing.gd")
@@ -258,7 +260,7 @@ func _physics_process(delta: float) -> void:
 
 
 func _target_alive() -> bool:
-	return is_instance_valid(target) and float(target.get("health")) > 0.0
+	return HealthUtil.is_alive(target)
 
 
 func _set_locomotion(next_state: State) -> void:
@@ -361,7 +363,7 @@ func _track_melee_attack(delta: float) -> void:
 		if _attack_elapsed >= _p("slam_windup") * 0.65:
 			_attack_area.lock()
 		return
-	if not is_instance_valid(_attack_target) or float(_attack_target.get("health")) <= 0.0:
+	if not HealthUtil.is_alive(_attack_target):
 		# 目标消失也执行已经公布的招式，停止追踪并沿当前方向挥空。
 		_attack_area.lock()
 		return

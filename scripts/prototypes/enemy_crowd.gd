@@ -1,4 +1,6 @@
 extends RefCounted
+
+const HealthUtil := preload("res://scripts/health_util.gd")
 ## 个体差异与软群体转向。空间快照每个物理帧只建立一次，邻居按格子查询。
 ## 无敌人实体碰撞；寻路/技能仍由敌人自己的状态机决定。
 
@@ -229,7 +231,7 @@ func _neighbors(radius: float) -> Array[Dictionary]:
 				if int(sample.id) == _body.get_instance_id():
 					continue
 				var other := (sample.ref as WeakRef).get_ref() as Node3D
-				if not is_instance_valid(other) or other.is_queued_for_deletion() or float(other.get("health")) <= 0.0:
+				if not HealthUtil.is_alive(other):
 					continue
 				var offset: Vector3 = sample.position - point
 				offset.y = 0.0
@@ -249,7 +251,7 @@ static func _snapshot(tree: SceneTree) -> Dictionary:
 	var cells := {}
 	for node in tree.get_nodes_in_group("enemies"):
 		var body := node as CharacterBody3D
-		if body == null or body.is_queued_for_deletion() or float(body.get("health")) <= 0.0:
+		if not HealthUtil.is_alive(body):
 			continue
 		var point := body.global_position
 		var cell := Vector2i(floori(point.x / CELL_SIZE), floori(point.z / CELL_SIZE))

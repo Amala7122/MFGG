@@ -1,5 +1,7 @@
 extends CharacterBody3D
 
+const HealthUtil := preload("res://scripts/health_util.gd")
+
 signal died(enemy: Node3D)
 
 ## juice：死亡特效与波次接口
@@ -325,7 +327,7 @@ func _credit_killer() -> void:
 
 func _update_behavior(delta: float) -> void:
 	# 【目标一旦不能打了，立刻重选，不等定时器】见 melee_enemy 里的同类说明。
-	if not is_instance_valid(target) or float(target.get("health")) <= 0.0:
+	if not HealthUtil.is_alive(target):
 		if attack_queued or burst_remaining > 0:
 			cancel_attack_charge()
 		_retarget_timer = 0.0
@@ -629,7 +631,7 @@ func fire_mortar_warning() -> void:
 
 
 func _lock_aim() -> void:
-	if not is_instance_valid(target) or float(target.get("health")) <= 0.0:
+	if not HealthUtil.is_alive(target):
 		return
 	_locked_aim = (target.global_position + Vector3.UP * 0.35 - muzzle.global_position).normalized()
 	_aim_locked = true

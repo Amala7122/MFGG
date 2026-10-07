@@ -1,4 +1,6 @@
 extends RefCounted
+
+const HealthUtil := preload("res://scripts/health_util.gd")
 ## 赋予式反应控制器：危险存续期间撤离，命中后独占移动，结束再交回原 AI。
 const Profile := preload("res://scripts/combat_reaction_profile.gd")
 const GroundMovement := preload("res://scripts/ground_movement.gd")
@@ -287,12 +289,7 @@ static func impact_allies(area: Node3D, caster: Node3D, info: Dictionary) -> voi
 			if not impulse.is_zero_approx():
 				actor_context["impact_velocity"] = impulse
 		Telemetry.hurt_enemy(actor, float(area.damage), actor_context)
-		if not is_instance_valid(actor) or actor.is_queued_for_deletion():
-			continue
-		# 不暴露 health 的 actor（例如只提供 get_health() 的 Boss）按"存活"处理。
-		# 绝不能对 null 调 float()：那会抛 Nonexistent 'float' constructor 崩掉整局。
-		var actor_health: Variant = actor.get("health")
-		if actor_health != null and float(actor_health) <= 0.0:
+		if not HealthUtil.is_alive(actor):
 			continue
 		if reaction != null:
 			reaction.call("receive_impact", area.global_position)

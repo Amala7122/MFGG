@@ -1,5 +1,7 @@
 class_name ProceduralHornet
 extends CharacterBody3D
+
+const HealthUtil := preload("res://scripts/health_util.gd")
 ## 三针盘旋、锁向俯冲与触地解体；全部战斗数值来自独立配置。
 const Tuning := preload("res://scripts/prototypes/enemy_tuning.gd")
 const Telemetry := preload("res://scripts/combat_telemetry.gd")
@@ -114,7 +116,7 @@ func get_spawn_height(player_height: float) -> float:
 
 
 func _target_alive() -> bool:
-	return is_instance_valid(target) and float(target.get("health")) > 0.0
+	return HealthUtil.is_alive(target)
 
 
 func _physics_process(delta: float) -> void:

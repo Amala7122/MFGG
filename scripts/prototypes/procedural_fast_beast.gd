@@ -1,5 +1,7 @@
 class_name ProceduralFastBeast
 extends CharacterBody3D
+
+const HealthUtil := preload("res://scripts/health_util.gd")
 const Nav := preload("res://scripts/nav_steering.gd")
 const GroundMovement := preload("res://scripts/ground_movement.gd")
 const JumpLanding := preload("res://scripts/jump_landing.gd")
@@ -110,7 +112,7 @@ func _p(key: String) -> float:
 
 
 func _target_alive() -> bool:
-	return is_instance_valid(target) and float(target.get("health")) > 0.0
+	return HealthUtil.is_alive(target)
 
 
 func _physics_process(delta: float) -> void:

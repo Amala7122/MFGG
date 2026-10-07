@@ -1,5 +1,7 @@
 extends CharacterBody3D
 
+const HealthUtil := preload("res://scripts/health_util.gd")
+
 ## 流程与音频都通过 preload 静态调用：autoload 未注册时自动降级为空操作，
 ## 不会因为少了 autoload 就整个脚本报错。
 const GameFlowUtil := preload("res://scripts/game_flow.gd")
@@ -1112,7 +1114,7 @@ func _trigger_chain_lightning() -> void:
 	var best_target: CharacterBody3D = null
 	var best_dist := 6.5
 	for node in get_tree().get_nodes_in_group("enemies"):
-		if node is CharacterBody3D and is_instance_valid(node) and float(node.get("health")) > 0.0:
+		if node is CharacterBody3D and HealthUtil.is_alive(node):
 			var d := global_position.distance_to(node.global_position)
 			if d > 0.5 and d < best_dist:
 				best_dist = d

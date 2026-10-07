@@ -1,5 +1,7 @@
 class_name FloatingWisp
 extends Node3D
+
+const HealthUtil := preload("res://scripts/health_util.gd")
 ## 战术浮游卫士（Tactical Sentry Drone / Ruin Sentry）：
 ## 盘旋在玩家左肩后方的自主战术支援无人机，核心使命是警戒并射击后方与侧翼视野盲区（>65°）的偷袭敌人。
 ##
@@ -391,8 +393,7 @@ func _physics_process(delta: float) -> void:
 		return
 
 	# 玩家死亡或倒地结算中，无人机渐隐收束
-	var p_health: Variant = _player.get("health")
-	if (p_health != null and float(p_health) <= 0.0) or _player.get("_dying") == true:
+	if not HealthUtil.is_alive(_player) or _player.get("_dying") == true:
 		scale = scale.lerp(Vector3.ZERO, delta * 4.0)
 		if scale.x <= 0.05:
 			visible = false
@@ -554,8 +555,7 @@ func _update_targeting_and_combat(delta: float) -> void:
 			continue
 		if enemy.get("_dying") == true:
 			continue
-		var enemy_health = enemy.get("health")
-		if enemy_health != null and float(enemy_health) <= 0.0:
+		if not HealthUtil.is_alive(enemy):
 			continue
 		var e_pos: Vector3 = enemy.global_position if enemy.is_inside_tree() else enemy.position
 		# 战术感知过滤 1: 掉出地图边界或已在虚空中的目标绝不锁定

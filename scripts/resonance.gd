@@ -1,5 +1,7 @@
 class_name Resonance
 extends Node
+
+const HealthUtil := preload("res://scripts/health_util.gd")
 ## 遗迹共鸣（Resonance）系统组件。
 ##
 ## 核心设计：压力与力量同步蓄积，在极限时刻一键释放毁灭打击！
@@ -306,8 +308,8 @@ func _calculate_burst_damage(ratio: float) -> float:
 	if RunStateUtil.has_perk("overload_core"):
 		base_dmg *= 1.35
 	if RunStateUtil.has_perk("desperate_will") and is_instance_valid(_player):
-		var hp: float = _player.get("health")
-		var max_hp: float = _player.get("max_health")
+		var hp := HealthUtil.health_or(_player, 0.0)
+		var max_hp := HealthUtil.health_or(_player, 0.0)
 		if hp < max_hp * 0.35:
 			base_dmg *= 1.5
 
@@ -338,11 +340,7 @@ func _apply_burst_damage(center: Vector3, radius: float, base_damage: float, pus
 		var is_boss: bool = enemy.has_method("take_damage_at") or enemy.is_in_group("boss") or enemy.name == "Boss" or enemy.get("is_boss") == true
 		var is_large: bool = enemy.scale.x >= 1.25 or (enemy.get("enemy_title") != null and (String(enemy.get("enemy_title")).contains("巨型") or String(enemy.get("enemy_title")).contains("重装") or String(enemy.get("enemy_title")).contains("大型") or String(enemy.get("enemy_title")).contains("破坏者")))
 
-		var enemy_hp := 0.0
-		if enemy.has_method("get_health"):
-			enemy_hp = float(enemy.call("get_health"))
-		elif enemy.get("health") != null:
-			enemy_hp = float(enemy.get("health"))
+		var enemy_hp := HealthUtil.health_or(enemy, 0.0)
 
 		# 小核弹气势契约：
 		# 小型敌人直接击飞死亡！大型敌人高额伤害+重力击退！

@@ -1,5 +1,7 @@
 class_name StatusEffectBurn
 extends Node3D
+
+const HealthUtil := preload("res://scripts/health_util.gd")
 ## 点燃 / 灼烧状态效果（持续伤害与烈焰视觉表现）。
 ##
 ## 挂载于受击敌人本体节点之下，具备：
@@ -150,8 +152,7 @@ func _process(delta: float) -> void:
 		return
 
 	# 若目标已死亡（如血量归零或处于濒死动画中），停止喷火并优雅退场
-	var health_val = _target.get("health")
-	if health_val != null and float(health_val) <= 0.0:
+	if not HealthUtil.is_alive(_target):
 		_extinguish()
 
 	_remaining_time -= delta
@@ -173,8 +174,7 @@ func _process(delta: float) -> void:
 func _apply_tick_damage() -> void:
 	if not is_instance_valid(_target):
 		return
-	var health_val = _target.get("health")
-	if health_val != null and float(health_val) <= 0.0:
+	if not HealthUtil.is_alive(_target):
 		_extinguish()
 		return
 

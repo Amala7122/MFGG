@@ -1,4 +1,6 @@
 extends RefCounted
+
+const HealthUtil := preload("res://scripts/health_util.gd")
 ## 敌人选目标 / 玩家查询的【唯一入口】。
 ##
 ## ── 为什么必须有它 ──────────────────────────────────────────────
@@ -28,9 +30,7 @@ static func living_players(from: Node) -> Array:
 	var out: Array = []
 	for node in players(from):
 		var candidate := node as Node3D
-		if candidate == null or not is_instance_valid(candidate):
-			continue
-		if float(candidate.get("health")) > 0.0:
+		if HealthUtil.is_alive(candidate):
 			out.append(candidate)
 	return out
 

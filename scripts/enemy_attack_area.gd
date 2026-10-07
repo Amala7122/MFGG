@@ -1,4 +1,6 @@
 extends Node3D
+
+const HealthUtil := preload("res://scripts/health_util.gd")
 ## 小型公共攻击约定：准备只显示范围，锁定后不追踪；命中消费一次，取消立即清理。
 ## 数值均为世界单位。动作时间由敌人自己的物理帧或物理 Tween 驱动。
 
@@ -170,7 +172,7 @@ func danger_remaining() -> float:
 
 
 func can_affect_ally(actor: Node3D) -> bool:
-	if not bool(shape.get("affects_allies", false)) or not is_instance_valid(actor) or actor.is_queued_for_deletion() or float(actor.get("health")) <= 0.0:
+	if not bool(shape.get("affects_allies", false)) or not HealthUtil.is_alive(actor):
 		return false
 	if not can_reach(actor.global_position) or absf(actor.global_position.y - global_position.y) > float(shape.get("ally_height", shape.get("height", 2.5))):
 		return false
@@ -182,7 +184,7 @@ func can_affect_ally(actor: Node3D) -> bool:
 
 
 func can_hit(actor: Node3D, source: Vector3) -> bool:
-	if not is_instance_valid(actor) or float(actor.get("health")) <= 0.0 or not can_reach(actor.global_position):
+	if not HealthUtil.is_alive(actor) or not can_reach(actor.global_position):
 		return false
 	# 不隔楼层打人；地面炮击允许命中站立玩家，但跳出高度窗口可躲开。
 	if absf(actor.global_position.y - global_position.y) > float(shape.get("height", 2.5)):
