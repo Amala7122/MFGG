@@ -199,6 +199,10 @@ func _make_label(variation: String) -> Label:
 ## 形状与动效完全一样 —— 所以这里收成一个入口，避免三处各写一遍
 ## （以前三个 _enter_* 各写四五行动画代码的那种分叉，正是要避免的）。
 func _present(caption: String, accent: Color, hint: String, stats: Array = []) -> void:
+	if state == State.DISPLAY_SETTINGS:
+		_title.add_theme_font_size_override("font_size", 44)
+	else:
+		_title.remove_theme_font_size_override("font_size")
 	_caption.text = caption
 	_caption.visible = not caption.is_empty()
 	_caption.color = Color(0.73, 0.77, 0.80, 0.8)
@@ -252,7 +256,8 @@ func _set_actions(actions: Array, focus_index: int = 0) -> void:
 	for action in actions:
 		var button := GlassButtonScript.new()
 		button.text = String(action["text"])
-		# size_flags 收窄 + custom_minimum_size 定宽：按钮不跟随整列铺满。
+		button.tooltip_text = String(action.get("tooltip", ""))
+		# size_flags 收窄 + custom_minimum_size 定宽：容器是 620 宽的列，
 		# 不这么写按钮会被拉成通栏，四个等宽通栏按钮比现在要"廉价"得多。
 		button.custom_minimum_size = Vector2(BUTTON_WIDTH, BUTTON_HEIGHT)
 		button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -343,7 +348,7 @@ func _on_pick_arena(arena_id: String) -> void:
 	_build_arena_row()
 
 
-## 主菜单与暂停界面共用的显示设置页。三个选项都立即应用，并由
+## 主菜单与暂停界面共用的显示设置页。选项都立即应用，并由
 ## DisplaySettings 独立保存；这里仅负责把它们呈现成现有菜单语言。
 func _on_open_display_settings() -> void:
 	AudioUtil.play("ui")
@@ -360,20 +365,17 @@ func _enter_display_settings(focus_index: int = 0) -> void:
 		_set_body("显示设置服务未加载。")
 		_set_actions([{"text": "返回", "callback": _on_display_settings_back}])
 	else:
-		var fullscreen_note := (
-			"无边框全屏使用桌面原生分辨率；窗口分辨率会保留到切回窗口模式。"
-			if int(settings.get("display_mode")) == DisplaySettingsUtil.MODE_BORDERLESS
-			else "窗口分辨率立即生效；无边框全屏会使用桌面原生分辨率。"
-		)
-		_set_body(fullscreen_note)
+		_set_body("")
 		_set_actions([
 			{
 				"text": "显示模式　< %s >" % settings.call("mode_label"),
 				"callback": _on_cycle_display_mode,
+				"tooltip": "无边框全屏使用桌面原生分辨率；窗口分辨率会保留到切回窗口模式。",
 			},
 			{
 				"text": "窗口分辨率　< %s >" % settings.call("resolution_label"),
 				"callback": _on_cycle_resolution,
+				"tooltip": "窗口分辨率立即生效；无边框全屏会使用桌面原生分辨率。",
 			},
 			{
 				"text": "3D 渲染比例　< %s >" % settings.call("render_scale_label"),
@@ -382,6 +384,10 @@ func _enter_display_settings(focus_index: int = 0) -> void:
 			{
 				"text": "界面缩放　< %s >" % settings.call("ui_scale_label"),
 				"callback": _on_cycle_ui_scale,
+			},
+			{
+				"text": "画面风格　< %s >" % settings.call("post_process_label"),
+				"callback": _on_cycle_post_process_style,
 			},
 			{"text": "返回", "callback": _on_display_settings_back},
 		], focus_index)
@@ -416,6 +422,13 @@ func _on_cycle_ui_scale() -> void:
 	if DisplaySettingsUtil.instance != null:
 		DisplaySettingsUtil.instance.call("cycle_ui_scale")
 	_enter_display_settings(3)
+
+
+func _on_cycle_post_process_style() -> void:
+	AudioUtil.play("ui")
+	if DisplaySettingsUtil.instance != null:
+		DisplaySettingsUtil.instance.call("cycle_post_process_style")
+	_enter_display_settings(4)
 
 
 func _on_display_settings_back() -> void:

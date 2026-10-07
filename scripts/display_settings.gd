@@ -20,6 +20,7 @@ const RESOLUTIONS: Array[Vector2i] = [
 ]
 const UI_SCALES: Array[float] = [0.85, 1.0, 1.15, 1.3]
 const RENDER_SCALES: Array[float] = [1.0, 0.85, 0.7]
+const POST_PROCESS_LABELS := ["关闭", "黑白电视", "显像管电视", "老照片", "反色"]
 
 static var instance: Node
 
@@ -27,6 +28,7 @@ var display_mode := MODE_WINDOWED
 var window_resolution := DEFAULT_RESOLUTION
 var ui_scale := 1.0
 var render_scale := 1.0
+var post_process_style := 0
 
 
 func _ready() -> void:
@@ -51,6 +53,7 @@ func _load_settings() -> void:
 	window_resolution = loaded if loaded in RESOLUTIONS else DEFAULT_RESOLUTION
 	ui_scale = _nearest_ui_scale(float(config.get_value(SECTION, "ui_scale", 1.0)))
 	render_scale = _nearest_render_scale(float(config.get_value(SECTION, "render_scale", 1.0)))
+	post_process_style = clampi(int(config.get_value(SECTION, "post_process_style", 0)), 0, POST_PROCESS_LABELS.size() - 1)
 
 
 func _save_settings() -> void:
@@ -60,6 +63,7 @@ func _save_settings() -> void:
 	config.set_value(SECTION, "height", window_resolution.y)
 	config.set_value(SECTION, "ui_scale", ui_scale)
 	config.set_value(SECTION, "render_scale", render_scale)
+	config.set_value(SECTION, "post_process_style", post_process_style)
 	var result := config.save(SETTINGS_PATH)
 	if result != OK:
 		push_warning("DisplaySettings: 无法保存显示设置（错误 %d）" % result)
@@ -68,6 +72,7 @@ func _save_settings() -> void:
 func _apply_all() -> void:
 	_apply_ui_scale()
 	_apply_render_scale()
+	_apply_post_process()
 	_apply_display_mode()
 
 
@@ -111,6 +116,12 @@ func _apply_render_scale() -> void:
 	viewport.scaling_3d_scale = render_scale
 
 
+func _apply_post_process() -> void:
+	var effect := get_node_or_null("/root/PostProcess")
+	if effect != null:
+		effect.call("set_style", post_process_style)
+
+
 func cycle_display_mode() -> void:
 	display_mode = MODE_BORDERLESS if display_mode == MODE_WINDOWED else MODE_WINDOWED
 	_save_settings()
@@ -139,6 +150,12 @@ func cycle_render_scale() -> void:
 	_apply_render_scale()
 
 
+func cycle_post_process_style() -> void:
+	post_process_style = (post_process_style + 1) % POST_PROCESS_LABELS.size()
+	_save_settings()
+	_apply_post_process()
+
+
 func mode_label() -> String:
 	return "无边框全屏" if display_mode == MODE_BORDERLESS else "窗口模式"
 
@@ -153,6 +170,10 @@ func ui_scale_label() -> String:
 
 func render_scale_label() -> String:
 	return "%d%%" % roundi(render_scale * 100.0)
+
+
+func post_process_label() -> String:
+	return POST_PROCESS_LABELS[post_process_style]
 
 
 func _ui_scale_index(value: float) -> int:
