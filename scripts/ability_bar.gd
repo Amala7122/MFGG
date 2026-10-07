@@ -1,88 +1,136 @@
 class_name AbilityBar
 extends Control
-## 右下技能：按键与图标，冷却由遮罩和细线表示。
+## 左下角技能条。每个技能都是独立的低多边形卡片：按键、图标、名称、冷却状态
+## 各占自己的区域，不再把整组信息拼成一行调试式文本。
+
 const UiThemeUtil := preload("res://scripts/ui_theme.gd")
 const ConfigUtil := preload("res://scripts/game_config.gd")
-## 技能组总宽严格等于小地图边长；PlayerHUD 负责让 Q 的最右点与地图右边对齐。
-const PANEL_WIDTH := 162.0
-const PANEL_HEIGHT := 46.0
-const E_CARD_WIDTH := 82.0
-const Q_CARD_WIDTH := 83.0
-# 斜面轮廓的包围盒略有交叠，实际边缘仍留有清晰间距。
-const CARD_GAP := -3.0
+
+const PANEL_WIDTH := 294.0
+const PANEL_HEIGHT := 36.0
+const CARD_WIDTH := 144.0
+const CARD_GAP := 6.0
+const KEY_WIDTH := 31.0
+const ICON_WIDTH := 29.0
+const FONT_KEY := 15
+const FONT_LABEL := 12
+const FONT_STATE := 9
+
 var _font: Font
 var _grenade_remaining := 0.0
 var _skill_remaining := 0.0
 var _grenade_total := 6.0
 var _skill_total := 9.0
 var _drawn_key := ""
-var _ready_flash := Vector2.ZERO
+
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_font = UiThemeUtil.get_font()
 	UiThemeUtil.install_black_glass(self, 2)
+	_font = UiThemeUtil.get_font()
 	_grenade_total = maxf(ConfigUtil.get_float("abilities.grenade.cooldown", 6.0), 0.01)
 	_skill_total = maxf(ConfigUtil.get_float("abilities.skill.cooldown", 9.0), 0.01)
-	set_process(false)
+
 
 func set_cooldowns(grenade_remaining: float, skill_remaining: float) -> void:
-	if _grenade_remaining > 0 and grenade_remaining <= 0:
-		_ready_flash.x = 0.5
-	if _skill_remaining > 0 and skill_remaining <= 0:
-		_ready_flash.y = 0.5
-	_grenade_remaining = maxf(grenade_remaining, 0)
-	_skill_remaining = maxf(skill_remaining, 0)
-	set_process(_ready_flash.length_squared() > 0)
-	var key := "%d|%d" % [ceili(_grenade_remaining * 10), ceili(_skill_remaining * 10)]
-	if key != _drawn_key:
-		_drawn_key = key
-		queue_redraw()
-
-func _process(delta: float) -> void:
-	_ready_flash = Vector2(maxf(0, _ready_flash.x - delta), maxf(0, _ready_flash.y - delta))
+	_grenade_remaining = maxf(grenade_remaining, 0.0)
+	_skill_remaining = maxf(skill_remaining, 0.0)
+	# 百分之一秒没有视觉意义；按十分之一秒去重，减少常驻 HUD 的重绘。
+	var key := "%d|%d" % [roundi(_grenade_remaining * 10.0), roundi(_skill_remaining * 10.0)]
+	if key == _drawn_key:
+		return
+	_drawn_key = key
 	queue_redraw()
-	set_process(_ready_flash.length_squared() > 0)
+
 
 func _draw() -> void:
-	_card(Vector2.ZERO, E_CARD_WIDTH, "E", _grenade_remaining, _grenade_total, true, _ready_flash.x)
-	_card(Vector2(E_CARD_WIDTH + CARD_GAP, 0), Q_CARD_WIDTH, "Q", _skill_remaining, _skill_total, false, _ready_flash.y)
+	_draw_card(Vector2.ZERO, "E", "手雷", _grenade_remaining, _grenade_total, true)
+	_draw_card(
+		Vector2(CARD_WIDTH + CARD_GAP, 0.0), "Q", "震地脉冲",
+		_skill_remaining, _skill_total, false
+	)
 
-func _card(at: Vector2, width: float, key: String, remaining: float, total: float, grenade: bool, flash: float) -> void:
-	var ready := remaining <= 0
-	var color := Color(0.97, 0.98, 0.95, 1 if ready else 0.32)
-	var points: PackedVector2Array
-	if grenade:
-		# E 是规整平行四边形；两个斜边方向一致。
-		points = PackedVector2Array([
-			at + Vector2(19, 0), at + Vector2(width, 0),
-			at + Vector2(width - 19, PANEL_HEIGHT), at + Vector2(0, PANEL_HEIGHT),
-		])
-	else:
-		# 参考图中的 Q：左边斜切，右边近乎垂直，下右角短切角。
-		points = PackedVector2Array([
-			at + Vector2(18, 0), at + Vector2(width, 0),
-			at + Vector2(width - 3, PANEL_HEIGHT - 8),
-			at + Vector2(width - 11, PANEL_HEIGHT), at + Vector2(0, PANEL_HEIGHT),
-		])
-	UiThemeUtil.draw_black_glass(self, points, Vector2.ZERO, 0 if grenade else 1)
-	if flash > 0:
-		draw_colored_polygon(points, Color(1.0, 1.0, 1.0, flash * 0.14))
-	# 按键与图标同行，避免对角排布留下大块空白。
-	var center := at + Vector2(width - 28, PANEL_HEIGHT * 0.5)
-	draw_set_transform(center, 0, Vector2(1.2, 1.2))
-	center = Vector2.ZERO
-	if grenade:
-		draw_colored_polygon(PackedVector2Array([center + Vector2(-7,-4), center + Vector2(-4,-9), center + Vector2(4,-9), center + Vector2(7,-4), center + Vector2(7,6), center + Vector2(3,10), center + Vector2(-4,10), center + Vector2(-7,5)]), color)
-		draw_line(center + Vector2(-1,-11), center + Vector2(4,-11), color, 2.4, true)
-		draw_line(center + Vector2(4,-11), center + Vector2(8,-7), color, 1.8, true)
-	else:
-		draw_polyline(PackedVector2Array([center+Vector2(-12,0),center+Vector2(-7,0),center+Vector2(-4,-8),center+Vector2(0,9),center+Vector2(4,-9),center+Vector2(7,0),center+Vector2(12,0)]), color, 2.1, true)
-	draw_set_transform(Vector2.ZERO)
-	var key_size := _font.get_string_size(key, HORIZONTAL_ALIGNMENT_LEFT, -1, 15)
-	draw_string(_font, at + Vector2(24 - key_size.x * 0.5, 29), key, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.97,0.98,0.98,0.96))
-	draw_line(at + Vector2(36, 11), at + Vector2(36, 36), Color(1,1,1,0.10), 0.65)
+
+func _draw_card(
+	position: Vector2, key_text: String, label: String,
+	remaining: float, total: float, grenade: bool
+) -> void:
+	var ready := remaining <= 0.0
+	var accent := UiThemeUtil.COLOR_AMMO if grenade else UiThemeUtil.COLOR_ACCENT
 	if not ready:
-		var cooldown_width := width - 32.0
-		draw_rect(Rect2(at + Vector2(12, 40), Vector2(cooldown_width, 1.5)), Color(1,1,1,0.1))
-		draw_rect(Rect2(at + Vector2(12, 40), Vector2(cooldown_width * (1 - clampf(remaining / total, 0, 1)), 1.5)), Color(0.78,0.84,0.84,0.82))
+		accent = UiThemeUtil.with_alpha(accent, 0.58)
+	var card := Rect2(position, Vector2(CARD_WIDTH, PANEL_HEIGHT))
+	UiThemeUtil.draw_plate(
+		self, card, accent,
+		UiThemeUtil.PLATE_GOLD if grenade else UiThemeUtil.PLATE_SHIELD
+	)
+
+	var key_rect := Rect2(position + Vector2(3.0, 3.0), Vector2(KEY_WIDTH, PANEL_HEIGHT - 6.0))
+	var key_points := UiThemeUtil.bevel_points(key_rect, 5.0)
+	draw_colored_polygon(key_points, UiThemeUtil.COLOR_PAPER)
+	draw_polyline(UiThemeUtil.closed(key_points), UiThemeUtil.COLOR_EDGE, UiThemeUtil.HAIRLINE_WIDTH, true)
+	var key_w := UiThemeUtil.tracked_width(_font, key_text, FONT_KEY, 0.0)
+	UiThemeUtil.draw_tracked(
+		self, _font,
+		Vector2(key_rect.get_center().x - key_w * 0.5, position.y + 23.0),
+		key_text, FONT_KEY, UiThemeUtil.COLOR_INK, 0.0
+	)
+
+	var icon_center := position + Vector2(KEY_WIDTH + ICON_WIDTH * 0.5 + 5.0, 17.0)
+	if grenade:
+		_draw_grenade(icon_center, accent)
+	else:
+		_draw_pulse(icon_center, accent)
+
+	var text_x := position.x + KEY_WIDTH + ICON_WIDTH + 8.0
+	UiThemeUtil.draw_tracked(
+		self, _font, Vector2(text_x, position.y + 16.0), label,
+		FONT_LABEL, UiThemeUtil.COLOR_BODY if ready else UiThemeUtil.COLOR_DIM, 0.35
+	)
+	var state := "就绪" if ready else "%.1fs" % remaining
+	UiThemeUtil.draw_tracked(
+		self, _font, Vector2(text_x, position.y + 29.0), state,
+		FONT_STATE, accent, 0.5
+	)
+
+	# 冷却条沿卡片下沿回填；就绪时改成三枚短格，避免一直亮一整条抢视线。
+	if ready:
+		for i in 3:
+			var pip := Rect2(
+				Vector2(position.x + CARD_WIDTH - 27.0 + float(i) * 7.0, position.y + 26.0),
+				Vector2(4.0, 5.0)
+			)
+			draw_colored_polygon(UiThemeUtil.bevel_points(pip, 1.5), accent)
+	else:
+		var ratio := 1.0 - clampf(remaining / maxf(total, 0.01), 0.0, 1.0)
+		UiThemeUtil.draw_bar(
+			self,
+			Rect2(Vector2(text_x, position.y + 31.0), Vector2(CARD_WIDTH - (text_x - position.x) - 7.0, 3.0)),
+			ratio, accent, 0
+		)
+
+
+func _draw_grenade(center: Vector2, color: Color) -> void:
+	var body := PackedVector2Array([
+		center + Vector2(-6.0, -4.0), center + Vector2(-2.0, -8.0),
+		center + Vector2(4.0, -7.0), center + Vector2(7.0, -2.0),
+		center + Vector2(6.0, 6.0), center + Vector2(2.0, 9.0),
+		center + Vector2(-5.0, 7.0), center + Vector2(-7.0, 2.0),
+	])
+	draw_colored_polygon(body, color)
+	draw_polyline(UiThemeUtil.closed(body), UiThemeUtil.shade(color, -0.35), UiThemeUtil.HAIRLINE_WIDTH, true)
+	var cap := Rect2(center + Vector2(-2.0, -11.0), Vector2(6.0, 4.0))
+	draw_colored_polygon(UiThemeUtil.bevel_points(cap, 1.5), UiThemeUtil.COLOR_EDGE_LIGHT)
+	draw_line(center + Vector2(3.0, -10.0), center + Vector2(7.0, -13.0), UiThemeUtil.COLOR_EDGE_LIGHT, 1.5, true)
+
+
+func _draw_pulse(center: Vector2, color: Color) -> void:
+	var points := PackedVector2Array([
+		center + Vector2(-11.0, 1.0), center + Vector2(-7.0, 1.0),
+		center + Vector2(-4.0, -6.0), center + Vector2(-1.0, 7.0),
+		center + Vector2(3.0, -7.0), center + Vector2(6.0, 1.0),
+		center + Vector2(11.0, 1.0),
+	])
+	draw_polyline(points, color, 2.0, true)
+	draw_line(center + Vector2(-10.0, 6.0), center + Vector2(10.0, 6.0), UiThemeUtil.with_alpha(color, 0.45), UiThemeUtil.HAIRLINE_WIDTH, true)
+

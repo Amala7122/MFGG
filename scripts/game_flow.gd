@@ -16,6 +16,9 @@ const EventBusUtil := preload("res://scripts/event_bus.gd")
 const RunStateUtil := preload("res://scripts/run_state.gd")
 const CinematicKillCamScript := preload("res://scripts/cinematic_kill_cam.gd")
 const CinematicActionCamScript := preload("res://scripts/cinematic_action_cam.gd")
+const UpgradePoolScript := preload("res://scripts/upgrade_pool.gd")
+## 赐福是否已经选过（防重复触发）。
+var _upgrade_picked := false
 const ArenaUtil := preload("res://scripts/arena.gd")
 const DisplaySettingsUtil := preload("res://scripts/display_settings.gd")
 const TerrainUtil := preload("res://scripts/terrain_field.gd")
@@ -24,7 +27,7 @@ static var instance: Node
 
 ## STAGE_CLEAR：一个阶段的 Boss 被击败。它与 GAME_OVER 的区别是"还有下一张图"，
 ## 所以它给的是"进入下一区域"而不是"再来一局"。
-enum State { MENU, PLAYING, PAUSED, DYING, GAME_OVER, STAGE_CLEAR, DISPLAY_SETTINGS }
+enum State { MENU, PLAYING, PAUSED, DYING, GAME_OVER, STAGE_CLEAR, DISPLAY_SETTINGS, UPGRADE_PICK }
 
 ## 配色与控件样式统一来自 UiTheme —— 本文件原先自带一套 COLOR_*，
 ## 与 PlayerHUD 那套已经开始漂移（"标题色"两边已经不是同一个值了）。
@@ -82,6 +85,8 @@ func _ready() -> void:
 	# 阶段清空由 wave_director 广播。推进节奏（弹面板、换图）属于流程层，
 	# 战斗节点只负责报告"这里清干净了"。
 	EventBusUtil.subscribe_stage_cleared(_enter_stage_cleared)
+	# juice：波间强化（波次肃清特写演完后由 wave_director 广播）
+	EventBusUtil.subscribe_upgrade_pick_requested(_on_upgrade_pick_requested)
 	_build_ui()
 	# 等一帧：让场景里的 Player._ready() 先跑完（它会把鼠标设为捕获态），
 	# 再进菜单把鼠标交还给用户。
@@ -475,6 +480,8 @@ func _dismiss_cinematics() -> void:
 
 func _resume_play() -> void:
 	_dismiss_cinematics()
+	_upgrade_picked = false
+	_root.modulate.a = 1.0
 	state = State.PLAYING
 	_set_overlay_visible(false)
 	get_tree().paused = false
@@ -649,6 +656,22 @@ func _notification(what: int) -> void:
 # ---------------------------------------------------------------- 输入
 
 func _input(event: InputEvent) -> void:
+	if state == State.UPGRADE_PICK:
+		if _upgrade_picked:
+			get_viewport().set_input_as_handled()
+			return
+		if event is InputEventKey and event.pressed and not event.echo:
+			var pick_idx := -1
+			match event.physical_keycode:
+				KEY_1: pick_idx = 0
+				KEY_2: pick_idx = 1
+				KEY_3: pick_idx = 2
+			if pick_idx >= 0 and pick_idx < _actions.get_child_count():
+				var btn := _actions.get_child(pick_idx) as Button
+				if is_instance_valid(btn) and not btn.disabled:
+					btn.emit_signal("pressed")
+					get_viewport().set_input_as_handled()
+					return
 	if not event.is_action_pressed("ui_cancel"):
 		return
 	# 实验场景只需要冻结画面来截图，不需要暂停菜单遮住构图。该元数据仅由
@@ -681,3 +704,83 @@ func _input(event: InputEvent) -> void:
 
 func _format_time(seconds: float) -> String:
 	return "%02d:%05.2f" % [floori(seconds / 60.0), fmod(seconds, 60.0)]
+
+
+# ────────────────────────── 遗迹赐福（波间强化）──────────────────────────
+
+func _on_upgrade_pick_requested(wave: int, total_waves: int) -> void:
+	if state == State.DYING or state == State.GAME_OVER \
+			or state == State.STAGE_CLEAR or state == State.UPGRADE_PICK:
+		return
+	var stage := RunStateUtil.get_stage()
+	var picks := UpgradePoolScript.roll_three(stage, wave)
+	_enter_upgrade_pick(picks, wave, total_waves)
+
+
+func _enter_upgrade_pick(picks: Array[Dictionary], wave: int, total_waves: int) -> void:
+	Engine.time_scale = 1.0
+	_dismiss_cinematics()
+	print("[GameFlow] 进入遗迹赐福: 第 %d/%d 波" % [wave, total_waves])
+	state = State.UPGRADE_PICK
+	_upgrade_picked = false
+	_title.text = "遗 迹 赐 福"
+	_clear_arena_row()
+	_set_body("第 %d/%d 波肃清 · 选择一项力量印记注入自身" % [wave, total_waves])
+
+	var actions: Array = []
+	var num_prefix := 1
+	for pick in picks:
+		var rarity_val: int = int(pick.get("rarity", 0))
+		var r_label: String
+		var badge_color: Color
+		match rarity_val:
+			UpgradePoolScript.Rarity.LEGENDARY:
+				r_label = "★ 传说"
+				badge_color = UiThemeUtil.COLOR_TITLE
+			UpgradePoolScript.Rarity.RARE:
+				r_label = "◆ 稀有"
+				badge_color = UiThemeUtil.COLOR_ACCENT
+			_:
+				r_label = "普通"
+				badge_color = UiThemeUtil.COLOR_BODY
+		var title_text := "[%d] %s %s  [%s]" % [
+			num_prefix, str(pick.get("icon", "")), str(pick.get("title", "")), r_label
+		]
+		actions.append({
+			"text": "%s\n%s" % [title_text, str(pick.get("desc", ""))],
+			"width": 540.0,
+			"height": 64.0,
+			"autowrap": true,
+			"font_color": badge_color,
+			"callback": _on_pick_upgrade.bind(pick)
+		})
+		num_prefix += 1
+
+	_root.modulate.a = 0.0
+	_set_actions(actions)
+	_present(
+		"UPGRADE BLESSING", UiThemeUtil.COLOR_TITLE,
+		"方向键 / 数字键 1~3 选择　·　Enter / 鼠标点击确认", []
+	)
+	var root_tween := _root.create_tween()
+	root_tween.tween_property(_root, "modulate:a", 1.0, 0.45) \
+		.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	AudioUtil.play("pickup", 2.2, 1.2)
+	AudioUtil.play("ui", 1.0, 0.9)
+	get_tree().paused = true
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func _on_pick_upgrade(pick: Dictionary) -> void:
+	if _upgrade_picked:
+		return
+	_upgrade_picked = true
+	# 立刻禁用全部选项，确保只能选一次且不可重复触发。
+	for child in _actions.get_children():
+		if child is Button:
+			child.disabled = true
+	AudioUtil.play("pickup", 2.0, 1.4)
+	var perk_id := String(pick.get("id", ""))
+	RunStateUtil.add_perk(perk_id)
+	EventBusUtil.emit_upgrade_chosen(perk_id)
+	_resume_play()

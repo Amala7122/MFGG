@@ -5,7 +5,10 @@ extends CharacterBody3D
 const GameFlowUtil := preload("res://scripts/game_flow.gd")
 const AudioUtil := preload("res://scripts/audio_manager.gd")
 const CombatFXUtil := preload("res://scripts/combat_fx.gd")
+const UpgradePoolScript := preload("res://scripts/upgrade_pool.gd")
+const TelegraphUtil := preload("res://scripts/telegraph.gd")
 const EventBusUtil := preload("res://scripts/event_bus.gd")
+const RunStateUtil := preload("res://scripts/run_state.gd")
 const ConfigUtil := preload("res://scripts/game_config.gd")
 const TerrainFieldUtil := preload("res://scripts/terrain_field.gd")
 ## 玩家控制器（P0 重构版）。
@@ -134,6 +137,8 @@ var _ghost_spawn_timer := 0.0
 var _cinematic_locked := false
 ## 共鸣系统引用（尚未接线，保留以便后续接入；guarded 调用当前为静默跳过）。
 var _resonance: Node = null
+## 浮游卫士引用（尚未接线；赐福 wisp_overclock 用 guarded 调用）。
+var _wisp: Node = null
 var _fall_speed := 0.0
 var _was_grounded := true
 ## 死亡不是一个瞬时跳转：先让角色与镜头完成倒地，再把结算事件交给 GameFlow。
@@ -269,6 +274,8 @@ func _setup_components() -> void:
 	add_child(_hud)
 	# 相机给受击方向指示器判定"前方"，自身给小地图定位。
 	_hud.setup(aim_ui, camera, self)
+	# juice：订阅波间赐福（选择结果由 game_flow 广播）
+	EventBusUtil.subscribe_upgrade_chosen(_on_upgrade_chosen)
 
 
 func _refresh_hud() -> void:
@@ -883,6 +890,11 @@ func register_enemy_kill() -> void:
 	kill_count += 1
 	if _hud:
 		_hud.set_kills(kill_count)
+	# juice：赐福效果（击杀触发类）
+	if RunStateUtil.has_perk("vampiric_touch"):
+		try_heal(4.0)
+	if RunStateUtil.has_perk("chain_lightning"):
+		_trigger_chain_lightning()
 
 
 func upgrade_weapon() -> bool:
@@ -1029,3 +1041,51 @@ func _spawn_roll_ghost() -> void:
 	var tween := ghost.create_tween()
 	tween.tween_property(ghost_mat, "albedo_color:a", 0.0, 0.28).set_ease(Tween.EASE_OUT)
 	tween.tween_callback(ghost.queue_free)
+
+
+# ── juice：遗迹赐福（波间强化）效果应用 ──────────────────────────────
+
+## 收到"赐福已选择"事件后，把效果作用到玩家身上。
+func _on_upgrade_chosen(perk_id: String) -> void:
+	if perk_id == "shield_overload":
+		max_shield += 35.0
+		shield = max_shield
+		if _hud:
+			_hud.set_shield(shield, max_shield)
+	elif perk_id == "rapid_cycler":
+		speed *= 1.12
+		dodge_cooldown_time *= 0.8
+	elif perk_id == "wisp_overclock":
+		if _wisp and _wisp.has_method("apply_overclock"):
+			_wisp.call("apply_overclock")
+	if _resonance != null:
+		_resonance.refresh_perks()
+	if _hud:
+		var perk: Dictionary = UpgradePoolScript.get_perk(perk_id)
+		var title: String = str(perk.get("title", perk_id))
+		_hud.show_notice("获得赐福：%s" % title, "upgrade")
+
+
+## 连锁闪电赐福：击杀时对最近的敌人放电（用 telegraph 画一道电弧）。
+func _trigger_chain_lightning() -> void:
+	var best_target: CharacterBody3D = null
+	var best_dist := 6.5
+	for node in get_tree().get_nodes_in_group("enemies"):
+		if node is CharacterBody3D and is_instance_valid(node) and float(node.get("health")) > 0.0:
+			var d := global_position.distance_to(node.global_position)
+			if d > 0.5 and d < best_dist:
+				best_dist = d
+				best_target = node
+	if best_target == null:
+		return
+	best_target.call("take_damage", 60.0)
+	AudioUtil.play_at("shot", best_target.global_position, -4.0, 1.8)
+	var scene := get_tree().current_scene
+	if scene:
+		TelegraphUtil.create_line(
+			scene,
+			global_position + Vector3.UP * 1.0,
+			best_target.global_position + Vector3.UP * 0.8,
+			0.25,
+			Color(0.2, 0.8, 1.0, 0.9)
+		)
