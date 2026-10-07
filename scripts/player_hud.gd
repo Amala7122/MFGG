@@ -34,6 +34,7 @@ const WaveBannerScript := preload("res://scripts/wave_banner.gd")
 const ReadoutPlateScript := preload("res://scripts/readout_plate.gd")
 
 const DAMAGE_FLASH_TIME := 0.18
+const SHIELD_BREAK_FLASH_TIME := 0.28
 
 var _aim_ui: CanvasLayer
 var _theme: Theme
@@ -43,6 +44,7 @@ var _theme: Theme
 var _legacy_health_bar: ProgressBar
 var _legacy_health_label: Label
 var _damage_overlay: ColorRect
+var _shield_break_overlay: ColorRect
 var _speed_lines: SpeedLinesOverlayScript
 var _resonance_bar: ResonanceBarScript
 ## 击杀 / 生存两块读数原先各是一条 Label（拼一句文本），现已由读数板取代。
@@ -72,6 +74,7 @@ var _notifications: NotificationStackScript
 var _death_overlay: ColorRect
 
 var _damage_flash_time := 0.0
+var _shield_break_flash_time := 0.0
 var _fps_refresh_time := 0.0
 ## 生命与护盾的当前值。
 ##
@@ -193,6 +196,7 @@ func setup(aim_ui: CanvasLayer, camera: Camera3D = null, player: Node3D = null) 
 	_build_wave_readout()
 	_build_boss_bar()
 	_build_death_overlay()
+	_build_shield_break_overlay()
 	_bind_sky_time()
 	# 最后统一落位：各 _build_* 里写的只是初值。
 	# 【这里不做两遍】原先先调一次 _layout_top_hud() 再调 relayout_for_width()，
@@ -593,14 +597,38 @@ func _build_death_overlay() -> void:
 
 # ---------------------------------------------------------------- 每帧
 
+## juice：破盾整屏闪白（0.28s，alpha 线性淡出）。
+func _build_shield_break_overlay() -> void:
+	_shield_break_overlay = ColorRect.new()
+	_shield_break_overlay.name = "ShieldBreakFlash"
+	_shield_break_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_shield_break_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_shield_break_overlay.color = Color(0.22, 0.75, 1.0, 0.36)
+	_shield_break_overlay.visible = false
+	_aim_ui.add_child(_shield_break_overlay)
+
+
+## 护盾被打穿时触发（player.take_damage 调用）。
+func flash_shield_break() -> void:
+	_shield_break_flash_time = SHIELD_BREAK_FLASH_TIME
+	show_notice("⚠️ 护盾破碎！", "shield")
+
+
 func update(delta: float, spread_angles_degrees: Vector2, aiming: bool, reloading: bool) -> void:
 	_damage_flash_time = maxf(_damage_flash_time - delta, 0.0)
+	_shield_break_flash_time = maxf(_shield_break_flash_time - delta, 0.0)
 	_fps_refresh_time -= delta
 	if _fps_label != null and _fps_refresh_time <= 0.0:
 		_fps_refresh_time = 0.25
 		_fps_label.text = "FPS %d" % Engine.get_frames_per_second()
 	if _damage_overlay:
 		_damage_overlay.visible = _damage_flash_time > 0.0
+	if _shield_break_overlay:
+		_shield_break_overlay.visible = _shield_break_flash_time > 0.0
+		if _shield_break_overlay.visible:
+			_shield_break_overlay.modulate.a = clampf(
+				_shield_break_flash_time / SHIELD_BREAK_FLASH_TIME, 0.0, 1.0
+			)
 	if _crosshair:
 		_crosshair.spread_angles_degrees = spread_angles_degrees
 		_crosshair.aiming = aiming

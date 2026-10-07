@@ -1,5 +1,8 @@
 class_name PlayerRig
 extends Node
+
+## juice：每一步落地时发一次（is_sprint 用来区分走/跑音量）。
+signal step_taken(is_sprint: bool)
 ## 玩家角色的程序化姿势与动画（v2：双骨骨架 + 手部 IK）。
 ##
 ## 节点命名说明（重要）：
@@ -204,7 +207,11 @@ func update(
 	var cadence := _cadence_for_speed(horizontal_speed, walk_speed, max_speed)
 	var swing_amount := lerpf(walk_swing, run_swing, run_blend)
 	if moving and grounded:
+		var prev_phase := _gait_phase
 		_gait_phase = fmod(_gait_phase + delta * cadence, TAU)
+		# juice：相位跨过半圈（或回绕）即视为落下一步
+		if (prev_phase < PI and _gait_phase >= PI) or (prev_phase > _gait_phase):
+			step_taken.emit(sprinting)
 	else:
 		_gait_phase = lerp_angle(_gait_phase, 0.0, minf(delta * 8.0, 1.0))
 	var swing := sin(_gait_phase) * swing_amount * _locomotion_weight

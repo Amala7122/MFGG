@@ -139,6 +139,8 @@ var _landing_dip := 0.0
 var _ghost_spawn_timer := 0.0
 ## 电影镜头期间锁定玩家操作。
 var _cinematic_locked := false
+## 震地脉冲后的完美格挡窗口（窗口内挨打算完美格挡，不受伤）。
+var _parry_window := 0.0
 ## 共鸣系统引用（尚未接线，保留以便后续接入；guarded 调用当前为静默跳过）。
 var _resonance: Node = null
 ## 浮游卫士引用（尚未接线；赐福 wisp_overclock 用 guarded 调用）。
@@ -272,6 +274,8 @@ func _setup_components() -> void:
 		add_child(_rig)
 		_rig.setup(player_model)
 		_rig.set_weapon(_weapon)
+	# juice：脚步（音效 + 足下扬尘）
+	_rig.step_taken.connect(_on_footstep)
 
 	_hud = PlayerHUD.new()
 	_hud.name = "PlayerHUD"
@@ -454,6 +458,7 @@ func _tick_timers(delta: float) -> void:
 	_skill_cooldown = maxf(_skill_cooldown - delta, 0.0)
 	_damage_invulnerability = maxf(_damage_invulnerability - delta, 0.0)
 	_hitstop_timer = maxf(_hitstop_timer - delta, 0.0)
+	_parry_window = maxf(_parry_window - delta, 0.0)
 	_regenerate(delta)
 
 
@@ -672,10 +677,15 @@ func _handle_skill() -> void:
 	if not scene:
 		return
 	_skill_cooldown = skill_cooldown_time
+	# juice：震地格挡的保命机制 —— 0.65s 绝对防御 + 同长的完美格挡窗口
+	grant_invulnerability(0.65)
+	_parry_window = 0.65
 	var wave := Shockwave.new()
 	wave.set_meta(&"combat_context", preload("res://scripts/combat_telemetry.gd").begin_attack(self, "Q"))
 	scene.add_child(wave)
-	wave.global_position = global_position + Vector3.UP * 0.15
+	# 冲击波贴程序化地面，坡道上不再悬空
+	var ground_y := TerrainFieldUtil.height_at(global_position.x, global_position.z)
+	wave.global_position = Vector3(global_position.x, ground_y + 0.04, global_position.z)
 	wave.perform(skill_radius, skill_damage, skill_push)
 
 
@@ -794,8 +804,18 @@ func take_damage(
 			_rig.flash_hit()
 		return
 	if _damage_invulnerability > 0.0 or health <= 0.0:
-		# juice：翻滚无敌期间挨到攻击 = 完美闪避，回充共鸣能量
-		if _rolling and _resonance != null:
+		# juice：格挡窗口内挨打 = 完美格挡（有格挡火花 + 音效）；翻滚无敌期挨打 = 完美闪避
+		if _parry_window > 0.0:
+			AudioUtil.play("shot", 2.0, 2.2)
+			var sc := get_tree().current_scene if get_tree() else null
+			if sc:
+				CombatFXUtil.spawn_impact(
+					sc, global_position + Vector3.UP * 1.0, Vector3.UP,
+					Color(0.35, 0.9, 1.0), 1.8
+				)
+			if _resonance != null:
+				_resonance.on_perfect_dodge()
+		elif _rolling and _resonance != null:
 			_resonance.on_perfect_dodge()
 		return
 	amount = maxf(amount, 0.0)
@@ -1013,6 +1033,11 @@ func apply_hitstop(duration: float) -> void:
 
 
 ## 手柄震动反馈（普通连发轻震，狙击/破招重震）。
+## juice：授予一段绝对防御（震地脉冲自救窗口 / 共鸣爆发安全窗口）。
+func grant_invulnerability(duration: float) -> void:
+	_damage_invulnerability = maxf(_damage_invulnerability, duration)
+
+
 func apply_rumble(weak: float, strong: float, duration: float) -> void:
 	Input.start_joy_vibration(0, clampf(weak, 0.0, 1.0), clampf(strong, 0.0, 1.0), maxf(duration, 0.02))
 
@@ -1131,4 +1156,23 @@ func _trigger_chain_lightning() -> void:
 			best_target.global_position + Vector3.UP * 0.8,
 			0.25,
 			Color(0.2, 0.8, 1.0, 0.9)
+		)
+
+
+## juice：脚步（player_rig 的 step_taken 驱动）—— 落地音 + 足下扬尘。
+func _on_footstep(is_sprint: bool) -> void:
+	if not is_on_floor() or _dying or _cinematic_locked:
+		return
+	AudioUtil.play("footstep", -18.0 if not is_sprint else -13.5, randf_range(0.93, 1.08))
+	var sc := get_tree().current_scene if get_tree() else null
+	if sc:
+		var ground_y := TerrainFieldUtil.height_at(global_position.x, global_position.z)
+		var foot_y := maxf(ground_y + 0.04, global_position.y - 0.96)
+		var foot_pos := Vector3(global_position.x, foot_y, global_position.z)
+		CombatFXUtil.spawn_impact(
+			sc,
+			foot_pos,
+			Vector3.UP,
+			Color(0.85, 0.82, 0.74, 0.35),
+			0.35 if not is_sprint else 0.55
 		)
