@@ -1,5 +1,10 @@
 class_name ProceduralMudGolem
 extends CharacterBody3D
+const Nav := preload("res://scripts/nav_steering.gd")
+const GroundMovement := preload("res://scripts/ground_movement.gd")
+const SpatialProfile := preload("res://scripts/combat_spatial_profile.gd")
+@export var combat_spatial_profile: SpatialProfile = preload("res://data/combat_spatial/ground.tres")
+var _steering := Nav.new()
 const AttackArea := preload("res://scripts/enemy_attack_area.gd")
 var _attack_area := AttackArea.new()
 var _attack_target: Node3D
@@ -11,8 +16,12 @@ const Crowd := preload("res://scripts/prototypes/enemy_crowd.gd")
 var _crowd := Crowd.new()
 
 const Telemetry := preload("res://scripts/combat_telemetry.gd")
+const ReactionProfile := preload("res://scripts/combat_reaction_profile.gd")
+const Reactions := preload("res://scripts/combat_reactions.gd")
+@export var combat_reaction_profile: ReactionProfile
+var _reactions := Reactions.new()
 
-enum State { IDLE, WALK, ATTACK, STAGGER, DEAD }
+enum State { IDLE, WALK, ATTACK, STAGGER, DEAD, COMBAT_REACTION }
 var current_state: State = State.IDLE
 
 var move_speed: float
@@ -67,6 +76,8 @@ func _ready() -> void:
 	visual_root.rotation.y = PI
 	visual_root.position.y = -0.65
 	_setup_collision()
+	_steering.setup(self, 0.45, 1.3)
+	_steering.spatial.bind(_tuning, {"can_attack": _spatial_can_attack, "attack_pose": _spatial_attack_pose})
 	_health_label = Label3D.new()
 	_health_label.name = "HealthLabel"
 	_health_label.position.y = 0.92
@@ -75,6 +86,7 @@ func _ready() -> void:
 	_health_label.pixel_size = 0.006
 	add_child(_health_label)
 	_update_health_label()
+	_reactions.setup(self, combat_reaction_profile, _collision)
 
 
 func _p(key: String) -> float:
@@ -90,6 +102,11 @@ func _physics_process(delta: float) -> void:
 	_crowd.tick(delta)
 	anim_clock += delta * _crowd.gait_multiplier
 	_attack_cooldown = maxf(_attack_cooldown - delta, 0.0)
+	if _reactions.step(delta, ai_enabled and current_state in [State.IDLE, State.WALK, State.ATTACK], move_speed):
+		return
+	if _steering.tick(delta, ai_enabled and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK], target, move_speed):
+		_animate_walk(anim_clock)
+		return
 	var desired := Vector3.ZERO
 	if ai_enabled and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK]:
 		if is_instance_valid(target) and float(target.get("health")) > 0.0:
@@ -99,9 +116,12 @@ func _physics_process(delta: float) -> void:
 			if distance > 0.001:
 				var direction := offset / distance
 				rotation.y = rotate_toward(rotation.y, atan2(-direction.x, -direction.z), delta * _p("turn_speed"))
-				if distance > attack_distance * _crowd.size_multiplier:
+				if not _spatial_can_attack():
 					_set_locomotion(State.WALK)
 					desired = _crowd.steer(direction * move_speed, target.global_position, delta)
+					desired = _steering.ground_velocity(target.global_position, desired, delta)
+					if not desired.is_zero_approx():
+						rotation.y = rotate_toward(rotation.y, atan2(-desired.x, -desired.z), delta * _p("turn_speed"))
 				elif _attack_cooldown <= 0.0:
 					trigger_attack(target.global_position)
 					if current_state != State.ATTACK and _crowd.enabled():
@@ -124,7 +144,7 @@ func _physics_process(delta: float) -> void:
 		velocity.y = -0.5
 	else:
 		velocity.y -= _p("gravity") * delta
-	move_and_slide()
+	GroundMovement.move(self, delta)
 
 
 func _set_locomotion(next_state: State) -> void:
@@ -292,7 +312,7 @@ func trigger_attack(target_pos: Vector3) -> void:
 	velocity.x = 0.0
 	velocity.z = 0.0
 	_attack_area.prepare(global_transform, {"kind": "sector", "radius": (attack_distance + _p("attack_reach_extra")) * _crowd.size_multiplier,
-		"angle": _p("attack_angle") * 2.0, "height": 2.0 * _crowd.size_multiplier}, attack_damage * _damage_scale,
+		"angle": _p("attack_angle") * 2.0, "height": 2.0 * _crowd.size_multiplier, "ground_effect": false}, attack_damage * _damage_scale,
 		_p("attack_windup") + _p("attack_swing"))
 	_action_tween = create_tween().set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
 	_action_tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
@@ -316,8 +336,17 @@ func _on_attack_hit_frame() -> void:
 	_attack_area.recover()
 
 
+func _spatial_can_attack() -> bool:
+	return _spatial_attack_pose(global_transform)
+
+func _spatial_attack_pose(pose: Transform3D) -> bool:
+	return is_instance_valid(target) and AttackArea.candidate_can_hit(self, pose,
+		{"kind": "sector", "radius": (attack_distance + _p("attack_reach_extra")) * _crowd.size_multiplier,
+		"angle": _p("attack_angle") * 2.0, "height": 2.0 * _crowd.size_multiplier, "ground_effect": false}, target)
+
+
 func trigger_hit_stagger(knockback_dir: Vector3) -> void:
-	if current_state == State.DEAD:
+	if current_state == State.DEAD or not _reactions.allow_normal_stagger():
 		return
 	_stop_action()
 	_reset_pose()
@@ -346,11 +375,36 @@ func take_damage(amount: float) -> void:
 	Telemetry.enemy_damaged(self, before)
 	_update_health_label()
 	if health <= 0.0:
-		if is_instance_valid(target) and target.has_method("register_enemy_kill"):
+		if Telemetry.credits_player(self) and is_instance_valid(target) and target.has_method("register_enemy_kill"):
 			target.call("register_enemy_kill")
 		trigger_death_scatter()
-	elif bool(_tuning.stagger_on_damage):
+	elif bool(_tuning.stagger_on_damage) and not Telemetry.manages_reaction(self):
 		trigger_hit_stagger(Vector3.ZERO)
+
+
+func combat_reaction_begin(_mode: int) -> void:
+	_steering.spatial.cancel_motion()
+	_stop_action()
+	_reset_pose()
+	_push_velocity = Vector3.ZERO
+	current_state = State.COMBAT_REACTION
+
+
+func combat_reaction_end() -> void:
+	_finish_action()
+
+
+func combat_reaction_ground_velocity(goal: Vector3, desired: Vector3, delta: float) -> Vector3:
+	return _steering.ground_velocity(goal, _crowd.steer(desired, goal, delta), delta)
+
+
+func combat_reaction_pose(mode: int, delta: float) -> void:
+	if mode == Reactions.Mode.EVADE:
+		if Vector2(velocity.x, velocity.z).length() > 0.1:
+			rotation.y = rotate_toward(rotation.y, atan2(-velocity.x, -velocity.z), delta * _p("turn_speed"))
+		_animate_walk(anim_clock)
+	else:
+		torso_pivot.rotation_degrees.x = -25.0
 
 
 func apply_push(direction: Vector3, force: float) -> void:

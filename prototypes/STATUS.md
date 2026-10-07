@@ -17,9 +17,15 @@
 
 ## 当前登记
 
+T03 空间策略（2026-10-07）：程序化三种地面角色与正式近战 / 射手共用 NavSteering 接入能力资源；不是把原型敌人加入正式刷怪。通用演示仍属 **Active**，入口 `prototypes/combat/spatial/capability_lab.tscn`。验证跳障、返程、拒绝无出口下降、破障和墙顶接战；墙顶依赖场景连接，潜地执行器尚未实现。详见 [空间能力](../data/combat_spatial/README.md)。
+
 | 实验 / 系统 | 状态 | 当前入口 | 与正式游戏的关系 | 下一步 / 停止条件 |
 |---|---|---|---|---|
+| T03 可赋予空间策略与能力 | **Active** | `data/combat_spatial/`、`scripts/combat_spatial_controller.gd`；`prototypes/combat/spatial/capability_lab.tscn` | 三种地面原型及正式近战 / 射手共用策略；能力演示是开发工具 | 用户试玩高台 / 凹坑 / 破障；墙顶当前使用通用场景连接，潜地需真实执行器 |
 | Combat Lab 战斗测试场 | **Active** | `prototypes/combat/combat_lab.tscn` | 开发工具，不是正式关卡 | 保持稳定，用来验证战斗；不要把正式流程继续塞进 Lab |
+| Combat Spatial Lab 小空间测试预设 | **Active** | `prototypes/combat/spatial/combat_spatial_lab.tscn`、`spatial_layout.tscn` | 复用 Combat Lab 投放 / 统计流程，固定验证高低差、掩体、薄板坡、跳跃普攻与 T02 射击；不是正式关卡 | 保留九个起点和成组投放；继续用户试玩，散布调参独立验收 |
+| 可赋予环境破坏 | **Active** | `scripts/destructible_component.gd`、`destruction_profile.gd`、`environment_destruction.gd`、`data/destruction/`；Spatial Lab 石块 / 残柱 / 小树 / 矮墙区 | 实验场泰坦砸地、横扫、跃击与跳跃普攻已接入；正式关卡未接入 | 验证实际攻击时机、任意模型 / 多子碰撞赋予、材质复用、实墙遮挡、导航更新及重开恢复 |
+| 可赋予战斗反应 | **Active** | `scripts/combat_reactions.gd`、`combat_reaction_profile.gd`、`data/combat_reactions/`；Spatial Lab 泰坦反应组 | 三种原型小怪已接入泰坦跃击危险 / 友军伤害；正式敌人未接入 | 验证撤离成功 / 失败、硬吃 / 击退 / 坠地、存活起飞 / 死亡、跨物种赋予、取消 / 清理与归属；不扩张成完整能力框架 |
 | 敌人独立调参系统 | **Active** | `scripts/prototypes/enemy_tuning.gd`、`prototypes/combat/enemy_tuning_panel.gd`、`data/enemies/` | 当前服务程序化敌人实验 | 继续作为实验基础设施；正式敌人接入时再决定哪些能力迁入正式层 |
 | 原型群体运动 | **Active** | `scripts/prototypes/enemy_crowd.gd` | 当前只服务程序化原型 | 只有首章正式敌人确实需要时才迁入主游戏；不提前扩成完整群体 AI 框架 |
 | 沉积泰坦 | **Graduating** | `prototypes/combat/enemies/procedural_sediment_titan.tscn`、`scripts/prototypes/procedural_sediment_titan.gd`、`scripts/prototypes/titan_*.gd` | 目前仍在 Combat Lab；主游戏未正式接入 | 完成 B0 封口与用户试玩；随后在首章战斗阶段做正式场地适配。封口前不继续无限加招 |
@@ -28,6 +34,7 @@
 | 晶刺蜂 | **Active** | `prototypes/combat/enemies/procedural_hornet.tscn`、对应脚本与 JSON | Combat Lab 可玩，正式刷怪未使用 | 只有被选入首章正式阵容时才进入 Graduating |
 | 旧近战手感实验场 | **Archived** | `prototypes/legacy/melee/enemy_melee_lab.tscn`、`lab_melee_player`、`lab_beast_target` | 旧 F 键近战参考，不是当前正式玩家能力 | 保留用于查手感思路；正式近战需求另行接入，不继续扩展旧 Lab |
 | Enemy Visual Lab 视觉观察台 | **Active** | `prototypes/visual/enemy_visual_lab.tscn`、`scripts/prototypes/enemy_visual_lab.gd` | 开发工具，不参与战斗；用于固定灯光 / 相机条件下检查造型、轮廓、材质与比例 | 长期保留为纯视觉检查入口，不与 Combat Lab 合并 |
+| 裂釉镇墓兽外形 | **Active** | `prototypes/visual/enemies/tomb_guardian_visual.tscn`、`scripts/prototypes/procedural_tomb_guardian_visual.gd` | 仅在 Enemy Visual Lab 展示外形和姿态；尚无战斗、碰撞和首关接入 | 检查正侧面轮廓与威吓姿态，确认视觉方向后再设计战斗版 |
 | 第一版快速野兽剪影 | **Archived** | `prototypes/legacy/visual/fast_beast_prototype.tscn`、`scripts/prototypes/beast_prototype.gd` | 已被后续程序化迅捷晶兽路线替代 | 仅作早期造型历史参考 |
 | Weather Lab 天气测试场 | **Active** | `prototypes/environment/weather_lab.tscn` | 主场景的无敌人副本；保留实际地形、植被、玩家和 WeatherEnvironment | 作为天气视觉与参数验证入口；不加入敌人、波次或正式关卡流程 |
 | Sky3D 独立实验场 | **Integrated** | `prototypes/environment/sanctum_sky3d_experiment.tscn` | Sky3D / 天气能力已经进入主场景 `WeatherEnvironment` | 保留隔离实验场用于天气和天空验证，正式行为以主场景实现为准 |

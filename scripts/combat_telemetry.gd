@@ -48,9 +48,6 @@ static func enemy_damaged(enemy: Node, before: float) -> void:
 
 
 static func hurt_enemy(enemy: Node, amount: float, context: Dictionary) -> void:
-	if recorder(enemy) == null:
-		enemy.call("take_damage", amount)
-		return
 	var previous: Variant = enemy.get_meta(CONTEXT) if enemy.has_meta(CONTEXT) else null
 	enemy.set_meta(CONTEXT, context)
 	enemy.call("take_damage", amount)
@@ -58,6 +55,14 @@ static func hurt_enemy(enemy: Node, amount: float, context: Dictionary) -> void:
 		enemy.remove_meta(CONTEXT)
 	else:
 		enemy.set_meta(CONTEXT, previous)
+
+
+static func credits_player(enemy: Node) -> bool:
+	return String(enemy.get_meta(CONTEXT, {}).get("source_kind", "player")) != "enemy"
+
+
+static func manages_reaction(enemy: Node) -> bool:
+	return bool(enemy.get_meta(CONTEXT, {}).get("managed_reaction", false))
 
 
 static func resource(host: Node, source: String, kind: String, amount: float = 1.0) -> void:

@@ -1,5 +1,18 @@
 class_name ProceduralSedimentTitan
 extends CharacterBody3D
+const Nav := preload("res://scripts/nav_steering.gd")
+const GroundMovement := preload("res://scripts/ground_movement.gd")
+const JumpLanding := preload("res://scripts/jump_landing.gd")
+const JumpMelee := preload("res://scripts/jump_melee.gd")
+const SpatialQuery := preload("res://scripts/spatial_query.gd")
+const SpatialProfile := preload("res://scripts/combat_spatial_profile.gd")
+@export var combat_spatial_profile: SpatialProfile = preload("res://data/combat_spatial/jump_break.tres")
+const Destruction := preload("res://scripts/environment_destruction.gd")
+const Reactions := preload("res://scripts/combat_reactions.gd")
+var _jump_environment_spent := false
+var _sweep_destroyed := false
+var _jump_melee := JumpMelee.new()
+var _steering := Nav.new()
 ## 沉积泰坦：条件选招、独立冷却、招式记忆与长距离跃击。
 
 const AttackArea := preload("res://scripts/enemy_attack_area.gd")
@@ -19,7 +32,7 @@ const Audio := preload("res://scripts/audio_manager.gd")
 var _crowd := Crowd.new()
 var _brain := Brain.new()
 
-enum State { SPAWN, IDLE, CHASE, ATK_SLAM, ATK_SWEEP, CAST_SHIELD, DEAD, LEAP_WINDUP, LEAP_AIR, LEAP_RECOVERY }
+enum State { SPAWN, IDLE, CHASE, ATK_SLAM, ATK_SWEEP, CAST_SHIELD, DEAD, LEAP_WINDUP, LEAP_AIR, LEAP_RECOVERY, JUMP_ATTACK }
 var current_state: State = State.SPAWN
 
 var max_hp: float
@@ -85,6 +98,7 @@ var attack_cooldown := 0.0
 var _active_skill := ""
 var _hit_landed := false
 var _selection_reason := "manual"
+var _breach_target: WeakRef
 var _decision_timer := 0.0
 var _in_melee := false
 var _target_sample: Node3D
@@ -136,6 +150,8 @@ func _ready() -> void:
 	# 原稿模型正面为 +Z，项目攻击和转向统一为 -Z。
 	visual_root.rotation.y = PI
 	_setup_collision()
+	_steering.setup(self, 1.4, 3.4)
+	_steering.spatial.bind(_tuning, {"remaining": _spatial_remaining, "consume": _spatial_consume, "can_attack": _spatial_can_attack, "attack_pose": _spatial_attack_pose, "break_action": _spatial_break_action})
 	_setup_telegraphs()
 	_setup_leap_visuals()
 	_health_label = Label3D.new()
@@ -155,12 +171,6 @@ func _p(key: String) -> float:
 
 
 func _physics_process(delta: float) -> void:
-	if current_state in [State.ATK_SLAM, State.ATK_SWEEP, State.LEAP_WINDUP] and (not is_instance_valid(_attack_target) or float(_attack_target.get("health")) <= 0.0):
-		if current_state == State.LEAP_WINDUP:
-			_cancel_leap_windup()
-		else:
-			_stop_action()
-			_finish_action(_p("rage_ready_delay"))
 	if current_state == State.DEAD:
 		return
 	_crowd.tick(delta)
@@ -180,14 +190,13 @@ func _physics_process(delta: float) -> void:
 		return
 	if current_state == State.LEAP_WINDUP:
 		_leap_elapsed += delta
-		if _decision_timer <= 0.0:
-			_decision_timer = 0.18
-			var updated := _plan_leap()
-			if not updated.is_empty():
-				_leap_plan = updated
-				_attack_area.track(Transform3D(Basis.IDENTITY, updated.ground))
-				var facing: Vector3 = updated.landing - global_position
-				rotation.y = rotate_toward(rotation.y, atan2(-facing.x, -facing.z), turn_speed * 0.18)
+	if ai_enabled and _crowd.ready_to_move() and _target_alive() and current_state in [State.IDLE, State.CHASE]:
+		var chase_distance := Vector2(target.global_position.x - global_position.x, target.global_position.z - global_position.z).length()
+		_brain.observe_chase(delta, chase_distance, _in_melee)
+	if _steering.tick(delta, ai_enabled and _crowd.ready_to_move() and current_state in [State.IDLE, State.CHASE] and attack_cooldown <= 0.0, target, effective_move_speed):
+		_animate_walk(anim_clock)
+		_head_collision.position = to_local(core_mesh.global_position)
+		return
 	var desired := Vector3.ZERO
 	if ai_enabled and _crowd.ready_to_move() and current_state in [State.IDLE, State.CHASE]:
 		if not _target_alive():
@@ -196,17 +205,22 @@ func _physics_process(delta: float) -> void:
 			var offset := target.global_position - global_position
 			offset.y = 0.0
 			var distance := offset.length()
+			var above := _target_above()
+			var routing := above or _steering.needs_route(target.global_position)
+			var ordinary_range := above and JumpMelee.can_start(self, target, _normal_attack_spec())
 			var near_limit := _p("near_exit_distance") if _in_melee else _p("near_enter_distance")
-			_in_melee = distance <= near_limit and absf(target.global_position.y - global_position.y) <= 2.5 * _crowd.size_multiplier
-			_brain.observe_chase(delta, distance, _in_melee)
+			_in_melee = not routing and distance <= near_limit and absf(target.global_position.y - global_position.y) <= 2.5 * _crowd.size_multiplier
 			if distance > 0.001:
 				rotation.y = rotate_toward(rotation.y, atan2(-offset.x, -offset.z), turn_speed * delta * (rage_speed_multiplier if is_enraged else 1.0))
 			if attack_cooldown <= 0.0 and _decision_timer <= 0.0:
 				_decision_timer = 0.18
 				_select_attack(distance)
-			if current_state in [State.IDLE, State.CHASE] and distance > _p("near_enter_distance"):
+			if current_state in [State.IDLE, State.CHASE] and not ordinary_range and (routing or distance > _p("near_enter_distance")):
 				_set_locomotion(State.CHASE)
 				desired = _crowd.steer(-global_basis.z * effective_move_speed, target.global_position, delta)
+				desired = _steering.ground_velocity(target.global_position, desired, delta)
+				if not desired.is_zero_approx():
+					rotation.y = rotate_toward(rotation.y, atan2(-desired.x, -desired.z), turn_speed * delta * (rage_speed_multiplier if is_enraged else 1.0))
 			elif current_state in [State.IDLE, State.CHASE]:
 				_set_locomotion(State.IDLE)
 		else:
@@ -218,11 +232,29 @@ func _physics_process(delta: float) -> void:
 			_animate_walk(anim_clock)
 	_head_collision.position = to_local(core_mesh.global_position)
 	# 出土、技能和硬直期间也保留重力，视觉位移与身体碰撞互不干扰。
-	velocity.x = move_toward(velocity.x, desired.x + _push_velocity.x, delta * _p("acceleration"))
-	velocity.z = move_toward(velocity.z, desired.z + _push_velocity.z, delta * _p("acceleration"))
+	if current_state == State.LEAP_WINDUP:
+		# 已公布的跃击不受普通推力改变起跳位置；保留重力与地面碰撞。
+		velocity.x = 0.0
+		velocity.z = 0.0
+	else:
+		velocity.x = move_toward(velocity.x, desired.x + _push_velocity.x, delta * _p("acceleration"))
+		velocity.z = move_toward(velocity.z, desired.z + _push_velocity.z, delta * _p("acceleration"))
 	_push_velocity = _push_velocity.move_toward(Vector3.ZERO, delta * _p("push_decay"))
-	velocity.y = -0.5 if is_on_floor() else velocity.y - _p("gravity") * delta
-	move_and_slide()
+	velocity.y = -0.5 if is_on_floor() and velocity.y <= 0.0 else velocity.y - _p("gravity") * delta
+	GroundMovement.move(self, delta, current_state != State.JUMP_ATTACK)
+	if current_state == State.JUMP_ATTACK:
+		if not _jump_environment_spent and _jump_melee.in_strike_window(delta):
+			_jump_environment_spent = true
+			var spec := _normal_attack_spec()
+			_attack_area.prepare(global_transform, {"kind": "sector", "radius": spec.reach,
+				"angle": 180.0, "height": spec.height, "ground_effect": false}, 0.0)
+			_attack_area.lock()
+			if _attack_area.strike():
+				Destruction.shape_impact(_attack_area, _p("normal_break_power"))
+		if _jump_melee.advance(delta):
+			Telemetry.hurt_player(_attack_target, _p("normal_attack_damage") * _damage_scale, global_position, 1.0, Telemetry.source_info(self, "泰坦跳跃普攻"))
+		if _jump_melee.finished():
+			_finish_action(_p("normal_attack_interval"))
 
 
 func _target_alive() -> bool:
@@ -251,6 +283,7 @@ func _reset_pose() -> void:
 
 
 func _stop_action() -> void:
+	_breach_target = null
 	if is_instance_valid(_sweep_fx):
 		_sweep_fx.call("stop_motion")
 	_sweep_fx = null
@@ -290,22 +323,28 @@ func _sample_target_velocity(delta: float) -> void:
 
 
 func _select_attack(distance: float) -> void:
+	# 高处先判断能否完整落脚；不能上台时用跳跃普攻，不反复释放跃击。
+	var above := _target_above()
+	_leap_plan.clear()
+	if bool(_tuning.leap_enabled) and is_on_floor() and (above or _brain.wants_approach(distance)):
+		_leap_plan = _plan_leap()
+	if above and (_leap_plan.is_empty() or not _brain.available("leap")) and trigger_jump_attack():
+		return
 	var candidates := {}
 	var size := _crowd.size_multiplier
 	var height_ok := absf(target.global_position.y - global_position.y) <= 2.5 * size
 	var away := target.global_position - global_position
 	away.y = 0.0
 	var retreat_speed := maxf(_target_velocity.dot(away.normalized()), 0.0)
-	if height_ok and AttackArea.unobstructed(self, global_position, target.global_position):
+	if not above and height_ok and AttackArea.unobstructed(self, global_position, target.global_position):
 		if distance + retreat_speed * (_p("slam_windup") * 0.35 + _p("slam_swing")) <= _p("slam_distance") * attack_range_scale * size:
-			candidates.slam = 1.1 if distance > _p("sweep_preferred_distance") * attack_range_scale * size else 1.0
+			if AttackArea.candidate_can_hit(self, global_transform, _slam_spec(), target):
+				candidates.slam = 1.1 if distance > _p("sweep_preferred_distance") * attack_range_scale * size else 1.0
 		if distance + retreat_speed * (_p("sweep_windup") * 0.35 + _p("sweep_swing")) <= _p("sweep_distance") * attack_range_scale * size:
-			candidates.sweep = 1.3
-	_leap_plan.clear()
-	if bool(_tuning.leap_enabled) and is_on_floor() and _brain.available("leap") and _brain.wants_approach(distance):
-		_leap_plan = _plan_leap()
-		if not _leap_plan.is_empty():
-			candidates.leap = 2.0
+			if AttackArea.candidate_can_hit(self, global_transform, _sweep_spec(), target):
+				candidates.sweep = 1.3
+	if not _leap_plan.is_empty() and _steering.spatial.permits_channel(&"leap"):
+		candidates.leap = 2.0
 	var skill := _brain.choose(candidates)
 	_selection_reason = "far_distance" if _brain.far_time >= _p("far_confirm_time") else "chase_failed" if skill == "leap" else "near_distance"
 	match skill:
@@ -316,6 +355,15 @@ func _select_attack(distance: float) -> void:
 
 func _track_melee_attack(delta: float) -> void:
 	if current_state not in [State.ATK_SLAM, State.ATK_SWEEP] or _attack_area.phase != AttackArea.Phase.PREPARE:
+		return
+	if _breach_target != null:
+		_attack_elapsed += delta
+		if _attack_elapsed >= _p("slam_windup") * 0.65:
+			_attack_area.lock()
+		return
+	if not is_instance_valid(_attack_target) or float(_attack_target.get("health")) <= 0.0:
+		# 目标消失也执行已经公布的招式，停止追踪并沿当前方向挥空。
+		_attack_area.lock()
 		return
 	_attack_elapsed += delta
 	var windup := _p("slam_windup" if current_state == State.ATK_SLAM else "sweep_windup")
@@ -334,41 +382,102 @@ func _plan_leap() -> Dictionary:
 		_leap_plan_failure = "no_target"
 		return {}
 	var distance := Vector2(target.global_position.x - global_position.x, target.global_position.z - global_position.z).length()
-	if distance < _p("leap_min_distance") or distance > _p("leap_max_distance"):
+	var minimum := 0.5 if _target_above() else _p("leap_min_distance")
+	if distance < minimum or distance > _p("leap_max_distance"):
 		_leap_plan_failure = "distance"
 		return {}
 	var flight := clampf(distance / _p("leap_travel_speed"), _p("leap_min_flight"), _p("leap_max_flight"))
-	# 有上限的运动预判在起跳时锁死；落点预警也显示预判位置。
+	# 在预警出现前完成运动预判、落脚与通道检查，之后不再追踪目标。
 	var aim := target.global_position + (_target_velocity * flight * _p("leap_lead_ratio")).limit_length(_p("leap_lead_limit"))
 	var flat_aim := Vector3(aim.x - global_position.x, 0.0, aim.z - global_position.z).limit_length(_p("leap_max_distance"))
 	aim.x = global_position.x + flat_aim.x
 	aim.z = global_position.z + flat_aim.z
-	var query := PhysicsRayQueryParameters3D.create(aim + Vector3.UP * 3.0, aim + Vector3.DOWN * 7.0, 1)
-	var hit := get_world_3d().direct_space_state.intersect_ray(query)
-	if hit.is_empty() or (hit.normal as Vector3).y < 0.75:
+	var breakable := Destruction.breakable_rids(self, _p("leap_break_power"))
+	var supports := SpatialQuery.landing_candidates(self, target, _steering.spatial.profile.candidate_radius)
+	if supports.is_empty():
 		_leap_plan_failure = "no_floor_or_slope"
 		return {}
+	# 预判位置以真实支撑层为基准；不从头顶穿过其他楼层寻找首个表面。
+	var expected: Vector3 = supports[0].position
+	var predicted := SpatialQuery.floor_at(self, Vector3(aim.x, expected.y, aim.z), 7.0, breakable)
+	if not predicted.is_empty():
+		supports.push_front(predicted)
+	for hit in supports:
+		var after_break := SpatialQuery.floor_at(self, hit.position, 7.0, breakable)
+		if after_break.is_empty() or (after_break.normal as Vector3).y < 0.75:
+			continue
+		var plan := _plan_leap_landing(after_break, minimum, breakable)
+		if not plan.is_empty():
+			return plan
+	return {}
+
+
+func _plan_leap_landing(hit: Dictionary, minimum: float, breakable: Array[RID]) -> Dictionary:
 	var ground: Vector3 = hit.position
+	if not JumpLanding.supported(self, ground, hit.normal, _collision.shape, _collision.global_basis, breakable):
+		_leap_plan_failure = "landing_too_small"
+		return {}
 	var size := _crowd.size_multiplier
 	# 圆柱底面接触斜坡时需留出半径对应的高差，不能只按中心射线放置身体。
 	var normal: Vector3 = hit.normal
 	var slope_clearance := 1.4 * size * Vector2(normal.x, normal.z).length() / normal.y
 	var landing := ground + Vector3.UP * (1.7 * size + slope_clearance + 0.04)
+	if not SpatialQuery.landing_clear(self, landing):
+		_leap_plan_failure = "landing_occupied"
+		return {}
 	if absf(landing.y - global_position.y) > _p("leap_max_elevation"):
 		_leap_plan_failure = "elevation"
 		return {}
-	distance = Vector2(landing.x - global_position.x, landing.z - global_position.z).length()
-	if distance > _p("leap_max_distance") or distance < _p("leap_min_distance"):
+	var distance := Vector2(landing.x - global_position.x, landing.z - global_position.z).length()
+	if distance > _p("leap_max_distance") or distance < minimum:
 		_leap_plan_failure = "predicted_distance"
 		return {}
-	flight = clampf(distance / _p("leap_travel_speed"), _p("leap_min_flight"), _p("leap_max_flight"))
+	var flight := clampf(distance / _p("leap_travel_speed"), _p("leap_min_flight"), _p("leap_max_flight"))
 	var launch := (landing - global_position) / flight + Vector3.UP * _p("gravity") * flight * 0.5
-	if not _arc_clear(global_position, launch, flight):
+	if not _arc_clear(global_position, launch, flight, breakable):
 		return {}
-	return {"ground": ground, "landing": landing, "flight": flight, "launch": launch}
+	if not _steering.spatial.permit_landing(landing, &"jump", breakable, false):
+		_leap_plan_failure = "no_exit_proof"
+		return {}
+	_leap_plan_failure = ""
+	return {"ground": ground, "landing": landing, "flight": flight, "launch": launch, "breakable": breakable}
 
 
-func _arc_clear(origin: Vector3, launch: Vector3, flight: float) -> bool:
+func _target_above() -> bool:
+	if not _target_alive():
+		return false
+	var support := SpatialQuery.support(target)
+	return not support.is_empty() and float(support.position.y) > SpatialQuery.feet(self).y + 0.4
+
+
+func _normal_attack_spec() -> Dictionary:
+	return {"reach": _p("normal_attack_reach") * _crowd.size_multiplier, "height": _p("normal_attack_height") * _crowd.size_multiplier,
+		"jump_speed": _p("normal_jump_speed"), "gravity": _p("gravity")}
+
+
+func trigger_jump_attack() -> bool:
+	if current_state not in [State.IDLE, State.CHASE] or attack_cooldown > 0.0 or not JumpMelee.can_start(self, target, _normal_attack_spec()):
+		return false
+	_stop_action()
+	if not _crowd.request_attack():
+		return false
+	_reset_pose()
+	_active_skill = ""
+	_attack_target = target
+	current_state = State.JUMP_ATTACK
+	attack_cooldown = _p("normal_attack_interval")
+	var offset := target.global_position - global_position
+	rotation.y = atan2(-offset.x, -offset.z)
+	_jump_melee.begin(self, target, _normal_attack_spec())
+	_jump_environment_spent = false
+	var flight := 2.0 * _p("normal_jump_speed") / _p("gravity")
+	_action_tween = create_tween().set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
+	_action_tween.tween_property(right_arm_pivot, "rotation_degrees:x", -95.0, flight * 0.3)
+	_action_tween.tween_property(right_arm_pivot, "rotation_degrees:x", 35.0, flight * 0.4)
+	return true
+
+
+func _arc_clear(origin: Vector3, launch: Vector3, flight: float, breakable: Array[RID] = []) -> bool:
 	var size := _crowd.size_multiplier
 	var body_shape := CylinderShape3D.new()
 	body_shape.radius = 1.4 * size
@@ -386,6 +495,11 @@ func _arc_clear(origin: Vector3, launch: Vector3, flight: float) -> bool:
 		var previous := origin + Vector3.UP * 0.035 + (part.offset as Vector3)
 		for i in range(1, 19):
 			var time := flight * float(i) / 18.0
+			var arc_exclude: Array[RID] = [get_rid()]
+			# 只有下落重砸能破坏，上升时的柱子和天花板仍须避开。
+			if launch.y - _p("gravity") * flight * float(i - 1) / 18.0 <= 0.0:
+				arc_exclude.append_array(breakable)
+			shape_query.exclude = arc_exclude
 			var next := origin + launch * time + Vector3.DOWN * _p("gravity") * time * time * 0.5 + (part.offset as Vector3)
 			shape_query.transform = Transform3D(Basis.IDENTITY, previous)
 			shape_query.motion = next - previous
@@ -401,15 +515,21 @@ func _arc_clear(origin: Vector3, launch: Vector3, flight: float) -> bool:
 
 
 func trigger_leap_attack() -> bool:
-	if not bool(_tuning.leap_enabled) or not is_on_floor():
+	if current_state not in [State.IDLE, State.CHASE] or not bool(_tuning.leap_enabled) or not is_on_floor():
 		return false
-	var plan := _leap_plan.duplicate(true) if not _leap_plan.is_empty() else _plan_leap()
+	# 选招候选可能已经过时；在显示任何效果之前确认最终可执行计划。
+	var plan := _plan_leap()
 	if plan.is_empty() or not _begin_attack(State.LEAP_WINDUP):
 		return false
+	_steering.spatial.permit_landing(plan.landing, &"jump", plan.breakable)
 	_leap_plan = plan
 	_leap_elapsed = 0.0
 	_attack_area.prepare(Transform3D(Basis.IDENTITY, plan.ground), {"kind": "circle", "radius": _p("leap_radius") * _crowd.size_multiplier,
-		"height": 3.0 * _crowd.size_multiplier}, _p("leap_damage") * _damage_scale, _p("leap_windup") + float(plan.flight))
+		"height": 3.0 * _crowd.size_multiplier, "ally_height": 6.0 * _crowd.size_multiplier,
+		"affects_allies": true, "exclude_bodies": plan.breakable}, _p("leap_damage") * _damage_scale, _p("leap_windup") + float(plan.flight))
+	_attack_area.lock()
+	var facing: Vector3 = plan.landing - global_position
+	rotation.y = atan2(-facing.x, -facing.z)
 	Audio.play_at("titan_charge", global_position, -8.0)
 	GroundEffect.spawn(get_tree().current_scene, global_position - Vector3.UP * 1.7 * _crowd.size_multiplier,
 		1.9 * _crowd.size_multiplier, 0.25, true, 0.0, true)
@@ -426,21 +546,18 @@ func trigger_leap_attack() -> bool:
 func _launch_leap() -> void:
 	if current_state != State.LEAP_WINDUP:
 		return
-	var plan := _plan_leap()
-	if plan.is_empty():
-		_cancel_leap_windup()
-		return
+	# 预警就是施放承诺；使用已确认计划，不根据玩家的新位置重新判定。
+	var plan := _leap_plan
 	_leap_ground = plan.ground
 	_leap_landing = plan.landing
 	_leap_flight = plan.flight
-	_attack_area.track(Transform3D(Basis.IDENTITY, _leap_ground))
-	_attack_area.lock()
 	current_state = State.LEAP_AIR
 	_air_debris.emitting = true
 	# 空中的重砸使用区域命中，玩家实体不能成为提前落地的平台。
 	collision_mask = 1
 	_leap_elapsed = 0.0
-	velocity = plan.launch
+	# 仅补偿蓄力期间身体贴地的微小高度变化，目的地与飞行时间均保持不变。
+	velocity = (_leap_landing - global_position) / _leap_flight + Vector3.UP * _p("gravity") * _leap_flight * 0.5
 	_leap_horizontal = Vector3(velocity.x, 0, velocity.z)
 	GroundEffect.spawn(get_tree().current_scene, global_position - Vector3.UP * 1.7 * _crowd.size_multiplier,
 		2.3 * _crowd.size_multiplier, 0.7, true, _p("ground_shake_strength"))
@@ -451,6 +568,8 @@ func _update_leap_air(delta: float) -> void:
 	velocity.x = _leap_horizontal.x
 	velocity.z = _leap_horizontal.z
 	velocity.y -= _p("gravity") * delta
+	if velocity.y < 0.0:
+		Destruction.break_contacts(self, velocity * delta, _p("leap_break_power"))
 	move_and_slide()
 	_update_flight_shadow()
 	var progress := clampf(_leap_elapsed / _leap_flight, 0.0, 1.0)
@@ -477,10 +596,16 @@ func _land_leap(valid: bool) -> void:
 	collision_mask = 3
 	velocity.x = 0.0
 	velocity.z = 0.0
+	if valid and _attack_area.phase == AttackArea.Phase.LOCKED:
+		Destruction.radial_impact(self, _leap_ground, _p("leap_radius") * _crowd.size_multiplier,
+			3.0 * _crowd.size_multiplier, _p("leap_break_power"))
+		_attack_area.shape.erase("exclude_bodies")
+		_attack_area.refresh_surface()
 	if valid and _attack_area.strike():
 		_hurt_target(_attack_area.damage, "泰坦蓄力跃击")
+		Reactions.impact_allies(_attack_area, self, Telemetry.source_info(self, "泰坦蓄力跃击"))
 		GroundEffect.spawn(get_tree().current_scene, _leap_ground, _p("leap_radius") * _crowd.size_multiplier,
-			1.0, false, _p("ground_shake_strength"))
+			1.0, false, _p("ground_shake_strength"), false, _attack_area.get_surface())
 	else:
 		_brain.completed("blocked", false)
 	_attack_area.recover()
@@ -489,15 +614,6 @@ func _land_leap(valid: bool) -> void:
 	torso_pivot.rotation_degrees.x = 22.0
 	right_arm_pivot.rotation_degrees.x = 65.0
 	_recover_leap_pose(_p("leap_landing_hold"))
-
-
-func _cancel_leap_windup() -> void:
-	_stop_action()
-	current_state = State.LEAP_RECOVERY
-	velocity.x = 0.0
-	velocity.z = 0.0
-	_action_tween = create_tween().set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
-	_recover_leap_pose(0.0)
 
 
 func _recover_leap_pose(hold: float) -> void:
@@ -941,7 +1057,7 @@ func _begin_attack(next_state: State) -> bool:
 	if current_state not in [State.IDLE, State.CHASE] or attack_cooldown > 0.0:
 		return false
 	var skill := "leap" if next_state == State.LEAP_WINDUP else "slam" if next_state == State.ATK_SLAM else "sweep"
-	if not _brain.available(skill):
+	if not _brain.available(skill) or not _steering.spatial.permits_channel(StringName(skill)):
 		return false
 	_stop_action()
 	if not _crowd.request_attack():
@@ -965,13 +1081,78 @@ func _begin_attack(next_state: State) -> bool:
 	return true
 
 
-func trigger_slam_attack() -> void:
+func _spatial_remaining(channel: StringName) -> float:
+	var result := float(_brain.cooldowns.get(String(channel), 0.0))
+	return maxf(result, _brain.approach_remaining) if channel == &"leap" else result
+
+
+func _spatial_consume(channel: StringName, duration: float) -> void:
+	if _brain.cooldowns.has(String(channel)):
+		_brain.cooldowns[String(channel)] = maxf(float(_brain.cooldowns[String(channel)]), duration)
+	if channel == &"leap":
+		_brain.approach_remaining = maxf(_brain.approach_remaining, _p("approach_interval"))
+
+
+func _slam_spec() -> Dictionary:
+	var size := _crowd.size_multiplier
+	return {"kind": "rect", "width": _p("slam_width") * size, "length": _p("slam_distance") * attack_range_scale * size,
+		"offset": _p("slam_offset") * size, "height": 2.5 * size,
+		"exclude_bodies": Destruction.breakable_rids(self, _p("slam_break_power"))}
+
+
+func _sweep_spec() -> Dictionary:
+	var size := _crowd.size_multiplier
+	return {"kind": "sector", "radius": _p("sweep_distance") * attack_range_scale * size,
+		"angle": _p("sweep_angle"), "height": 2.5 * size,
+		"exclude_bodies": Destruction.breakable_rids(self, _p("sweep_break_power"))}
+
+
+func _spatial_can_attack() -> bool:
+	if not _target_alive():
+		return false
+	if _brain.available("leap") and bool(_tuning.leap_enabled) and _steering.spatial.permits_channel(&"leap"):
+		var distance := Vector2(target.global_position.x - global_position.x, target.global_position.z - global_position.z).length()
+		if (_target_above() or _brain.wants_approach(distance)) and not _plan_leap().is_empty():
+			return true
+	return (JumpMelee.can_start(self, target, _normal_attack_spec()) or
+		(AttackArea.unobstructed(self, global_position, target.global_position) and
+		(AttackArea.candidate_can_hit(self, global_transform, _slam_spec(), target) or
+		AttackArea.candidate_can_hit(self, global_transform, _sweep_spec(), target))))
+
+func _spatial_attack_pose(pose: Transform3D) -> bool:
+	return _target_alive() and (JumpMelee.can_start_at(self, target, _normal_attack_spec(), pose) or
+		(AttackArea.unobstructed(self, pose.origin, target.global_position) and
+		(AttackArea.candidate_can_hit(self, pose, _slam_spec(), target) or AttackArea.candidate_can_hit(self, pose, _sweep_spec(), target))))
+
+
+func _spatial_break_action(component: Node3D, point: Vector3, _ability: Resource) -> bool:
+	if current_state not in [State.IDLE, State.CHASE] or not _brain.available("slam") or not _steering.spatial.permits_channel(&"slam"):
+		return false
+	var direction := point - global_position
+	direction.y = 0.0
+	if not direction.is_zero_approx():
+		rotation.y = atan2(-direction.x, -direction.z)
+	var power := _p("slam_break_power")
+	if not component.can_break(power):
+		return false
+	_selection_reason = "navigation_break"
+	trigger_slam_attack(component)
+	return current_state == State.ATK_SLAM
+
+
+func trigger_slam_attack(obstacle: Node3D = null) -> void:
 	if not _begin_attack(State.ATK_SLAM):
 		return
+	if is_instance_valid(obstacle):
+		_breach_target = weakref(obstacle)
+		var point: Vector3 = obstacle.impact_point(global_position)
+		var direction := point - global_position
+		direction.y = 0.0
+		if not direction.is_zero_approx():
+			rotation.y = atan2(-direction.x, -direction.z)
 	var size := _crowd.size_multiplier
-	_attack_area.prepare(global_transform, {"kind": "rect", "width": _p("slam_width") * size,
-		"length": _p("slam_distance") * attack_range_scale * size, "offset": _p("slam_offset") * size,
-		"height": 2.5 * size}, slam_damage * _damage_scale, _p("slam_windup") + _p("slam_swing"))
+	_attack_area.prepare(global_transform, _slam_spec(),
+		slam_damage * _damage_scale, _p("slam_windup") + _p("slam_swing"))
 	_action_tween.tween_property(right_arm_pivot, "rotation_degrees:x", -120.0, _p("slam_windup"))
 	_action_tween.parallel().tween_property(torso_pivot, "rotation_degrees:x", -15.0, _p("slam_windup"))
 	_action_tween.parallel().tween_property(torso_pivot, "rotation_degrees:y", -20.0, _p("slam_windup"))
@@ -992,9 +1173,14 @@ func trigger_slam_attack() -> void:
 
 
 func _execute_slam_impact() -> void:
+	if current_state == State.ATK_SLAM and _attack_area.phase == AttackArea.Phase.LOCKED:
+		Destruction.shape_impact(_attack_area, _p("slam_break_power"))
+		_attack_area.shape.erase("exclude_bodies")
+		_attack_area.refresh_surface()
 	if current_state == State.ATK_SLAM and _attack_area.strike():
 		_hurt_target(_attack_area.damage, "泰坦直线砸地")
 		var visual_spec := _attack_area.shape.duplicate(true)
+		visual_spec["surface"] = _attack_area.get_surface()
 		visual_spec.contact = _attack_area.to_local((right_forearm.get_node("MassiveFist") as Node3D).global_position)
 		MeleeEffect.spawn(get_tree().current_scene, _attack_area.global_transform, visual_spec,
 			_crowd.size_multiplier, false, 0.4, _p("ground_shake_strength"))
@@ -1005,10 +1191,10 @@ func trigger_sweep_attack() -> void:
 	if not _begin_attack(State.ATK_SWEEP):
 		return
 	var size := _crowd.size_multiplier
-	_attack_area.prepare(global_transform, {"kind": "sector", "radius": _p("sweep_distance") * attack_range_scale * size,
-		"angle": _p("sweep_angle"), "height": 2.5 * size}, sweep_damage * _damage_scale,
+	_attack_area.prepare(global_transform, _sweep_spec(), sweep_damage * _damage_scale,
 		_p("sweep_windup"))
 	_sweep_progress = 0.0
+	_sweep_destroyed = false
 	_action_tween.tween_method(_prepare_sweep, 0.0, 1.0, _p("sweep_windup"))
 	_action_tween.tween_callback(_start_sweep)
 	_action_tween.tween_method(_advance_sweep, 0.0, 1.0, _p("sweep_swing")).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
@@ -1020,6 +1206,11 @@ func trigger_sweep_attack() -> void:
 func _execute_sweep_impact() -> void:
 	if current_state == State.ATK_SWEEP and _attack_area.phase == AttackArea.Phase.STRIKE:
 		_advance_sweep(1.0)
+		if _sweep_destroyed:
+			_attack_area.shape.erase("exclude_bodies")
+			_attack_area.refresh_surface()
+			if is_instance_valid(_sweep_fx):
+				_sweep_fx.call("refresh_surface", _attack_area.get_surface())
 		_sweep_recovery_from = left_arm_pivot.transform
 		if is_instance_valid(_sweep_fx):
 			_sweep_fx.call("stop_motion")
@@ -1058,7 +1249,9 @@ func _start_sweep() -> void:
 	_attack_area.lock()
 	if not _attack_area.strike():
 		return
-	_sweep_fx = MeleeEffect.spawn(get_tree().current_scene, _attack_area.global_transform, _attack_area.shape,
+	var visual_spec := _attack_area.shape.duplicate(true)
+	visual_spec["surface"] = _attack_area.get_surface()
+	_sweep_fx = MeleeEffect.spawn(get_tree().current_scene, _attack_area.global_transform, visual_spec,
 		_crowd.size_multiplier, true, _p("sweep_swing"))
 	_advance_sweep(0.0)
 
@@ -1069,6 +1262,9 @@ func _advance_sweep(value: float) -> void:
 	var arc := deg_to_rad(float(_attack_area.shape.angle))
 	var previous := -arc * 0.5 + arc * _sweep_progress
 	var angle := -arc * 0.5 + arc * value
+	var half_width := atan2(0.35 * _crowd.size_multiplier, maxf(float(_attack_area.shape.radius), 0.1))
+	_sweep_destroyed = Destruction.shape_impact(_attack_area, _p("sweep_break_power"),
+		previous - half_width, angle + half_width) > 0 or _sweep_destroyed
 	torso_pivot.rotation.y = -sin(angle) * 0.25
 	left_arm_pivot.global_transform = _sweep_arm_pose(angle)
 	if is_instance_valid(_sweep_fx):
@@ -1097,7 +1293,9 @@ func _hurt_target(amount: float, attack: String) -> void:
 
 
 func _finish_action(cooldown: float) -> void:
+	_breach_target = null
 	_attack_area.cancel()
+	_leap_plan.clear()
 	_crowd.release_attack()
 	if current_state == State.DEAD:
 		return
@@ -1139,7 +1337,7 @@ func _apply_damage(amount: float) -> void:
 	Telemetry.enemy_damaged(self, before)
 	_update_health_label()
 	if current_hp <= 0.0:
-		if is_instance_valid(target) and target.has_method("register_enemy_kill"):
+		if Telemetry.credits_player(self) and is_instance_valid(target) and target.has_method("register_enemy_kill"):
 			target.call("register_enemy_kill")
 		trigger_death_scatter()
 
@@ -1156,8 +1354,8 @@ func _trigger_rage() -> void:
 	_core_light.light_color = Color(1.0, 0.06, 0.02)
 	rage_flames.emitting = true
 	rage_embers.emitting = true
-	# 范围改变时取消当前蓄力，避免旧预警突然结算扩大后的伤害。
-	if current_state in [State.ATK_SLAM, State.ATK_SWEEP, State.CAST_SHIELD]:
+	# 已公布的攻击沿用 AttackArea 保存的范围与伤害；狂暴倍率从下一击生效。
+	if current_state == State.CAST_SHIELD:
 		_stop_action()
 		_finish_action(_p("rage_ready_delay"))
 	(_head_collision.shape as SphereShape3D).radius = 0.5 * rage_crystal_size

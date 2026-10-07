@@ -1,4 +1,6 @@
-[gd_scene format=3 uid="uid://dernp875lta6r"]
+[gd_scene load_steps=10 format=3 uid="uid://dernp875lta6r"]
+
+[ext_resource type="Script" path="res://scripts/prototypes/enemy_visual_lab.gd" id="1_lab"]
 
 [sub_resource type="ProceduralSkyMaterial" id="SkyMaterial_lab"]
 sky_top_color = Color(0.42, 0.53, 0.65, 1)
@@ -10,7 +12,8 @@ ground_horizon_color = Color(0.48, 0.49, 0.47, 1)
 sky_material = SubResource("SkyMaterial_lab")
 
 [sub_resource type="Environment" id="Environment_lab"]
-background_mode = 2
+background_mode = 1
+background_color = Color(0.22, 0.235, 0.25, 1)
 sky = SubResource("Sky_lab")
 ambient_light_source = 3
 ambient_light_color = Color(0.66, 0.72, 0.8, 1)
@@ -26,14 +29,19 @@ roughness = 0.95
 material = SubResource("GroundMaterial_lab")
 size = Vector2(50, 50)
 
+[sub_resource type="BoxShape3D" id="GroundCollision_lab"]
+size = Vector3(50, 0.3, 50)
+
 [sub_resource type="StandardMaterial3D" id="BackdropMaterial_lab"]
-albedo_color = Color(0.61, 0.62, 0.6, 1)
+albedo_color = Color(0.29, 0.315, 0.32, 1)
+roughness = 0.94
 
 [sub_resource type="BoxMesh" id="BackdropMesh_lab"]
 material = SubResource("BackdropMaterial_lab")
 size = Vector3(16, 7, 0.15)
 
 [node name="EnemyVisualLab" type="Node3D" unique_id=838464083]
+script = ExtResource("1_lab")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=902329448]
 environment = SubResource("Environment_lab")
@@ -53,7 +61,16 @@ light_energy = 0.55
 [node name="Ground" type="MeshInstance3D" parent="." unique_id=1885688383]
 mesh = SubResource("GroundMesh_lab")
 
+[node name="GroundBody" type="StaticBody3D" parent="."]
+collision_layer = 1
+collision_mask = 0
+
+[node name="GroundCollision" type="CollisionShape3D" parent="GroundBody"]
+position = Vector3(0, -0.15, 0)
+shape = SubResource("GroundCollision_lab")
+
 [node name="Backdrop" type="MeshInstance3D" parent="." unique_id=343935712]
+visible = false
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.45, -4.5)
 mesh = SubResource("BackdropMesh_lab")
 
@@ -100,5 +117,5 @@ layout_mode = 2
 theme_override_colors/font_color = Color(0.94, 0.95, 0.93, 1)
 theme_override_colors/font_outline_color = Color(0.04, 0.05, 0.06, 1)
 theme_override_constants/outline_size = 5
-theme_override_font_sizes/font_size = 18
+theme_override_font_sizes/font_size = 16
 text = "敌人视觉实验场"

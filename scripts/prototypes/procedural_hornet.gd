@@ -8,8 +8,16 @@ const Crowd := preload("res://scripts/prototypes/enemy_crowd.gd")
 const Needle := preload("res://scripts/prototypes/hornet_needle.gd")
 const DeathBody := preload("res://scripts/prototypes/hornet_death_body.gd")
 const PROFILE_ID := "PrototypeHornet"
+const ReactionProfile := preload("res://scripts/combat_reaction_profile.gd")
+const Reactions := preload("res://scripts/combat_reactions.gd")
+const SpatialProfile := preload("res://scripts/combat_spatial_profile.gd")
+const AirSteering := preload("res://scripts/air_combat_steering.gd")
+@export var combat_spatial_profile: SpatialProfile = preload("res://data/combat_spatial/air.tres")
+var _air := AirSteering.new()
+@export var combat_reaction_profile: ReactionProfile
+var _reactions := Reactions.new()
 const VISUAL_OFFSET := -1.0 # 原稿胸部原点换算到球形碰撞中心。
-enum State { HOVER_STRAFE, PREPARE_FIRE, FIRE_RECOVER, SWOOP_WINDUP, SWOOP_DIVE, SWOOP_RECOVER, HIT_STAGGER, DEAD }
+enum State { HOVER_STRAFE, PREPARE_FIRE, FIRE_RECOVER, SWOOP_WINDUP, SWOOP_DIVE, SWOOP_RECOVER, HIT_STAGGER, DEAD, COMBAT_REACTION }
 var current_state: State = State.HOVER_STRAFE
 @export var ai_enabled := true
 var health: float
@@ -93,6 +101,8 @@ func _ready() -> void:
 	_health_label.pixel_size = 0.006
 	add_child(_health_label)
 	_update_health_label()
+	_reactions.setup(self, combat_reaction_profile, _collision)
+	_air.setup(self, combat_spatial_profile, _tuning, _air_attack_pose)
 
 
 func _p(key: String) -> float:
@@ -100,7 +110,7 @@ func _p(key: String) -> float:
 
 
 func get_spawn_height(player_height: float) -> float:
-	return maxf(player_height + _p("hover_altitude") + _crowd.height_offset, _collision.shape.radius * scale.y + 0.08)
+	return player_height + _p("hover_altitude") + _crowd.height_offset
 
 
 func _target_alive() -> bool:
@@ -114,10 +124,14 @@ func _physics_process(delta: float) -> void:
 	flight_clock += delta * _crowd.gait_multiplier
 	state_timer += delta
 	_animate_wings()
+	if _reactions.step(delta, ai_enabled and current_state in [State.HOVER_STRAFE, State.PREPARE_FIRE, State.FIRE_RECOVER, State.SWOOP_WINDUP], move_speed):
+		return
 	if ai_enabled and not _target_alive():
 		target = Targeting.nearest_player(self)
 	if current_state in [State.PREPARE_FIRE, State.SWOOP_WINDUP, State.SWOOP_DIVE] and not _target_alive():
 		_enter_hover()
+	if _target_alive():
+		_air.update(delta, target, _hover_height(), _p("strafe_distance"))
 	var desired := Vector3.ZERO
 	var response := _p("flight_response")
 	match current_state:
@@ -168,6 +182,7 @@ func _physics_process(delta: float) -> void:
 		State.SWOOP_RECOVER:
 			desired = global_basis.z * _p("pull_back_speed")
 			desired.y = clampf((_hover_height() - global_position.y) * _p("height_response"), -_p("pull_up_speed"), _p("pull_up_speed"))
+			desired = _air.steer(desired, delta) if _target_alive() else desired
 			var progress := clampf(state_timer / _p("recovery_pose_time"), 0.0, 1.0)
 			visual_root.position.y = VISUAL_OFFSET + _p("dive_lift") * (1.0 - progress)
 			thorax_node.rotation_degrees.x = _p("dive_body_angle") * (1.0 - progress)
@@ -198,21 +213,22 @@ func _physics_process(delta: float) -> void:
 
 
 func _hover_height() -> float:
-	var base := target.global_position.y if _target_alive() else global_position.y - _p("hover_altitude")
-	return maxf(base + _p("hover_altitude") + _crowd.air_height(), _collision.shape.radius * scale.y + 0.08)
+	return _air.hover_height(target, _p("hover_altitude") + _crowd.air_height()) if _target_alive() else global_position.y
 
 
 func _orbital_velocity(delta: float) -> Vector3:
 	var offset := global_position - target.global_position
 	offset.y = 0.0
 	var distance := offset.length()
-	var approaching := distance > _p("strafe_distance") + _p("orbit_band")
+	var approaching := distance > _air.radius + _p("orbit_band")
 	var desired: Vector3
+	var orbit_speed := minf(move_speed, maxf(_air.radius * 1.5, 0.8))
 	if approaching:
 		desired = -offset.normalized() * move_speed
 	else:
-		var radial := offset.normalized() * _p("radial_speed") if distance < _p("strafe_distance") - _p("orbit_band") else Vector3.ZERO
-		desired = offset.cross(Vector3.UP).normalized() * strafe_dir * move_speed + radial
+		var band := minf(_p("orbit_band"), _air.radius * 0.25)
+		var radial := offset.normalized() * _p("radial_speed") if distance < _air.radius - band else Vector3.ZERO
+		desired = offset.cross(Vector3.UP).normalized() * strafe_dir * orbit_speed + radial
 
 	# 蜂类不是沿完美圆轨道滑行：每隔很短时间换一次微修正方向，再平滑追向它。
 	_update_flight_jitter(delta)
@@ -221,9 +237,22 @@ func _orbital_velocity(delta: float) -> Vector3:
 	var vertical := (_hover_height() - global_position.y) * _p("height_response") + _flight_jitter.y
 	desired.y = clampf(vertical, -_p("vertical_speed_limit"), _p("vertical_speed_limit"))
 	desired = _crowd.steer_air(desired, target.global_position, delta, approaching)
+	desired = _air.steer(desired, delta)
 	_look_at_target(delta)
 	_apply_flight_posture(desired, delta, approaching)
 	return desired
+
+func _air_attack_pose(pose: Transform3D) -> bool:
+	if not _target_alive():
+		return false
+	if remaining_needles > 0:
+		# 晶针位于腹部末端；身体中心有视线不代表真正发射口没被坑沿挡住。
+		for index in range(remaining_needles):
+			var origin: Vector3 = pose * to_local(stingers[index].global_position)
+			if not _air.line_clear(origin, target.global_position + Vector3.UP * _p("needle_aim_height")):
+				return false
+		return true
+	return AirSteering.Query.motion_clear(self, pose, target.global_position + Vector3.UP * _p("dive_aim_height") - pose.origin, [], 0.0002)
 
 
 func _update_flight_jitter(delta: float) -> void:
@@ -289,7 +318,9 @@ func _enter_hover() -> void:
 
 
 func trigger_fire() -> void:
-	if current_state != State.HOVER_STRAFE or not _target_alive() or remaining_needles <= 0 or not _crowd.request_attack():
+	if current_state != State.HOVER_STRAFE or not _target_alive() or remaining_needles <= 0:
+		return
+	if not _air.line_clear(stingers[remaining_needles - 1].global_position, target.global_position + Vector3.UP * _p("needle_aim_height")) or not _crowd.request_attack():
 		return
 	_set_state(State.PREPARE_FIRE)
 
@@ -322,7 +353,10 @@ func _launch_stinger_needle() -> void:
 
 
 func trigger_swoop_dive() -> void:
-	if current_state != State.HOVER_STRAFE or not _target_alive() or not _crowd.request_attack():
+	if current_state != State.HOVER_STRAFE or not _target_alive():
+		return
+	var aim := target.global_position + Vector3.UP * _p("dive_aim_height")
+	if not AirSteering.Query.motion_clear(self, global_transform, aim - global_position) or not _crowd.request_attack():
 		return
 	_set_state(State.SWOOP_WINDUP)
 
@@ -330,10 +364,12 @@ func trigger_swoop_dive() -> void:
 func _check_dive_hit(previous: Vector3) -> void:
 	if not _target_alive():
 		return
-	var nearest := Geometry3D.get_closest_point_to_segment(target.global_position, previous, global_position)
-	if nearest.distance_to(target.global_position) > _p("bite_radius") * scale.x:
+	# 判定围绕已用于俯冲的瞄准高度；撞到玩家上半身不能因脚下原点更远而丢失命中。
+	var aim := target.global_position + Vector3.UP * _p("dive_aim_height")
+	var nearest := Geometry3D.get_closest_point_to_segment(aim, previous, global_position)
+	if nearest.distance_to(aim) > _p("bite_radius") * scale.x:
 		return
-	var query := PhysicsRayQueryParameters3D.create(nearest, target.global_position, 1)
+	var query := PhysicsRayQueryParameters3D.create(nearest, aim, 1)
 	if not get_world_3d().direct_space_state.intersect_ray(query).is_empty():
 		return
 	Telemetry.hurt_player(target, attack_damage, global_position, 1.0, Telemetry.source_info(self, "俯冲撕咬"))
@@ -353,19 +389,44 @@ func take_damage(amount: float, hit_dir := Vector3.ZERO) -> void:
 	Telemetry.enemy_damaged(self, before)
 	_update_health_label()
 	if health <= 0.0:
-		if is_instance_valid(target) and target.has_method("register_enemy_kill"):
+		if Telemetry.credits_player(self) and is_instance_valid(target) and target.has_method("register_enemy_kill"):
 			target.call("register_enemy_kill")
 		trigger_death_fall()
 		return
 	var direction := hit_dir.normalized() if not hit_dir.is_zero_approx() else global_basis.z
-	trigger_hit_stagger(direction * _p("damage_recoil_speed"))
+	if not Telemetry.manages_reaction(self):
+		trigger_hit_stagger(direction * _p("damage_recoil_speed"))
 
 
 func trigger_hit_stagger(recoil: Vector3) -> void:
+	if current_state == State.DEAD or not _reactions.allow_normal_stagger():
+		return
 	_crowd.release_attack()
 	_enter_hover()
 	_set_state(State.HIT_STAGGER)
 	velocity = recoil + Vector3.UP * _p("stagger_up_speed")
+
+
+func combat_reaction_begin(_mode: int) -> void:
+	_enter_hover()
+	_set_state(State.COMBAT_REACTION)
+
+
+func combat_reaction_end() -> void:
+	_enter_hover()
+
+
+func combat_reaction_flight_height() -> float:
+	return _hover_height() if _target_alive() else global_position.y
+
+
+func combat_reaction_pose(mode: int, delta: float) -> void:
+	visual_root.position.y = VISUAL_OFFSET
+	var angle := 65.0 if mode in [Reactions.Mode.FALLING, Reactions.Mode.GROUNDED] else 0.0
+	thorax_node.rotation_degrees.x = lerpf(thorax_node.rotation_degrees.x, angle, 1.0 - exp(-12.0 * delta))
+	if mode == Reactions.Mode.EVADE and Vector2(velocity.x, velocity.z).length() > 0.1:
+		rotation.y = rotate_toward(rotation.y, atan2(-velocity.x, -velocity.z), delta * 8.0)
+		_apply_flight_posture(velocity, delta, true)
 
 
 func apply_push(direction: Vector3, force: float) -> void:
@@ -384,12 +445,13 @@ func _animate_wings() -> void:
 	var base_phase := flight_clock * _p("wing_frequency") + _wing_phase_offset
 	var phase_offsets := [0.0, 0.16, 0.54, 0.71]
 	var speed_scales := [1.0, 0.975, 1.035, 1.01]
+	var strength := 0.15 if _reactions.mode in [Reactions.Mode.FALLING, Reactions.Mode.GROUNDED] else 1.0
 	for index in range(wings.size()):
 		var side := 1.0 if index % 2 == 0 else -1.0
 		var amplitude := _p("wing_amplitude") if index < 2 else _p("wing_rear_amplitude")
 		var phase := base_phase * float(speed_scales[index]) + float(phase_offsets[index])
 		var stroke := sin(phase) + 0.16 * sin(phase * 2.17 + 0.4 * index)
-		wings[index].rotation_degrees.z = side * (stroke * amplitude - _p("wing_rest_angle"))
+		wings[index].rotation_degrees.z = side * (stroke * amplitude * strength - _p("wing_rest_angle"))
 
 
 func _animate_hover_idle() -> void:
@@ -426,7 +488,11 @@ func trigger_death_fall() -> void:
 	collision.shape = box
 	body.add_child(collision)
 	var horizontal := _p("death_horizontal_impulse")
-	body.apply_central_impulse(Vector3(randf_range(-horizontal, horizontal), _p("death_up_impulse"), randf_range(-horizontal, horizontal)))
+	var impact: Dictionary = get_meta(Telemetry.CONTEXT, {})
+	if impact.has("impact_velocity"):
+		body.linear_velocity = impact.impact_velocity
+	else:
+		body.apply_central_impulse(Vector3(randf_range(-horizontal, horizontal), _p("death_up_impulse"), randf_range(-horizontal, horizontal)))
 	var torque := _p("death_torque")
 	body.apply_torque_impulse(Vector3(torque, randf_range(-torque, torque), torque / 3.0))
 	queue_free()

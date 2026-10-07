@@ -1,0 +1,65 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="Script" path="res://scripts/destructible_component.gd" id="1"]
+[ext_resource type="Resource" path="res://data/destruction/wood.tres" id="2"]
+
+[sub_resource type="StandardMaterial3D" id="Bark"]
+albedo_color = Color(0.38, 0.24, 0.12, 1)
+roughness = 1.0
+
+[sub_resource type="StandardMaterial3D" id="Leaves"]
+albedo_color = Color(0.29, 0.48, 0.23, 1)
+roughness = 1.0
+
+[sub_resource type="CylinderMesh" id="Trunk"]
+material = SubResource("Bark")
+top_radius = 0.18
+bottom_radius = 0.26
+height = 2.2
+radial_segments = 6
+
+[sub_resource type="CylinderMesh" id="Canopy"]
+material = SubResource("Leaves")
+top_radius = 0.0
+bottom_radius = 1.1
+height = 2.1
+radial_segments = 7
+
+[sub_resource type="CylinderShape3D" id="TrunkCollision"]
+radius = 0.26
+height = 2.2
+
+[sub_resource type="CylinderMesh" id="Stump"]
+material = SubResource("Bark")
+top_radius = 0.21
+bottom_radius = 0.26
+height = 0.3
+radial_segments = 6
+
+[node name="SmallTree" type="StaticBody3D"]
+collision_mask = 0
+
+[node name="Intact" type="Node3D" parent="."]
+
+[node name="Trunk" type="MeshInstance3D" parent="Intact"]
+position = Vector3(0, 1.1, 0)
+mesh = SubResource("Trunk")
+
+[node name="Leaves" type="MeshInstance3D" parent="Intact"]
+position = Vector3(0, 2.25, 0)
+mesh = SubResource("Canopy")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 1.1, 0)
+shape = SubResource("TrunkCollision")
+
+[node name="Rubble" type="Node3D" parent="."]
+visible = false
+
+[node name="Stump" type="MeshInstance3D" parent="Rubble"]
+position = Vector3(0, 0.15, 0)
+mesh = SubResource("Stump")
+
+[node name="Destructible" type="Node3D" parent="."]
+script = ExtResource("1")
+profile = ExtResource("2")

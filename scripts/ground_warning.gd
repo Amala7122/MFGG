@@ -35,11 +35,11 @@ func setup(radius: float, delay: float, blast_damage: float, color: Color) -> vo
 	warning_color = color
 	timer = warning_duration
 	apply_color()
-	_attack_area.prepare(global_transform, {"kind": "circle", "radius": blast_radius, "height": 2.5}, damage)
+	_attack_area.prepare(global_transform, {"kind": "circle", "radius": blast_radius, "height": 2.5, "source_height": 0.2}, damage)
 	_attack_area.lock()
-	# 圆圈和 X 保留识别线索，统一区域负责贴地填充。
+	# 边界与填充都由贴地网格提供，旧的平面圆环/X 在坡道上会悬空。
 	disc.visible = false
-	ring.scale = Vector3.ONE * blast_radius
+	ring.visible = false
 
 
 func bind_attacker(actor: Node3D) -> void:
@@ -64,6 +64,7 @@ func apply_color() -> void:
 	var disc_material := disc.material_override.duplicate() as StandardMaterial3D
 	disc_material.albedo_color = Color(warning_color.r, warning_color.g, warning_color.b, 0.3)
 	disc_material.emission = warning_color
+	disc_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	disc.material_override = disc_material
 	var ring_material := ring.material_override.duplicate() as StandardMaterial3D
 	ring_material.albedo_color = warning_color
@@ -81,14 +82,12 @@ func _physics_process(delta: float) -> void:
 	if not exploded:
 		var progress := 1.0 - clampf(timer / maxf(warning_duration, 0.01), 0.0, 1.0)
 		_attack_area.set_progress(progress)
-		# 危险边界从第一帧完整显示，不通过缩放造成半径误读。
-		ring.scale = Vector3.ONE * blast_radius
 		light.light_energy = 1.5 + progress * 4.0
 		if timer <= 0.0:
 			explode()
 	else:
-		var flash_scale := blast_radius * (1.0 + (0.18 - timer) * 4.0)
-		disc.scale = Vector3(flash_scale, 1.0, flash_scale)
+		# 爆炸闪光复用同一片地表，不能缩放后再次穿入坡面。
+		(disc.material_override as StandardMaterial3D).albedo_color.a = 0.3 * clampf(timer / 0.18, 0.0, 1.0)
 		if timer <= 0.0:
 			queue_free()
 
@@ -101,6 +100,8 @@ func explode() -> void:
 	label.visible = false
 	ring.visible = false
 	light.light_energy = 9.0
+	disc.mesh = _attack_area._mesh.mesh
+	disc.global_transform = _attack_area.global_transform
 	disc.visible = true
 	if visual_only:
 		return

@@ -1,13 +1,18 @@
 class_name NavSteering
 extends RefCounted
+const GroundMovement := preload("res://scripts/ground_movement.gd")
+const SpatialController := preload("res://scripts/combat_spatial_controller.gd")
+const SpatialProfile := preload("res://scripts/combat_spatial_profile.gd")
+const DefaultSpatialProfile := preload("res://data/combat_spatial/ground.tres")
+var spatial: RefCounted
 ## 敌人寻路辅助：包装一个 NavigationAgent3D，给出"朝目标该往哪走"的水平方向。
 ##
 ## 用代码创建 NavigationAgent3D、而不是给敌人场景挂节点 —— 与 EnemyRig /
 ## EnemyVisuals 的既有做法一致，敌人 .tscn 保持干净。
 ##
-## 关键设计：**导航不可用时自动回退直线追击**。
-## 烘焙是异步的（选敌人大批生成时网格可能还没好），而且烘焙本身也可能失败；
-## 任何情况下都不能让敌人原地发呆，所以拿不到有效路径就退回直线。
+## 导航尚未同步时回退直线追击；已到达可走路径终点则停止。
+## 原型若需继续贴近目标，ground_velocity 会检查完整身体通道与脚下支撑，
+## 不能靠无条件直线回退硬顶不可达平台或走出悬崖。
 ##
 ## 导航起点与目标都按网格表面高度对齐。本体原点在胶囊中心，直接用它
 ## 推进路径会让第一个地面路径点始终无法抵达，敌人不断回头，形成运动抖动。
@@ -74,6 +79,7 @@ enum State { NORMAL, UNSTICKING, REROUTING }
 var _agent: NavigationAgent3D
 var _nav_origin: Node3D
 var _body_height := 2.0
+var _body_radius := 0.5
 var _body: Node3D
 ## 敌人本体若是 CharacterBody3D，就能读到上一帧的接触法线（预防层的输入）。
 var _character: CharacterBody3D
@@ -109,6 +115,7 @@ func setup(body: Node3D, radius: float, height: float) -> void:
 	_body = body
 	_character = body as CharacterBody3D
 	_body_height = height
+	_body_radius = radius
 	# Agent 使用父节点的位置推进路径。敌人原点在胶囊中心，路径点却在地面；
 	# 若直接挂在本体下，0.3 米到达容差永远覆盖不到脚下的第一个路径点。
 	_nav_origin = Node3D.new()
@@ -121,6 +128,9 @@ func setup(body: Node3D, radius: float, height: float) -> void:
 	# NavigationMesh.agent_radius 决定，不能靠这里的 radius 缩小窄缝。
 	agent.radius = radius
 	agent.height = height
+	# 大型平底身体在坡角不能像胶囊那样擦角；经过通道中部再转入坡脚。
+	if radius >= 1.3:
+		agent.path_postprocessing = NavigationPathQueryParameters3D.PATH_POSTPROCESSING_EDGECENTERED
 	# 保持关闭：开启避障后必须每帧回写 set_velocity，否则代理会以为静止不动。
 	# 敌人之间刻意不互相碰撞（collision_mask 不含自身层），分离交给下面这套
 	# 防卡死逻辑，避免为 RVO 付出每帧的额外物理开销。
@@ -130,6 +140,16 @@ func setup(body: Node3D, radius: float, height: float) -> void:
 	agent.target_desired_distance = 0.7
 	_nav_origin.add_child(agent)
 	_agent = agent
+	if _character != null:
+		var assigned: Resource = body.get_meta(&"combat_spatial_profile") if body.has_meta(&"combat_spatial_profile") else null
+		if assigned == null:
+			for property in body.get_property_list():
+				if property.name == "combat_spatial_profile":
+					assigned = body.get("combat_spatial_profile")
+		if not assigned is SpatialProfile:
+			assigned = DefaultSpatialProfile
+		spatial = SpatialController.new()
+		spatial.setup(_character, assigned, self)
 
 
 ## 返回朝 goal 的水平单位方向；导航不可用时返回 fallback。
@@ -186,6 +206,12 @@ func direction_to(
 	var desired := fallback
 	if map_ready:
 		var next := _agent.get_next_path_position()
+		# 部分路径的终点也算 finished；不能在此退回直线继续顶不可达平台。
+		if _agent.is_navigation_finished():
+			_state = State.NORMAL
+			_window_origin = position
+			_window_time = 0.0
+			return Vector3.ZERO
 		var flat := Vector3(next.x - position.x, 0.0, next.z - position.z)
 		if flat.length_squared() >= MIN_DIRECTION_SQR:
 			desired = flat.normalized()
@@ -203,6 +229,85 @@ func direction_to(
 ## 导航是否真的给出了可达路径（探针 / 调试用）。
 func has_path() -> bool:
 	return is_instance_valid(_agent) and _agent.is_target_reachable()
+
+
+## 同层且能直达时保留绕行/群体风格；高低差或路径拐角优先沿导航走。
+func ground_velocity(goal: Vector3, desired: Vector3, delta: float) -> Vector3:
+	return spatial.adjust_ground_motion(goal, desired, delta) if spatial != null else raw_ground_velocity(goal, desired, delta)
+
+
+func tick(delta: float, can_act: bool, target: Node3D, speed: float) -> bool:
+	return spatial != null and spatial.tick(delta, can_act, target, speed)
+
+
+func raw_ground_velocity(goal: Vector3, desired: Vector3, delta: float) -> Vector3:
+	if desired.is_zero_approx():
+		direction_to(goal, Vector3.ZERO, delta, false)
+		return Vector3.ZERO
+	var route := direction_to(goal, desired.normalized(), delta)
+	if route.is_zero_approx():
+		# 真正到达目标附近时仍允许安全的局部后退 / 绕行。
+		# 部分路径终点不能沿旧的战术方向直接走向不可达目标。
+		var nearby := Vector2(goal.x - _body.global_position.x, goal.z - _body.global_position.z).length() <= 0.8
+		if nearby and not needs_route(goal) and _safe_local_motion(desired, delta):
+			return desired
+		# 公共网格给大型敌人留了余量。到达小台面旁的路径终点后，小体型仍可
+		# 沿实际有支撑、完整身体无遮挡的地面接近到自身普攻距离。
+		if _can_approach(goal):
+			var closer := goal - _body.global_position
+			closer.y = 0.0
+			return closer.normalized() * desired.length()
+		return Vector3.ZERO
+	var direct := goal - _body.global_position
+	direct.y = 0.0
+	if needs_route(goal) or (not direct.is_zero_approx() and route.dot(direct.normalized()) < 0.95):
+		return route * desired.length()
+	return desired
+
+
+func _safe_local_motion(desired: Vector3, delta: float) -> bool:
+	if _character == null or not _character.is_on_floor():
+		return false
+	var motion := desired * maxf(delta, 0.04)
+	if _character.test_move(_character.global_transform, motion) and GroundMovement.step_landing(_character, _character.global_transform, motion).is_empty():
+		return false
+	var feet := _body.to_global(Vector3(0, -_body_height * 0.5, 0)) + motion
+	var side := Vector3(-motion.z, 0, motion.x).normalized() * _body_radius * 0.75
+	for point in [feet, feet + side, feet - side]:
+		var hit := _body.get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(point + Vector3.UP * GroundMovement.STEP_HEIGHT, point + Vector3.DOWN * GroundMovement.STEP_HEIGHT, 1))
+		if hit.is_empty() or (hit.normal as Vector3).dot(_character.up_direction) < cos(_character.floor_max_angle):
+			return false
+	return true
+
+
+func _can_approach(goal: Vector3) -> bool:
+	if _character == null or not _character.is_on_floor():
+		return false
+	var offset := goal - _body.global_position
+	offset.y = 0.0
+	if offset.length() <= 0.7:
+		return false
+	var motion := offset.normalized() * 0.12
+	if _character.test_move(_character.global_transform, motion) and GroundMovement.step_landing(_character, _character.global_transform, motion).is_empty():
+		return false
+	var feet := _body.to_global(Vector3(0, -_body_height * 0.5, 0)) + motion
+	var hit := _body.get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(feet + Vector3.UP * GroundMovement.STEP_HEIGHT, feet + Vector3.DOWN * GroundMovement.STEP_HEIGHT, 1))
+	return not hit.is_empty() and hit.normal.dot(_character.up_direction) >= cos(_character.floor_max_angle)
+
+
+func needs_route(goal: Vector3) -> bool:
+	if not is_instance_valid(_agent) or not is_instance_valid(_body):
+		return false
+	var nav_map := _agent.get_navigation_map()
+	if NavigationServer3D.map_get_iteration_id(nav_map) == 0:
+		return false
+	var feet := _body.to_global(Vector3(0, -_body_height * 0.5, 0))
+	var floor_here := NavigationServer3D.map_get_closest_point(nav_map, feet)
+	var floor_goal := NavigationServer3D.map_get_closest_point(nav_map, goal)
+	if absf(floor_here.y - floor_goal.y) > 0.4:
+		return true
+	return not _body.get_world_3d().direct_space_state.intersect_ray(
+		PhysicsRayQueryParameters3D.create(_body.global_position, goal, 1)).is_empty()
 
 
 # ---------------------------------------------------------------- 状态机
@@ -317,6 +422,9 @@ func _unstick_direction(desired: Vector3) -> Vector3:
 ## 擦着墙走的时候几乎不改动方向，不会把正常沿墙移动也搅乱。
 func _contact_push(desired: Vector3) -> Vector3:
 	if _character == null:
+		return desired
+	# 薄板挡脚边虽有竖直法线，却是可跨低坎；先确认完整身体能通过再决定绕墙。
+	if _character.is_on_floor() and not desired.is_zero_approx() and not GroundMovement.step_landing(_character, _character.global_transform, desired * 0.1).is_empty():
 		return desired
 	var count := _character.get_slide_collision_count()
 	if count == 0:

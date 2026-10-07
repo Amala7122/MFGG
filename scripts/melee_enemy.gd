@@ -7,6 +7,9 @@ const EnemyVisualsUtil := preload("res://scripts/enemy_visuals.gd")
 const EnemyProfileUtil := preload("res://scripts/enemy_profile.gd")
 const EnemyRigUtil := preload("res://scripts/enemy_rig.gd")
 const NavSteeringUtil := preload("res://scripts/nav_steering.gd")
+const GroundMovement := preload("res://scripts/ground_movement.gd")
+const SpatialProfile := preload("res://scripts/combat_spatial_profile.gd")
+@export var combat_spatial_profile: SpatialProfile = preload("res://data/combat_spatial/ground.tres")
 const ConfigUtil := preload("res://scripts/game_config.gd")
 const PickupUtil := preload("res://scripts/pickup.gd")
 const TargetingUtil := preload("res://scripts/targeting.gd")
@@ -93,6 +96,8 @@ var _took_damage := false
 ## 【重量】霸体：击退力按 (1 - knockback_resistance) 打折，巨型几乎推不动。
 func apply_push(direction: Vector3, force: float) -> void:
 	cancel_attack()
+	if _steering.spatial != null:
+		_steering.spatial.cancel_motion()
 	var flat := Vector3(direction.x, 0.0, direction.z)
 	if flat.is_zero_approx():
 		flat = Vector3.FORWARD
@@ -134,6 +139,7 @@ func _ready() -> void:
 	add_child(_attack_area)
 	# 半径取得比视觉体型略大，避免贴着掩体角"蹭"过去时穿模。
 	_steering.setup(self, 0.6, 1.8)
+	_steering.spatial.bind({"move_speed": move_speed, "gravity": gravity}, {"can_attack": _spatial_can_attack, "attack_pose": _spatial_attack_pose})
 	update_health_label()
 
 
@@ -228,7 +234,11 @@ func _physics_process(delta: float) -> void:
 		return
 	var prior_yaw := rotation.y
 	var locomoting := _stagger_time <= 0.0
-	_update_behavior(delta)
+	if _steering.tick(delta, _stagger_time <= 0.0 and _attack_elapsed < 0.0 and is_instance_valid(target) and global_position.distance_to(target.global_position) <= detection_range, target, move_speed):
+		attack_cooldown = maxf(attack_cooldown - delta, 0.0)
+		update_feedback(delta)
+	else:
+		_update_behavior(delta)
 	var actual_velocity := get_real_velocity()
 	_rig.update(
 		delta, Vector2(actual_velocity.x, actual_velocity.z).length(), move_speed, is_on_floor(),
@@ -240,6 +250,8 @@ func _physics_process(delta: float) -> void:
 ## 行为层：追击 / 攻击。动画交给 EnemyRig，避免早退路径漏掉动画更新。
 ## 把击杀记到最近的玩家头上。
 func _credit_killer() -> void:
+	if not preload("res://scripts/combat_telemetry.gd").credits_player(self):
+		return
 	var player := TargetingUtil.nearest_player(self)
 	if player != null and player.has_method("register_enemy_kill"):
 		player.call("register_enemy_kill")
@@ -291,11 +303,11 @@ func _update_behavior(delta: float) -> void:
 	var distance := offset.length()
 	var flat_direction := Vector3(offset.x, 0.0, offset.z).normalized()
 	if distance <= detection_range:
-		if distance > attack_distance:
+		if not _spatial_can_attack():
 			# 用导航路径代替直线追击：场上有 34° 的坡和 28 个掩体，直线追
 			# 会直接撞上去然后贴着滑。导航不可用时自动回退直线。
-			var chase := _steering.direction_to(target.global_position, flat_direction, delta)
-			_face_flat_direction(delta, chase)
+			var chase := _steering.ground_velocity(target.global_position, flat_direction * move_speed, delta) / maxf(move_speed, 0.01)
+			_face_flat_direction(delta, flat_direction if chase.is_zero_approx() else chase)
 			velocity.x = move_toward(velocity.x, chase.x * move_speed, move_speed * _accel_ratio * delta)
 			velocity.z = move_toward(velocity.z, chase.z * move_speed, move_speed * _accel_ratio * delta)
 		else:
@@ -322,7 +334,7 @@ func _update_behavior(delta: float) -> void:
 		velocity.z = move_toward(
 			velocity.z, flat_direction.z * move_speed * _idle_wander_ratio, move_speed * 5.0 * delta
 		)
-	move_and_slide()
+	GroundMovement.move(self, delta)
 	update_feedback(delta)
 
 
@@ -337,9 +349,18 @@ func attack() -> void:
 	velocity.z = 0.0
 	var angle := ConfigUtil.get_float("enemy.melee_attack_angle", 110.0)
 	_attack_area.prepare(global_transform, {"kind": "sector", "radius": attack_distance + 0.35,
-		"angle": angle, "height": 2.0 * scale.y},
+		"angle": angle, "height": 2.0 * scale.y, "ground_effect": false},
 		(attack_damage + _contact_damage * attack_interval) * _damage_scale)
 	_rig.play_attack(_attack_duration)
+
+
+func _spatial_can_attack() -> bool:
+	return _spatial_attack_pose(global_transform)
+
+func _spatial_attack_pose(pose: Transform3D) -> bool:
+	return is_instance_valid(target) and AttackArea.candidate_can_hit(self, pose,
+		{"kind": "sector", "radius": attack_distance + 0.35,
+		"angle": ConfigUtil.get_float("enemy.melee_attack_angle", 110.0), "height": 2.0 * scale.y, "ground_effect": false}, target)
 
 
 func _update_attack(delta: float) -> void:

@@ -1,8 +1,10 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/prototypes/procedural_fast_beast.gd" id="1_script"]
+[ext_resource type="Resource" path="res://data/combat_reactions/evade_knockback.tres" id="2_reaction"]
 
 [node name="ProceduralFastBeast" type="CharacterBody3D" groups=["enemies"]]
 collision_layer = 4
 collision_mask = 3
 script = ExtResource("1_script")
+combat_reaction_profile = ExtResource("2_reaction")

@@ -2,6 +2,8 @@ extends Node3D
 ## 有上限、有寿命的贴地痕迹、碎土与尘浪；不带碰撞，不参与伤害。
 const Shake := preload("res://scripts/ground_impact_shake.gd")
 const Audio := preload("res://scripts/audio_manager.gd")
+const SurfaceMesh := preload("res://scripts/attack_surface_mesh.gd")
+var _coverage: RefCounted
 var age := 0.0
 var radius := 1.0
 var pulse_strength := 0.0
@@ -16,7 +18,7 @@ var _trace_material: StandardMaterial3D
 var _dust: MeshInstance3D
 var _dust_material: StandardMaterial3D
 
-static func spawn(host: Node, point: Vector3, size: float, power: float, takeoff := false, shake_scale := 1.0, charge := false) -> Node3D:
+static func spawn(host: Node, point: Vector3, size: float, power: float, takeoff := false, shake_scale := 1.0, charge := false, coverage: RefCounted = null) -> Node3D:
 	var existing := host.get_tree().get_nodes_in_group("titan_ground_effect")
 	var active: Array[Node] = []
 	for node in existing:
@@ -27,13 +29,20 @@ static func spawn(host: Node, point: Vector3, size: float, power: float, takeoff
 	var effect := load("res://scripts/prototypes/titan_ground_effect.gd").new() as Node3D
 	host.add_child(effect)
 	effect.global_position = point
-	effect.call("trigger", size, power, takeoff, shake_scale, charge)
+	effect.call("trigger", size, power, takeoff, shake_scale, charge, coverage)
 	return effect
 
-func trigger(size: float, power: float, takeoff: bool, shake_scale: float, charge := false) -> void:
+func trigger(size: float, power: float, takeoff: bool, shake_scale: float, charge := false, coverage: RefCounted = null) -> void:
 	add_to_group("titan_ground_effect")
 	add_to_group("ground_impulse")
 	radius = size
+	_coverage = coverage
+	if _coverage == null:
+		_coverage = SurfaceMesh.new()
+		var footprint := PackedVector2Array()
+		for i in range(48):
+			footprint.append(Vector2(cos(TAU * i / 48.0), sin(TAU * i / 48.0)) * radius)
+		_coverage.call("build", self, footprint, {"kind": "circle", "radius": radius, "height": 2.5})
 	pulse_strength = power
 	lifetime = 3.5 if takeoff else 6.0
 	charging = charge
@@ -129,8 +138,7 @@ func _ground(local: Vector3) -> Vector3:
 	return point - global_position
 
 func _trace_mesh(takeoff: bool) -> ArrayMesh:
-	var surface := SurfaceTool.new()
-	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var strokes: Array = []
 	for i in range(18):
 		var angle := TAU * float(i) / 18.0
 		var direction := Vector3(cos(angle), 0, sin(angle))
@@ -145,10 +153,11 @@ func _trace_mesh(takeoff: bool) -> ArrayMesh:
 		for segment in segments:
 			var a: Vector3 = segment[0]
 			var b: Vector3 = segment[1]
-			for point in [a - side * width, a + side * width, b + side * width, a - side * width, b + side * width, b - side * width]:
-				surface.add_vertex(_ground(point))
-	surface.generate_normals()
-	return surface.commit()
+			var stroke := PackedVector2Array()
+			for point in [a - side * width, a + side * width, b + side * width, b - side * width]:
+				stroke.append(Vector2(point.x, point.z))
+			strokes.append(stroke)
+	return _coverage.call("paint_strokes", global_transform, strokes)
 
 func _ring_mesh() -> ArrayMesh:
 	var surface := SurfaceTool.new()

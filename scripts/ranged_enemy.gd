@@ -17,6 +17,9 @@ const MortarShellUtil := preload("res://scripts/mortar_shell.gd")
 const EnemyVisualsUtil := preload("res://scripts/enemy_visuals.gd")
 const EnemyRigUtil := preload("res://scripts/enemy_rig.gd")
 const NavSteeringUtil := preload("res://scripts/nav_steering.gd")
+const GroundMovement := preload("res://scripts/ground_movement.gd")
+const SpatialProfile := preload("res://scripts/combat_spatial_profile.gd")
+@export var combat_spatial_profile: SpatialProfile = preload("res://data/combat_spatial/ground.tres")
 const ConfigUtil := preload("res://scripts/game_config.gd")
 const PickupUtil := preload("res://scripts/pickup.gd")
 const AudioUtil := preload("res://scripts/audio_manager.gd")
@@ -102,6 +105,8 @@ var _fall_kill_depth := 18.0
 ## 被手雷 / 震地脉冲击退：短时间接管移动形成明确的"被打飞"反馈。
 ## 【重量】霸体：击退力按 (1 - knockback_resistance) 打折。
 func apply_push(direction: Vector3, force: float) -> void:
+	if _steering.spatial != null:
+		_steering.spatial.cancel_motion()
 	var flat := Vector3(direction.x, 0.0, direction.z)
 	if flat.is_zero_approx():
 		flat = Vector3.FORWARD
@@ -148,6 +153,7 @@ func _ready() -> void:
 	_rig.setup(enemy_model)
 	_rig.right_hand_ik_weight = 1.0
 	_steering.setup(self, 0.65, 1.8)
+	_steering.spatial.bind({"move_speed": move_speed, "gravity": gravity}, {"can_attack": can_attack_from_current_view})
 	movement_direction_sign = -1.0 if get_instance_id() % 2 == 0 else 1.0
 	update_health_label()
 
@@ -269,7 +275,11 @@ func _physics_process(delta: float) -> void:
 		return
 	var prior_yaw := rotation.y
 	var locomoting := _stagger_time <= 0.0
-	_update_behavior(delta)
+	if _steering.tick(delta, _stagger_time <= 0.0 and not attack_queued and burst_remaining <= 0 and is_instance_valid(target) and global_position.distance_to(target.global_position) <= detection_range, target, move_speed):
+		fire_cooldown = maxf(fire_cooldown - delta, 0.0)
+		update_feedback(delta)
+	else:
+		_update_behavior(delta)
 	# 右臂 IK 目标必须取枪的实时位置，所以放在行为更新之后。
 	if gun_pivot:
 		_rig.right_hand_ik_target = gun_pivot.global_transform * GRIP_OFFSET
@@ -284,6 +294,8 @@ func _physics_process(delta: float) -> void:
 ## 行为层：走位 / 开火。动画交给 EnemyRig，避免早退路径漏掉动画更新。
 ## 把击杀记到最近的玩家头上（见 melee_enemy 里的同类说明）。
 func _credit_killer() -> void:
+	if not preload("res://scripts/combat_telemetry.gd").credits_player(self):
+		return
 	var player := TargetingUtil.nearest_player(self)
 	if player != null and player.has_method("register_enemy_kill"):
 		player.call("register_enemy_kill")
@@ -340,7 +352,7 @@ func _update_behavior(delta: float) -> void:
 			cancel_attack_charge()
 		_steering.direction_to(global_position, Vector3.ZERO, delta, false)
 		stop_horizontal(delta)
-	move_and_slide()
+	GroundMovement.move(self, delta)
 	update_feedback(delta)
 	animate_movement(delta)
 
@@ -361,7 +373,7 @@ func _apply_navigation(move_direction: Vector3, delta: float) -> Vector3:
 		_steering.direction_to(global_position, Vector3.ZERO, delta, false)
 		return Vector3.ZERO
 	var motion_goal := global_position + move_direction.normalized() * NAV_MOTION_LOOKAHEAD
-	return _steering.direction_to(motion_goal, move_direction, delta, true)
+	return _steering.ground_velocity(motion_goal, move_direction * move_speed, delta) / maxf(move_speed, 0.01)
 
 
 func calculate_move_direction(flat_direction: Vector3, distance: float) -> Vector3:

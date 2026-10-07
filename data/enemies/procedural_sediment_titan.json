@@ -4,6 +4,15 @@
   "title": "沉积泰坦",
   "groups": [
     {
+      "title": "环境破坏",
+      "fields": [
+        {"key": "slam_break_power", "label": "砸地破坏强度", "value": 1.0, "min": 0, "max": 100, "step": 0.1, "unit": "级", "tip": "达到物件耐破坏强度才会破坏；0 表示不破坏。"},
+        {"key": "sweep_break_power", "label": "横扫破坏强度", "value": 1.0, "min": 0, "max": 100, "step": 0.1, "unit": "级", "tip": "随实际挥击进度破坏碰到的物件；0 表示不破坏。"},
+        {"key": "leap_break_power", "label": "跃击破坏强度", "value": 1.0, "min": 0, "max": 100, "step": 0.1, "unit": "级", "tip": "同时控制落点预测、下落接触和落地冲击；0 表示不破坏。"},
+        {"key": "normal_break_power", "label": "跳跃普攻破坏强度", "value": 1.0, "min": 0, "max": 100, "step": 0.1, "unit": "级", "tip": "跳起挥击时破坏攻击范围内物件；不产生地面震波。"}
+      ]
+    },
+    {
       "title": "基础属性",
       "fields": [
         {
@@ -571,7 +580,7 @@
         },
         {
           "key": "rage_ready_delay",
-          "label": "取消旧攻击后的等待",
+          "label": "中断护盾施法后的等待",
           "value": 0.6,
           "min": 0,
           "max": 10,
@@ -1081,7 +1090,7 @@
           "max": 1,
           "step": 0.05,
           "unit": "倍",
-          "tip": "起跳时锁死，并显示预判落点；飞行不追踪。"
+          "tip": "预警出现前确认并锁定预判落点；出现后按原落点施放，蓄力和飞行均不追踪。"
         },
         {
           "key": "leap_lead_limit",
@@ -1096,12 +1105,12 @@
         {
           "key": "leap_max_elevation",
           "label": "落点最大高差",
-          "value": 2.5,
+          "value": 6.0,
           "min": 0,
           "max": 8,
           "step": 0.1,
           "unit": "米",
-          "tip": ""
+          "tip": "同时约束真实跃击与空间跳越 / 脱困。默认可进出 5 米深坑；仍需验证完整身体轨迹、落脚面积和返程冷却。"
         },
         {
           "key": "leap_radius",
@@ -1152,6 +1161,61 @@
           "step": 0.05,
           "unit": "倍",
           "tip": "0 关闭；有距离衰减与叠加强度上限。"
+        }
+      ]
+    },
+    {
+      "title": "跳跃普通攻击",
+      "fields": [
+        {
+          "key": "normal_attack_damage",
+          "label": "跳跃普攻伤害",
+          "value": 25,
+          "min": 0,
+          "max": 10000,
+          "step": 1,
+          "unit": "点",
+          "tip": "用于高处玩家：跳起挥击后落回原地，不要求落在台面，也不产生地面效果。"
+        },
+        {
+          "key": "normal_attack_reach",
+          "label": "普攻水平距离",
+          "value": 3.0,
+          "min": 0.1,
+          "max": 10,
+          "step": 0.1,
+          "unit": "米",
+          "tip": "用于高处玩家：跳起挥击后落回原地，不要求落在台面，也不产生地面效果。"
+        },
+        {
+          "key": "normal_attack_height",
+          "label": "普攻垂直距离",
+          "value": 1.2,
+          "min": 0.1,
+          "max": 5,
+          "step": 0.1,
+          "unit": "米",
+          "tip": "用于高处玩家：跳起挥击后落回原地，不要求落在台面，也不产生地面效果。"
+        },
+        {
+          "key": "normal_jump_speed",
+          "label": "普攻起跳速度",
+          "value": 7.5,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "米/秒",
+          "tip": "用于高处玩家：跳起挥击后落回原地，不要求落在台面，也不产生地面效果。"
+        },
+        {
+          "key": "normal_attack_interval",
+          "label": "跳跃普攻间隔",
+          "value": 1.5,
+          "min": 0.1,
+          "max": 60,
+          "step": 0.1,
+          "unit": "秒",
+          "tip": "用于高处玩家：跳起挥击后落回原地，不要求落在台面，也不产生地面效果。"
         }
       ]
     }

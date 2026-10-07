@@ -1,0 +1,8 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/prototypes/procedural_tomb_guardian_visual.gd" id="1_visual"]
+[ext_resource type="Resource" path="res://prototypes/visual/enemies/tomb_guardian_reference.tres" id="2_profile"]
+
+[node name="ProceduralTombGuardianVisual" type="Node3D"]
+script = ExtResource("1_visual")
+visual_profile = ExtResource("2_profile")

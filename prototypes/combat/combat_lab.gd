@@ -36,6 +36,12 @@ const LINE_Z := -38.0
 const LINE_SPACING := 3.0
 const PLAYER_START := Vector3(0, 1.08, 8)
 
+# 独立空间预设复用同一套投放、统计和补兵流程，空场入口保留原默认值。
+@export var player_start := PLAYER_START
+@export var enemy_line_z := LINE_Z
+@export var enemy_limit := MAX_ENEMIES
+@export var enemy_line_width := MAX_ENEMIES * LINE_SPACING
+
 enum State { CONFIGURING, COUNTDOWN, FIGHTING, FINISHED, RESOLVING }
 enum LoopMode { OFF, WAVE, REPLACE }
 
@@ -232,11 +238,15 @@ func handle_lab_input(event: InputEvent) -> void:
 func _build_navigation() -> void:
 	# 空场地是确定的平面，无需烘焙正式世界的地形或加载其场景内容。
 	var mesh := NavigationMesh.new()
+	mesh.cell_size = Config.get_float("navigation.cell_size", 0.3)
+	mesh.cell_height = Config.get_float("navigation.cell_height", 0.25)
 	mesh.vertices = PackedVector3Array([
 		Vector3(-58, 0, -43), Vector3(-58, 0, 43),
 		Vector3(58, 0, 43), Vector3(58, 0, -43),
 	])
 	mesh.add_polygon(PackedInt32Array([0, 1, 2, 3]))
+	NavigationServer3D.map_set_cell_size($NavigationRegion3D.get_navigation_map(), mesh.cell_size)
+	NavigationServer3D.map_set_cell_height($NavigationRegion3D.get_navigation_map(), mesh.cell_height)
 	$NavigationRegion3D.navigation_mesh = mesh
 
 
@@ -278,7 +288,7 @@ func _create_player() -> void:
 	_player = PlayerScene.instantiate() as CharacterBody3D
 	_player.set_script(LabPlayer)
 	_player.name = "LabPlayer"
-	_player.position = PLAYER_START
+	_player.position = player_start
 	_player.process_mode = Node.PROCESS_MODE_DISABLED
 	_actors.add_child(_player)
 	_player.connect("defeated", _on_player_defeated)
@@ -340,10 +350,10 @@ func _update_selection(_unused: Variant = null) -> void:
 			line_width += _slot_width(String(row.entry.id)) * int((row.count as SpinBox).value)
 			if EnemyTuning.PROFILE_PATHS.has(String(row.entry.id)) and EnemyTuning.get_values(String(row.entry.id)).is_empty():
 				invalid_profile = true
-	_summary.text = "已选 %d 种 · %d / %d 只" % [kinds, total, MAX_ENEMIES]
-	var too_wide := line_width > MAX_ENEMIES * LINE_SPACING
-	_summary.modulate = UI.COLOR_DANGER if total > MAX_ENEMIES or too_wide else UI.COLOR_BODY
-	_generate.disabled = _generating or total <= 0 or total > MAX_ENEMIES or too_wide or invalid_profile
+	_summary.text = "已选 %d 种 · %d / %d 只" % [kinds, total, enemy_limit]
+	var too_wide := line_width > enemy_line_width
+	_summary.modulate = UI.COLOR_DANGER if total > enemy_limit or too_wide else UI.COLOR_BODY
+	_generate.disabled = _generating or total <= 0 or total > enemy_limit or too_wide or invalid_profile
 	if invalid_profile:
 		_result.text = "敌人参数配置不可用，请检查对应的独立配置文件。"
 	_generate.tooltip_text = "单排空间不足，请减少数量或调整敌人的排列占位" if too_wide else "生成选择的敌人，倒数后开始新的战斗"
@@ -365,7 +375,7 @@ func generate_round() -> void:
 	for id in selection:
 		total += int(selection[id])
 		line_width += _slot_width(String(id)) * int(selection[id])
-	if total < 1 or total > MAX_ENEMIES or line_width > MAX_ENEMIES * LINE_SPACING:
+	if total < 1 or total > enemy_limit or line_width > enemy_line_width:
 		return
 	_generating = true
 	_cancel_generation_requested = false
@@ -414,18 +424,20 @@ func generate_round() -> void:
 
 func _spawn_slot(slot_index: int, activate: bool) -> void:
 	var slot: Dictionary = _round_slots[slot_index]
+	var spawn_position := _spawn_position(slot_index, slot)
 	var enemy: CharacterBody3D
 	if PROTOTYPE_SCENES.has(String(slot.entry.id)):
 		var prototype_scene: PackedScene = PROTOTYPE_SCENES[String(slot.entry.id)]
 		enemy = prototype_scene.instantiate() as CharacterBody3D
 		enemy.set_meta(&"enemy_tuning", slot.tuning.duplicate(true))
 		enemy.set_meta(&"crowd_uniform", not bool(slot.crowd_motion))
-		enemy.position = Vector3(slot.x, 0, LINE_Z)
+		enemy.position = spawn_position
 		enemy.process_mode = Node.PROCESS_MODE_DISABLED
 		_enemy_container.add_child(enemy)
 	else:
-		enemy = _spawner.call("spawn_enemy", slot.entry, Vector3(slot.x, 0, LINE_Z), slot.level) as CharacterBody3D
+		enemy = _spawner.call("spawn_enemy", slot.entry, spawn_position, slot.level) as CharacterBody3D
 	enemy.process_mode = Node.PROCESS_MODE_DISABLED
+	enemy.set_meta(&"lab_ground_y", spawn_position.y)
 	enemy.set_meta(&"lab_roster_id", String(slot.entry.id))
 	enemy.set_meta(&"lab_slot", slot_index)
 	enemy.set_meta(&"lab_title", String(slot.entry.title))
@@ -437,13 +449,18 @@ func _spawn_slot(slot_index: int, activate: bool) -> void:
 	_prepare_enemy.call_deferred(enemy, _serial, activate)
 
 
+func _spawn_position(_slot_index: int, slot: Dictionary) -> Vector3:
+	return Vector3(slot.x, 0, enemy_line_z)
+
+
 func _prepare_enemy(enemy: CharacterBody3D, serial: int, activate: bool) -> void:
 	if not is_instance_valid(enemy) or serial != _serial or not is_inside_tree():
 		return
 	var capsule := enemy.get_node("CollisionShape3D") as CollisionShape3D
 	var shape_height: float = capsule.shape.size.y if capsule.shape is BoxShape3D else (capsule.shape.radius * 2.0 if capsule.shape is SphereShape3D else capsule.shape.height)
 	var half_height := shape_height * enemy.scale.y * 0.5
-	enemy.position.y = enemy.call("get_spawn_height", _player.global_position.y) if enemy.has_method("get_spawn_height") else half_height + 0.08
+	var ground_y := float(enemy.get_meta(&"lab_ground_y", 0.0))
+	enemy.position.y = maxf(float(enemy.call("get_spawn_height", _player.global_position.y)), ground_y + half_height + 0.08) if enemy.has_method("get_spawn_height") else ground_y + half_height + 0.08
 	var offset := _player.global_position - enemy.global_position
 	enemy.rotation.y = atan2(-offset.x, -offset.z)
 	enemy.velocity = Vector3.ZERO
@@ -892,7 +909,7 @@ func _build_interface() -> void:
 			row.add_child(tune)
 		var count := SpinBox.new()
 		count.min_value = 1
-		count.max_value = MAX_ENEMIES
+		count.max_value = enemy_limit
 		count.value = 1
 		count.custom_minimum_size.x = 74
 		count.add_theme_font_size_override("font_size", 14)

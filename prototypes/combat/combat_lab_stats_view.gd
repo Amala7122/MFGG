@@ -18,8 +18,9 @@ static func weapon_text(p: Dictionary) -> String:
 static func live_text(s: Dictionary) -> String:
 	var r: Dictionary = s.recent5
 	var k: Dictionary = s.recent30
-	return "近 5 秒 DPS %.1f\n近 30 秒击杀 %d\n近 5 秒损失：生命 %.1f / 护盾 %.1f" % [
-		_rate(float(r.damage), float(r.duration)), int(k.kills), float(r.hp), float(r.shield)]
+	var label := "承伤（含无敌模拟）" if int(r.get("simulated_hits", 0)) > 0 else "承伤"
+	return "近 5 秒 DPS %.1f\n近 30 秒击杀 %d\n近 5 秒%s：生命 %.1f / 护盾 %.1f" % [
+		_rate(float(r.damage), float(r.duration)), int(k.kills), label, float(r.hp), float(r.shield)]
 
 
 static func _rate(value: float, duration: float) -> float:
@@ -57,6 +58,8 @@ static func report(s: Dictionary) -> String:
 	text += weapon_text(p) + "\n"
 	if not p.is_empty():
 		text += "生命 %.1f / %.1f · 护盾 %.1f / %.1f\n" % [float(p.health), float(p.max_health), float(p.shield), float(p.max_shield)]
+		if p.get("invincible", false):
+			text += "无敌模拟护盾 %.1f / %.1f（真实血盾保持无敌）\n" % [float(p.get("pressure_shield", p.shield)), float(p.max_shield)]
 		text += "主弹药 %d / %d · 备弹 %s；狙击 %d / %d · 备弹 %s\n" % [
 			int(p.ammo), int(p.capacity), _reserve(int(p.reserve)), int(p.sniper_ammo), int(p.sniper_capacity), _reserve(int(p.sniper_reserve))]
 		text += "当前装填：主武器 %.1f 秒 / 狙击 %.1f 秒；狙击爆头倍率 ×%.1f\n" % [float(p.reload), float(p.sniper_reload), float(p.headshot_multiplier)]
@@ -67,9 +70,13 @@ static func report(s: Dictionary) -> String:
 		int(s.totals.kills), int(s.unassigned_deaths), int(s.recent30.kills), _rate(float(s.recent30.kills) * 60.0, float(s.recent30.duration))]
 	if float(s.time) < 30.0:
 		text += "开场阶段：输出窗口 %.1f 秒，击杀窗口 %.1f 秒；每分钟击杀率为当前窗口推算。\n" % [float(s.recent5.duration), float(s.recent30.duration)]
-	text += "生命损失 %.1f · 护盾损失 %.1f · 有效受击 %d 次 · 破盾 %d 次\n" % [float(s.health_loss), float(s.shield_loss), int(s.received_hits), int(s.shield_breaks)]
+	text += "承伤合计：生命 %.1f · 护盾 %.1f · 有效受击 %d 次 · 破盾 %d 次\n" % [float(s.health_loss), float(s.shield_loss), int(s.received_hits), int(s.shield_breaks)]
+	text += "其中实际损失：生命 %.1f / 护盾 %.1f；无敌模拟：生命 %.1f / 护盾 %.1f\n" % [
+		float(s.health_loss) - float(s.simulated_health_loss), float(s.shield_loss) - float(s.simulated_shield_loss),
+		float(s.simulated_health_loss), float(s.simulated_shield_loss)]
 	text += "自动回血 %.1f / 回盾 %.1f · 拾取回血 %.1f\n" % [float(s.health_regen), float(s.shield_regen), float(s.heal)]
-	text += "无敌拦截 %d 次（原始攻击量 %.1f，非实际承伤）· 其他免伤 / 无效判定 %d 次\n" % [int(s.invincible_attempts), float(s.invincible_raw), int(s.rejected_hits)]
+	text += "无敌模拟回盾 %.1f · 无敌有效命中 %d 次（原始攻击量 %.1f）· 其他免伤 / 无效判定 %d 次\n" % [
+		float(s.simulated_shield_regen), int(s.invincible_attempts), float(s.invincible_raw), int(s.rejected_hits)]
 	text += _title("武器与技能：来源拆分")
 	text += "[table=6]" + _cells(["来源", "有效伤害 / 击杀", "开火 / 耗弹", "命中率", "补给 / 换弹", "装填时间"])
 	for key in NAMES:
@@ -84,6 +91,7 @@ static func report(s: Dictionary) -> String:
 			"%.1f 秒 / %.1f%%" % [float(row.reload_time), _rate(float(row.reload_time) * 100.0, float(s.time))] if gun else "—"])
 	text += "[/table]\n"
 	text += _title("按兵种：击杀效率与场面压力")
+	text += "承压数值包含无敌模拟，与上方承伤合计使用同一口径。\n"
 	text += "[table=4]" + _cells(["兵种 / 存活 / 生成", "属性 / 实际水平速度", "击杀效率", "造成的承压"])
 	for row: Dictionary in s.species.values():
 		text += _cells(["%s\n存活 %d / 生成 %d" % [row.title, int(row.alive), int(row.spawned)],
@@ -91,22 +99,25 @@ static func report(s: Dictionary) -> String:
 				_configured(row, "attack_damage"), _configured(row, "attack_interval"), _configured(row, "speed"), _average(float(row.speed_sum), int(row.speed_samples), " m/s"), _configured(row, "size")],
 			"击杀 %d · TTK %s\n耗弹：主 %s / 狙 %s\n接战等待 %s · 混合击杀 %d" % [int(row.kills), _average(float(row.ttk_sum), int(row.ttk_samples), " 秒"),
 				_average(float(row.primary_ammo), int(row.kills)), _average(float(row.sniper_ammo), int(row.kills)), _average(float(row.wait_sum), int(row.wait_samples), " 秒"), int(row.mixed)],
-			"受击 %d 次\n生命 %.1f / 护盾 %.1f\n无敌拦截 %d 次\n未归属死亡 %d" % [int(row.received_hits), float(row.health_loss), float(row.shield_loss), int(row.invincible_attempts), int(row.unassigned)]])
+			"受击 %d 次\n生命 %.1f / 护盾 %.1f\n无敌命中 %d 次\n未归属死亡 %d" % [int(row.received_hits), float(row.health_loss), float(row.shield_loss), int(row.invincible_attempts), int(row.unassigned)]])
 	text += "[/table]\n"
 	text += _title("受击来源")
 	if s.incoming.is_empty():
-		text += "尚无实际生命 / 护盾损失。\n"
+		text += "尚无有效承伤。\n"
 	else:
-		text += "[table=5]" + _cells(["兵种 / 攻击", "有效受击", "生命损失", "护盾损失", "无敌拦截 / 原始量"])
+		text += "[table=5]" + _cells(["兵种 / 攻击", "有效受击", "生命承伤", "护盾承伤", "无敌命中 / 原始量"])
 		for row: Dictionary in s.incoming.values():
-			text += _cells([row.title + " / " + row.attack, row.hits, "%.1f" % float(row.health), "%.1f" % float(row.shield), "%d 次 / %.1f" % [int(row.invincible_attempts), float(row.invincible_raw)]])
+			text += _cells([row.title + " / " + row.attack, row.hits,
+				"%.1f\n其中模拟 %.1f" % [float(row.health), float(row.simulated_health)],
+				"%.1f\n其中模拟 %.1f" % [float(row.shield), float(row.simulated_shield)],
+				"%d 次 / %.1f" % [int(row.invincible_attempts), float(row.invincible_raw)]])
 		text += "[/table]\n"
 	text += _title("循环表现")
 	if int(s.conditions.get("mode", 0)) == 1:
 		text += "完成 %d 批 · 平均每批 %.1f 秒\n" % [int(s.wave_count), float(s.wave_average)]
 		if not s.last_wave.is_empty():
 			var w: Dictionary = s.last_wave
-			text += "上一批 %.1f 秒 · 伤害 %.1f · 耗弹 主 %d / 狙 %d · 损失 生命 %.1f / 护盾 %.1f\n" % [float(w.time), float(w.damage), int(w.primary), int(w.sniper), float(w.health), float(w.shield)]
+			text += "上一批 %.1f 秒 · 伤害 %.1f · 耗弹 主 %d / 狙 %d · 承伤 生命 %.1f / 护盾 %.1f\n" % [float(w.time), float(w.damage), int(w.primary), int(w.sniper), float(w.health), float(w.shield)]
 	elif int(s.conditions.get("mode", 0)) == 2:
 		text += "B 模式以近 30 秒击杀率和资源消耗比较；不计算全灭时间。\n"
 	else:
@@ -124,6 +135,7 @@ static func report(s: Dictionary) -> String:
 			["单轮", "A", "B"][int(segment.mode)], "开" if weapon.invincible else "关", _rate(damage, duration)]
 	text += _title("口径")
 	text += "配置属性显示本轮生成个体的平均值；有差异时括号列出最小–最大值。\n"
+	text += "无敌模拟按正式护盾倍率、破盾溢出、受击/翻滚免伤窗口和护盾恢复规则计入承压；真实血盾不扣除。\n模拟生命承伤在破盾后持续累计，不设死亡上限；实际损失和模拟承伤分别列出。切换无敌后重新以真实护盾开始模拟。\n"
 	text += "有效伤害排除过量击杀与未归属伤害；生命、护盾及恢复分别记录。\n命中率按一次开火计算，多弹丸 / 穿透不重复计次；爆头率仅针对狙击有效命中。\nTTK 从首次玩家伤害到死亡；耗弹按该目标受到的射击次数，穿透的一发可同时贡献多个目标。\n实测均速包含攻击站定 / 击退，反映整体移动，不等于单独的追击速度。\n暂停、倒数、死亡演出不计时；补兵连续记录，手动生成清零；无样本显示“—”。"
 	return text
 

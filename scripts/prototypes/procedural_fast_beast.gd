@@ -1,5 +1,17 @@
 class_name ProceduralFastBeast
 extends CharacterBody3D
+const Nav := preload("res://scripts/nav_steering.gd")
+const GroundMovement := preload("res://scripts/ground_movement.gd")
+const JumpLanding := preload("res://scripts/jump_landing.gd")
+const JumpMelee := preload("res://scripts/jump_melee.gd")
+const SpatialQuery := preload("res://scripts/spatial_query.gd")
+const SpatialProfile := preload("res://scripts/combat_spatial_profile.gd")
+@export var combat_spatial_profile: SpatialProfile = preload("res://data/combat_spatial/jump.tres")
+var _jump_melee := JumpMelee.new()
+var _normal_cooldown := 0.0
+var _normal_check_timer := 0.0
+var _pounce_landing := Vector3.ZERO
+var _steering := Nav.new()
 ## 四足晶兽：程序化拼装、侧翼绕行、锁向飞扑与物理解体。
 ## 运行时数值仅来自独立 JSON 或本轮注入的参数快照。
 
@@ -10,8 +22,12 @@ const Crowd := preload("res://scripts/prototypes/enemy_crowd.gd")
 const AttackArea := preload("res://scripts/enemy_attack_area.gd")
 var _attack_area := AttackArea.new()
 const PROFILE_ID := "PrototypeFastBeast"
+const ReactionProfile := preload("res://scripts/combat_reaction_profile.gd")
+const Reactions := preload("res://scripts/combat_reactions.gd")
+@export var combat_reaction_profile: ReactionProfile
+var _reactions := Reactions.new()
 
-enum State { IDLE, CIRCLE, POUNCE_WINDUP, POUNCE_LEAP, POUNCE_RECOVERY, HIT_STAGGER, DEAD }
+enum State { IDLE, CIRCLE, POUNCE_WINDUP, POUNCE_LEAP, POUNCE_RECOVERY, HIT_STAGGER, DEAD, JUMP_ATTACK, COMBAT_REACTION }
 var current_state: State = State.IDLE
 @export var ai_enabled := true
 var health: float
@@ -72,6 +88,11 @@ func _ready() -> void:
 	# 原稿朝向已经是 -Z；只把脚底坐标换算到碰撞中心。
 	visual_root.position.y = -0.65
 	_setup_collision()
+	_steering.setup(self, 0.65, 1.55)
+	var spatial_values := _tuning.duplicate()
+	spatial_values.traversal_speed = move_speed * _p("pounce_speed_multiplier")
+	spatial_values.traversal_rise = _p("pounce_jump_speed") * _p("pounce_jump_speed") / (2.0 * _p("gravity")) - 0.05
+	_steering.spatial.bind(spatial_values, {"remaining": _spatial_remaining, "consume": _spatial_consume, "can_attack": _spatial_can_attack, "attack_pose": _spatial_attack_pose})
 	_health_label = Label3D.new()
 	_health_label.name = "HealthLabel"
 	_health_label.position.y = 1.05
@@ -80,6 +101,7 @@ func _ready() -> void:
 	_health_label.pixel_size = 0.006
 	add_child(_health_label)
 	_update_health_label()
+	_reactions.setup(self, combat_reaction_profile, _collision)
 	_sample_orbit_wait()
 
 
@@ -100,8 +122,15 @@ func _physics_process(delta: float) -> void:
 	_trot_phase += delta * _p("trot_frequency") * _crowd.gait_multiplier * Vector2(velocity.x, velocity.z).length() / maxf(move_speed, 0.001)
 	state_timer += delta
 	_attack_cooldown = maxf(_attack_cooldown - delta, 0.0)
+	_normal_cooldown = maxf(_normal_cooldown - delta, 0.0)
+	_normal_check_timer = maxf(_normal_check_timer - delta, 0.0)
+	if _reactions.step(delta, ai_enabled and current_state in [State.IDLE, State.CIRCLE, State.POUNCE_WINDUP], move_speed):
+		return
 	if ai_enabled and current_state in [State.IDLE, State.CIRCLE] and not _target_alive():
 		target = Targeting.nearest_player(self)
+	if _steering.tick(delta, ai_enabled and _crowd.ready_to_move() and current_state in [State.IDLE, State.CIRCLE], target, move_speed):
+		_animate_trot(anim_clock, Vector2(velocity.x, velocity.z).length() / maxf(move_speed, 0.001))
+		return
 	var desired := Vector3.ZERO
 	match current_state:
 		State.IDLE:
@@ -138,7 +167,12 @@ func _physics_process(delta: float) -> void:
 	else:
 		velocity.y -= _p("gravity") * delta
 	var previous_position := global_position
-	move_and_slide()
+	GroundMovement.move(self, delta, current_state not in [State.POUNCE_LEAP, State.JUMP_ATTACK])
+	if current_state == State.JUMP_ATTACK:
+		if _jump_melee.advance(delta):
+			Telemetry.hurt_player(target, _p("normal_attack_damage") * _damage_scale, global_position, 1.0, Telemetry.source_info(self, "晶兽跳跃普攻"))
+		if _jump_melee.finished():
+			_enter_circle()
 	if current_state == State.POUNCE_LEAP:
 		_check_pounce_hit(previous_position)
 		if current_state == State.POUNCE_LEAP and (is_on_floor() or is_on_wall() or state_timer >= _p("pounce_max_time")):
@@ -149,9 +183,18 @@ func _process_circle_flank(delta: float) -> Vector3:
 	var offset := target.global_position - global_position
 	offset.y = 0.0
 	var distance := offset.length()
+	var ordinary_only: bool = not _steering.spatial.permits_channel(&"pounce")
+	if _normal_cooldown <= 0.0 and _normal_check_timer <= 0.0 and distance <= _p("normal_attack_reach") * _crowd.size_multiplier and (_target_above() or ordinary_only):
+		_normal_check_timer = 0.18
+		if (ordinary_only or not _pounce_landing_ok()) and trigger_jump_attack():
+			return Vector3.ZERO
+	var above := _target_above()
+	var routing: bool = above or ordinary_only or _steering.needs_route(target.global_position)
 	_look_at_target(delta, _p("turn_speed"))
 	var desired: Vector3
-	if distance > _p("circle_outer_distance"):
+	if (above or ordinary_only) and JumpMelee.can_start(self, target, _normal_attack_spec()):
+		desired = Vector3.ZERO
+	elif routing or distance > _p("circle_outer_distance"):
 		# 场地初始相隔很远，先接近目标，避免切向绕行导致迟迟不能接战。
 		desired = offset.normalized() * move_speed
 	else:
@@ -161,6 +204,9 @@ func _process_circle_flank(delta: float) -> Vector3:
 		desired = (global_basis.x * circle_dir + radial).normalized() * circle_speed
 	if _crowd.enabled():
 		desired = _crowd.steer(desired, target.global_position, delta, distance > _p("circle_outer_distance"))
+	desired = _steering.ground_velocity(target.global_position, desired, delta)
+	if routing and not desired.is_zero_approx():
+		rotation.y = lerp_angle(rotation.y, atan2(-desired.x, -desired.z), clampf(_p("turn_speed") * delta, 0.0, 1.0))
 	_animate_trot(anim_clock, desired.length() / maxf(move_speed, 0.001))
 	if state_timer >= _orbit_wait and _attack_cooldown <= 0.0 and is_on_floor():
 		if distance >= _p("pounce_min_distance") and distance <= _p("pounce_max_distance"):
@@ -220,8 +266,16 @@ func _stop_action() -> void:
 func trigger_pounce() -> void:
 	if current_state not in [State.IDLE, State.CIRCLE] or not _target_alive():
 		return
+	if not _pounce_landing_ok():
+		trigger_jump_attack()
+		return
+	if not _steering.spatial.permits_channel(&"pounce") or not AttackArea.candidate_can_hit(self, global_transform, _pounce_spec(), target):
+		return
 	_stop_action()
 	if not _crowd.request_attack():
+		return
+	if not _steering.spatial.permit_landing(_pounce_landing, &"jump"):
+		_crowd.release_attack()
 		return
 	_reset_pose()
 	current_state = State.POUNCE_WINDUP
@@ -230,9 +284,7 @@ func trigger_pounce() -> void:
 	velocity.x = 0.0
 	velocity.z = 0.0
 	var flight := minf(_p("pounce_max_time"), 2.0 * _p("pounce_jump_speed") / maxf(_p("gravity"), 0.01))
-	_attack_area.prepare(global_transform, {"kind": "capsule", "radius": _p("pounce_hit_radius") * _crowd.size_multiplier,
-		"length": move_speed * _p("pounce_speed_multiplier") * flight,
-		"height": _p("pounce_hit_height") * _crowd.size_multiplier}, attack_damage * _damage_scale, _p("pounce_windup"))
+	_attack_area.prepare(global_transform, _pounce_spec(), attack_damage * _damage_scale, _p("pounce_windup"))
 	_action_tween = create_tween().set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
 	_action_tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	_action_tween.tween_property(spine_chest, "position:y", 0.35, _p("pounce_windup"))
@@ -243,6 +295,82 @@ func trigger_pounce() -> void:
 	_action_tween.tween_callback(_launch_pounce)
 
 
+func _target_above() -> bool:
+	if not _target_alive():
+		return false
+	var support := SpatialQuery.support(target)
+	return not support.is_empty() and float(support.position.y) > SpatialQuery.feet(self).y + 0.4
+
+
+func _pounce_landing_ok() -> bool:
+	if not _target_alive():
+		return false
+	var apex := _p("pounce_jump_speed") * _p("pounce_jump_speed") / (2.0 * _p("gravity")) - 0.05
+	var ignored: Array[RID] = []
+	for hit in SpatialQuery.landing_candidates(self, target, _steering.spatial.profile.candidate_radius):
+		if SpatialQuery.full_support(self, hit):
+			var landing := SpatialQuery.body_on_floor(self, hit)
+			if landing.y - global_position.y <= apex and _steering.spatial.permit_landing(landing, &"jump", ignored, false):
+				_pounce_landing = landing
+				return true
+	return false
+
+
+func _pounce_spec() -> Dictionary:
+	var flight := minf(_p("pounce_max_time"), 2.0 * _p("pounce_jump_speed") / maxf(_p("gravity"), 0.01))
+	return {"kind": "capsule", "radius": _p("pounce_hit_radius") * _crowd.size_multiplier,
+		"length": move_speed * _p("pounce_speed_multiplier") * flight, "height": _p("pounce_hit_height") * _crowd.size_multiplier,
+		"travel_speed": move_speed * _p("pounce_speed_multiplier"), "jump_speed": _p("pounce_jump_speed"),
+		"gravity": _p("gravity"), "flight_time": flight, "hit_angle": _p("pounce_hit_angle"),
+		"body_shape": _collision.shape, "body_scale": _collision.global_basis.get_scale()}
+
+
+func _spatial_remaining(channel: StringName) -> float:
+	return _attack_cooldown if channel == &"pounce" else 0.0
+
+
+func _spatial_consume(channel: StringName, duration: float) -> void:
+	if channel == &"pounce":
+		_attack_cooldown = maxf(_attack_cooldown, duration)
+
+
+func _spatial_can_attack() -> bool:
+	if not _target_alive():
+		return false
+	if (_target_above() or not _steering.spatial.permits_channel(&"pounce")) and JumpMelee.can_start(self, target, _normal_attack_spec()):
+		return true
+	var distance := Vector2(target.global_position.x - global_position.x, target.global_position.z - global_position.z).length()
+	return _steering.spatial.permits_channel(&"pounce") and distance >= _p("pounce_min_distance") and distance <= _p("pounce_max_distance") and AttackArea.candidate_can_hit(self, global_transform, _pounce_spec(), target)
+
+
+func _normal_attack_spec() -> Dictionary:
+	return {"reach": _p("normal_attack_reach") * _crowd.size_multiplier, "height": _p("normal_attack_height") * _crowd.size_multiplier,
+		"jump_speed": _p("normal_jump_speed"), "gravity": _p("gravity")}
+
+func _spatial_attack_pose(pose: Transform3D) -> bool:
+	return _target_alive() and JumpMelee.can_start_at(self, target, _normal_attack_spec(), pose)
+
+
+func trigger_jump_attack() -> bool:
+	if current_state not in [State.IDLE, State.CIRCLE] or _normal_cooldown > 0.0 or not JumpMelee.can_start(self, target, _normal_attack_spec()):
+		return false
+	_stop_action()
+	if not _crowd.request_attack():
+		return false
+	_reset_pose()
+	current_state = State.JUMP_ATTACK
+	_normal_cooldown = _p("normal_attack_interval")
+	var offset := target.global_position - global_position
+	rotation.y = atan2(-offset.x, -offset.z)
+	_jump_melee.begin(self, target, _normal_attack_spec())
+	var flight := 2.0 * _p("normal_jump_speed") / _p("gravity")
+	_action_tween = create_tween().set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
+	_action_tween.tween_property(jaw_pivot, "rotation_degrees:x", 30.0, flight * 0.3)
+	_action_tween.parallel().tween_property(leg_pivots[0], "rotation_degrees:x", -45.0, flight * 0.3)
+	_action_tween.tween_property(spine_chest, "rotation_degrees:x", 20.0, flight * 0.4)
+	return true
+
+
 func _launch_pounce() -> void:
 	if current_state != State.POUNCE_WINDUP:
 		return
@@ -250,10 +378,16 @@ func _launch_pounce() -> void:
 		_enter_circle()
 		return
 	# 前 65% 蓄力追踪，最后 35% 提前锁向；起跳后不修正路线。
+	if not _pounce_landing_ok():
+		_enter_circle()
+		return
 	if _attack_area.phase == AttackArea.Phase.PREPARE:
 		_attack_area.track(global_transform)
 		_attack_area.lock()
 		_leap_direction = -global_basis.z.normalized()
+	if not _attack_area.can_reach(target.global_position):
+		_enter_circle()
+		return
 	current_state = State.POUNCE_LEAP
 	state_timer = 0.0
 	velocity = _leap_direction * move_speed * _p("pounce_speed_multiplier") + Vector3.UP * _p("pounce_jump_speed")
@@ -266,7 +400,7 @@ func _launch_pounce() -> void:
 func _check_pounce_hit(previous_position: Vector3) -> void:
 	if current_state != State.POUNCE_LEAP or _attack_area.phase != AttackArea.Phase.LOCKED or not _target_alive() or not target.has_method("take_damage"):
 		return
-	if not _attack_area.contains(target.global_position):
+	if not _attack_area.can_reach(target.global_position):
 		return
 	# 检查本帧走过的线段，高速调参时也不会直接跨过目标而漏掉命中。
 	var closest := Geometry3D.get_closest_point_to_segment(target.global_position, previous_position, global_position)
@@ -308,7 +442,7 @@ func _land_recovery() -> void:
 
 
 func trigger_hit_stagger(recoil: Vector3) -> void:
-	if current_state == State.DEAD:
+	if current_state == State.DEAD or not _reactions.allow_normal_stagger():
 		return
 	_stop_action()
 	_reset_pose()
@@ -335,13 +469,40 @@ func take_damage(amount: float) -> void:
 	Telemetry.enemy_damaged(self, before)
 	_update_health_label()
 	if health <= 0.0:
-		if is_instance_valid(target) and target.has_method("register_enemy_kill"):
+		if Telemetry.credits_player(self) and is_instance_valid(target) and target.has_method("register_enemy_kill"):
 			target.call("register_enemy_kill")
 		trigger_death_shatter()
 		return
 	_flash_crystals()
-	if bool(_tuning.stagger_on_damage) and current_state in [State.IDLE, State.CIRCLE, State.POUNCE_WINDUP]:
+	if bool(_tuning.stagger_on_damage) and not Telemetry.manages_reaction(self) and current_state in [State.IDLE, State.CIRCLE, State.POUNCE_WINDUP]:
 		trigger_hit_stagger(global_basis.z * _p("damage_recoil_speed"))
+
+
+func combat_reaction_begin(_mode: int) -> void:
+	_steering.spatial.cancel_motion()
+	_stop_action()
+	_reset_pose()
+	_push_velocity = Vector3.ZERO
+	current_state = State.COMBAT_REACTION
+	state_timer = 0.0
+
+
+func combat_reaction_end() -> void:
+	_enter_circle()
+
+
+func combat_reaction_ground_velocity(goal: Vector3, desired: Vector3, delta: float) -> Vector3:
+	return _steering.ground_velocity(goal, _crowd.steer(desired, goal, delta), delta)
+
+
+func combat_reaction_pose(mode: int, delta: float) -> void:
+	if mode == Reactions.Mode.EVADE:
+		if Vector2(velocity.x, velocity.z).length() > 0.1:
+			rotation.y = rotate_toward(rotation.y, atan2(-velocity.x, -velocity.z), delta * _p("turn_speed"))
+		_animate_trot(anim_clock, Vector2(velocity.x, velocity.z).length() / maxf(move_speed, 0.001))
+	else:
+		head_pivot.rotation_degrees.y = 25.0
+		spine_chest.rotation_degrees.x = -12.0
 
 
 func apply_push(direction: Vector3, force: float) -> void:

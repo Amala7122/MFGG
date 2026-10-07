@@ -624,7 +624,7 @@ func _update_presentation(delta: float) -> void:
 			_weapon.get_upgrade_stacks("magazine")
 		)
 	if _weapon:
-		_hud.update(delta, _weapon.get_bloom_ratio(), _aiming, _weapon.is_reloading())
+		_hud.update(delta, _weapon.get_spread_angles_degrees(), _aiming, _weapon.is_reloading())
 		_hud.set_weapon_level(
 			_weapon.get_level(), _weapon.get_pellet_count(), _weapon.get_bullet_damage()
 		)
@@ -639,7 +639,7 @@ func _update_presentation(delta: float) -> void:
 			_weapon.get_sniper_reload_remaining()
 		)
 	else:
-		_hud.update(delta, 0.0, _aiming, false)
+		_hud.update(delta, Vector2.ZERO, _aiming, false)
 
 
 func _update_landing(delta: float) -> void:
@@ -866,6 +866,10 @@ func try_take_ammo(primary: int, sniper: int) -> bool:
 
 func get_weapon_level() -> int:
 	return _weapon.get_level() if _weapon else 1
+
+
+func get_combat_threat() -> Dictionary:
+	return _weapon.get_combat_threat() if _weapon else {"origin": global_position, "camera": global_position, "range": 0.0}
 
 
 func get_survival_time() -> float:

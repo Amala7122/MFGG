@@ -21,6 +21,11 @@ var health_loss := 0.0
 var shield_loss := 0.0
 var received_hits := 0
 var shield_breaks := 0
+var simulated_health_loss := 0.0
+var simulated_shield_loss := 0.0
+var simulated_hits := 0
+var simulated_shield_breaks := 0
+var simulated_shield_regen := 0.0
 var health_regen := 0.0
 var shield_regen := 0.0
 var heal := 0.0
@@ -81,6 +86,10 @@ func capture_player(actor: Node) -> void:
 	player["shield"] = actor.get("shield")
 	player["max_shield"] = actor.get("max_shield")
 	player["invincible"] = bool(actor.get_meta(&"experiment_invincible", false))
+	if actor.has_method("get_pressure_shield"):
+		var pressure_shield: float = actor.call("get_pressure_shield")
+		if player.invincible:
+			player["pressure_shield"] = pressure_shield
 	var key := "%d/%d/%d/%d/%d/%s" % [player.level, player.damage_stacks, player.rate_stacks,
 		player.magazine_stacks, int(conditions.get("mode", 0)), str(player.invincible)]
 	if key != _segment_key:
@@ -105,6 +114,7 @@ func register_enemy(enemy: Node) -> void:
 			"mixed": 0, "health": float(enemy.get("max_health")), "armor": float(enemy.get("_armor")),
 			"speed": float(enemy.get("move_speed")), "speed_sum": 0.0, "speed_samples": 0,
 			"received_hits": 0, "health_loss": 0.0, "shield_loss": 0.0,
+			"simulated_health": 0.0, "simulated_shield": 0.0,
 			"invincible_attempts": 0, "invincible_raw": 0.0,
 			"attack_damage": float(enemy.get("projectile_damage" if ranged else "attack_damage")) * float(enemy.get("_damage_scale")),
 			"attack_interval": float(enemy.get("fire_interval" if ranged else "attack_interval")),
@@ -136,6 +146,16 @@ func enemy_damaged(enemy: Node, before: float, after: float, context: Dictionary
 		return
 	var effective := maxf(maxf(before, 0.0) - maxf(after, 0.0), 0.0)
 	if effective <= 0.0:
+		return
+	# 敌人互伤只更新存活 / 非玩家死亡，不污染玩家 DPS、命中率和击杀。
+	if String(context.get("source_kind", "player")) == "enemy":
+		if after <= 0.0:
+			life.dead = true
+			var ally_row: Dictionary = species[life.id]
+			ally_row.alive = maxi(int(ally_row.alive) - 1, 0)
+			ally_row.unassigned += 1
+			unassigned_deaths += 1
+			sources.unknown.kills += 1
 		return
 	var key := String(context.get("source", "unknown"))
 	if not sources.has(key):
@@ -222,15 +242,16 @@ func begin_attack(source: String) -> int:
 	return _next_shot
 
 
-func player_damaged(info: Dictionary, raw: float, hp: float, sp: float, broken: bool, blocked: String) -> void:
-	if not accepting():
+func player_damaged(info: Dictionary, raw: float, hp: float, sp: float, broken: bool, blocked: String, simulated := false) -> void:
+	if not accepting() or raw <= 0.0:
 		return
 	var id := String(info.get("id", "unknown"))
 	var attack := String(info.get("attack", "未归属"))
 	var key := id + "/" + attack
 	if (blocked == "无敌" or hp + sp > 0.0) and not incoming.has(key):
 		incoming[key] = {"title": String(info.get("title", "未归属")), "attack": attack,
-			"hits": 0, "health": 0.0, "shield": 0.0, "invincible_attempts": 0, "invincible_raw": 0.0}
+			"hits": 0, "health": 0.0, "shield": 0.0, "simulated_health": 0.0, "simulated_shield": 0.0,
+			"invincible_attempts": 0, "invincible_raw": 0.0}
 	if blocked == "无敌":
 		invincible_attempts += 1
 		invincible_raw += raw
@@ -239,8 +260,9 @@ func player_damaged(info: Dictionary, raw: float, hp: float, sp: float, broken: 
 		if species.has(id):
 			species[id].invincible_attempts += 1
 			species[id].invincible_raw += raw
-		return
-	if not blocked.is_empty() or hp + sp <= 0.0:
+		if not simulated:
+			return
+	if (not blocked.is_empty() and not simulated) or hp + sp <= 0.0:
 		rejected_hits += 1
 		return
 	health_loss += hp
@@ -248,15 +270,26 @@ func player_damaged(info: Dictionary, raw: float, hp: float, sp: float, broken: 
 	received_hits += 1
 	if broken:
 		shield_breaks += 1
+	if simulated:
+		simulated_health_loss += hp
+		simulated_shield_loss += sp
+		simulated_hits += 1
+		simulated_shield_breaks += int(broken)
 	var row: Dictionary = incoming[key]
 	row.hits += 1
 	row.health += hp
 	row.shield += sp
+	if simulated:
+		row.simulated_health += hp
+		row.simulated_shield += sp
 	if species.has(id):
 		species[id].received_hits += 1
 		species[id].health_loss += hp
 		species[id].shield_loss += sp
-	_recent.append({"time": time, "hp": hp, "shield": sp})
+		if simulated:
+			species[id].simulated_health += hp
+			species[id].simulated_shield += sp
+	_recent.append({"time": time, "hp": hp, "shield": sp, "simulated_hits": int(simulated)})
 
 
 func resource(source: String, kind: String, amount: float) -> void:
@@ -267,6 +300,7 @@ func resource(source: String, kind: String, amount: float) -> void:
 			"health_regen": health_regen += amount
 			"shield_regen": shield_regen += amount
 			"heal": heal += amount
+			"shield_regen_simulated": simulated_shield_regen += amount
 	elif sources.has(source):
 		match kind:
 			"pickup": sources[source].pickup += amount
@@ -295,7 +329,7 @@ func _totals() -> Dictionary:
 
 
 func rolling(seconds: float) -> Dictionary:
-	var out := {"damage": 0.0, "hp": 0.0, "shield": 0.0, "kills": 0}
+	var out := {"damage": 0.0, "hp": 0.0, "shield": 0.0, "kills": 0, "simulated_hits": 0}
 	for event in _recent:
 		if float(event.time) > time - seconds or time < seconds:
 			for key in out:
@@ -310,6 +344,8 @@ func snapshot() -> Dictionary:
 		"sources": sources.duplicate(true), "species": species.duplicate(true), "incoming": incoming.duplicate(true),
 		"segments": segments.duplicate(true), "totals": _totals(), "recent5": rolling(5.0), "recent30": rolling(30.0),
 		"health_loss": health_loss, "shield_loss": shield_loss, "received_hits": received_hits, "shield_breaks": shield_breaks,
+		"simulated_health_loss": simulated_health_loss, "simulated_shield_loss": simulated_shield_loss,
+		"simulated_hits": simulated_hits, "simulated_shield_breaks": simulated_shield_breaks, "simulated_shield_regen": simulated_shield_regen,
 		"health_regen": health_regen, "shield_regen": shield_regen, "heal": heal,
 		"invincible_attempts": invincible_attempts, "invincible_raw": invincible_raw, "rejected_hits": rejected_hits,
 		"wave_count": wave_count, "last_wave": last_wave.duplicate(), "wave_average": wave_total_time / maxf(wave_count, 1.0),
