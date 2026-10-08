@@ -1,0 +1,53 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://prototypes/combat/spatial/combat_spatial_lab.gd" id="1_lab"]
+[ext_resource type="PackedScene" path="res://prototypes/combat/spatial/spatial_layout.tscn" id="2_layout"]
+
+[sub_resource type="ProceduralSkyMaterial" id="SkyMaterial"]
+sky_top_color = Color(0.25, 0.39, 0.48, 1)
+sky_horizon_color = Color(0.77, 0.83, 0.82, 1)
+ground_bottom_color = Color(0.22, 0.25, 0.23, 1)
+
+[sub_resource type="Sky" id="Sky"]
+sky_material = SubResource("SkyMaterial")
+
+[sub_resource type="Environment" id="Environment"]
+background_mode = 2
+sky = SubResource("Sky")
+ambient_light_source = 3
+ambient_light_color = Color(0.76, 0.82, 0.84, 1)
+ambient_light_energy = 0.65
+reflected_light_source = 2
+tonemap_mode = 2
+
+[node name="CombatSpatialLab" type="Node3D"]
+script = ExtResource("1_lab")
+player_start = Vector3(0, 1.08, 12)
+enemy_line_z = -10.0
+enemy_limit = 12
+enemy_line_width = 36.0
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment")
+
+[node name="KeyLight" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-56, -28, 0)
+light_color = Color(1, 0.94, 0.81, 1)
+light_energy = 1.2
+shadow_enabled = true
+directional_shadow_max_distance = 100.0
+
+[node name="NavigationRegion3D" type="NavigationRegion3D" parent="."]
+
+[node name="SpatialLayout" parent="NavigationRegion3D" instance=ExtResource("2_layout")]
+
+[node name="Combatants" type="Node3D" parent="."]
+
+[node name="Enemies" type="Node3D" parent="Combatants"]
+
+[node name="OverviewCamera" type="Camera3D" parent="."]
+position = Vector3(-25, 30, 32)
+rotation_degrees = Vector3(-35, -36, 0)
+fov = 58.0
+far = 140.0
+current = true

@@ -1,0 +1,49 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://scripts/destructible_component.gd" id="1"]
+[ext_resource type="Resource" path="res://data/destruction/stone.tres" id="2"]
+
+[sub_resource type="StandardMaterial3D" id="Stone"]
+albedo_color = Color(0.53, 0.43, 0.31, 1)
+roughness = 1.0
+
+[sub_resource type="BoxMesh" id="Wall"]
+material = SubResource("Stone")
+size = Vector3(4, 1.2, 0.5)
+
+[sub_resource type="BoxMesh" id="Remains"]
+material = SubResource("Stone")
+size = Vector3(1.1, 0.18, 0.65)
+
+[sub_resource type="BoxShape3D" id="WallCollision"]
+size = Vector3(4, 1.2, 0.5)
+
+[node name="LowWall" type="StaticBody3D"]
+collision_mask = 0
+
+[node name="Intact" type="Node3D" parent="."]
+
+[node name="Wall" type="MeshInstance3D" parent="Intact"]
+position = Vector3(0, 0.6, 0)
+mesh = SubResource("Wall")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0.6, 0)
+shape = SubResource("WallCollision")
+
+[node name="Rubble" type="Node3D" parent="."]
+visible = false
+
+[node name="ChipLeft" type="MeshInstance3D" parent="Rubble"]
+position = Vector3(-1.1, 0.09, 0.1)
+rotation = Vector3(0, 0.25, 0)
+mesh = SubResource("Remains")
+
+[node name="ChipRight" type="MeshInstance3D" parent="Rubble"]
+position = Vector3(1.0, 0.09, -0.2)
+rotation = Vector3(0, -0.4, 0)
+mesh = SubResource("Remains")
+
+[node name="Destructible" type="Node3D" parent="."]
+script = ExtResource("1")
+profile = ExtResource("2")

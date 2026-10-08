@@ -1,0 +1,115 @@
+[gd_scene load_steps=13 format=3]
+
+[ext_resource type="Script" path="res://scripts/prototypes/lab_melee_player.gd" id="1_player"]
+
+[sub_resource type="CapsuleShape3D" id="PlayerShape"]
+radius = 0.42
+height = 1.75
+
+[sub_resource type="StandardMaterial3D" id="BodyMaterial"]
+albedo_color = Color(0.09, 0.33, 0.38, 1)
+metallic = 0.18
+roughness = 0.62
+
+[sub_resource type="StandardMaterial3D" id="ClothMaterial"]
+albedo_color = Color(0.055, 0.07, 0.075, 1)
+roughness = 0.9
+
+[sub_resource type="StandardMaterial3D" id="MetalMaterial"]
+albedo_color = Color(0.44, 0.47, 0.50, 1)
+metallic = 0.75
+roughness = 0.32
+
+[sub_resource type="StandardMaterial3D" id="SlashMaterial"]
+transparency = 1
+shading_mode = 0
+albedo_color = Color(1, 0.56, 0.08, 0.72)
+emission_enabled = true
+emission = Color(1, 0.26, 0.02, 1)
+emission_energy_multiplier = 3.0
+
+[sub_resource type="CapsuleMesh" id="TorsoMesh"]
+material = SubResource("BodyMaterial")
+radius = 0.42
+height = 1.0
+radial_segments = 8
+rings = 3
+
+[sub_resource type="SphereMesh" id="HeadMesh"]
+material = SubResource("ClothMaterial")
+radius = 0.28
+height = 0.52
+radial_segments = 8
+rings = 4
+
+[sub_resource type="CylinderMesh" id="LimbMesh"]
+material = SubResource("ClothMaterial")
+top_radius = 0.12
+bottom_radius = 0.14
+height = 0.78
+radial_segments = 6
+
+[sub_resource type="BoxMesh" id="WeaponMesh"]
+material = SubResource("MetalMaterial")
+size = Vector3(0.16, 1.18, 0.18)
+
+[sub_resource type="QuadMesh" id="SlashMesh"]
+material = SubResource("SlashMaterial")
+size = Vector2(2.6, 0.22)
+
+[node name="LabPlayer" type="CharacterBody3D" groups=["player"]]
+collision_layer = 2
+collision_mask = 1
+script = ExtResource("1_player")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0.88, 0)
+shape = SubResource("PlayerShape")
+
+[node name="Visual" type="Node3D" parent="."]
+
+[node name="Torso" type="MeshInstance3D" parent="Visual"]
+position = Vector3(0, 1.18, 0)
+mesh = SubResource("TorsoMesh")
+
+[node name="Head" type="MeshInstance3D" parent="Visual"]
+position = Vector3(0, 1.88, 0)
+mesh = SubResource("HeadMesh")
+
+[node name="LeftLeg" type="MeshInstance3D" parent="Visual"]
+position = Vector3(-0.20, 0.42, 0)
+mesh = SubResource("LimbMesh")
+
+[node name="RightLeg" type="MeshInstance3D" parent="Visual"]
+position = Vector3(0.20, 0.42, 0)
+mesh = SubResource("LimbMesh")
+
+[node name="WeaponPivot" type="Node3D" parent="Visual"]
+position = Vector3(0.54, 1.55, -0.10)
+rotation = Vector3(-0.18, 0, 0.38)
+
+[node name="Weapon" type="MeshInstance3D" parent="Visual/WeaponPivot"]
+position = Vector3(0, -0.52, 0)
+mesh = SubResource("WeaponMesh")
+
+[node name="Slash" type="MeshInstance3D" parent="."]
+visible = false
+position = Vector3(0, 0.82, -1.15)
+rotation = Vector3(-0.62, 0, -0.34)
+mesh = SubResource("SlashMesh")
+
+[node name="CameraPitch" type="Node3D" parent="."]
+position = Vector3(0, 1.68, 0)
+rotation = Vector3(-0.16, 0, 0)
+
+[node name="SpringArm3D" type="SpringArm3D" parent="CameraPitch"]
+spring_length = 5.8
+margin = 0.12
+collision_mask = 1
+
+[node name="Camera3D" type="Camera3D" parent="CameraPitch/SpringArm3D"]
+current = true
+fov = 44.0
+h_offset = 0.72
+near = 0.05
+far = 90.0

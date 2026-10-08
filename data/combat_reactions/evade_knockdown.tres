@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="CombatReactionProfile" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/combat_reaction_profile.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+title = "躲避 · 命中坠地"
+warning_response = 1
+impact_response = 2
+reaction_delay = 0.15
+knockback_speed = 3.5

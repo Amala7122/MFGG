@@ -1,0 +1,75 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://scripts/ground_warning.gd" id="1_warning"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_disc"]
+resource_local_to_scene = true
+transparency = 1
+shading_mode = 0
+albedo_color = Color(1, 0.08, 0.01, 0.3)
+emission_enabled = true
+emission = Color(1, 0.04, 0.0, 1)
+emission_energy_multiplier = 3.0
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ring"]
+resource_local_to_scene = true
+shading_mode = 0
+albedo_color = Color(1, 0.35, 0.02, 1)
+emission_enabled = true
+emission = Color(1, 0.08, 0.0, 1)
+emission_energy_multiplier = 5.0
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_disc"]
+top_radius = 1.0
+bottom_radius = 1.0
+height = 0.025
+
+[sub_resource type="TorusMesh" id="TorusMesh_ring"]
+inner_radius = 0.91
+outer_radius = 1.0
+rings = 24
+ring_segments = 8
+
+[sub_resource type="BoxMesh" id="BoxMesh_marker"]
+size = Vector3(0.16, 0.035, 1.8)
+
+[node name="GroundWarning" type="Node3D"]
+script = ExtResource("1_warning")
+
+[node name="Disc" type="MeshInstance3D" parent="."]
+cast_shadow = 0
+position = Vector3(0, 0.018, 0)
+mesh = SubResource("CylinderMesh_disc")
+material_override = SubResource("StandardMaterial3D_disc")
+
+[node name="Ring" type="MeshInstance3D" parent="."]
+cast_shadow = 0
+position = Vector3(0, 0.035, 0)
+mesh = SubResource("TorusMesh_ring")
+material_override = SubResource("StandardMaterial3D_ring")
+
+[node name="CrossA" type="MeshInstance3D" parent="Ring"]
+cast_shadow = 0
+position = Vector3(0, 0.03, 0)
+mesh = SubResource("BoxMesh_marker")
+material_override = SubResource("StandardMaterial3D_ring")
+
+[node name="CrossB" type="MeshInstance3D" parent="Ring"]
+cast_shadow = 0
+position = Vector3(0, 0.03, 0)
+rotation = Vector3(0, 1.5708, 0)
+mesh = SubResource("BoxMesh_marker")
+material_override = SubResource("StandardMaterial3D_ring")
+
+[node name="WarningLight" type="OmniLight3D" parent="."]
+position = Vector3(0, 0.3, 0)
+light_color = Color(1, 0.08, 0.01, 1)
+light_energy = 2.0
+omni_range = 5.0
+
+[node name="WarningLabel" type="Label3D" parent="."]
+position = Vector3(0, 0.35, 0)
+billboard = 1
+text = "危险区域"
+font_size = 32
+outline_size = 7

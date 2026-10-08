@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/rain_weather_profile.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+label = "中雨"
+streak_density = 0.28
+streak_speed = 0.68
+streak_width = 1.02
+streak_length = 0.98
+streak_length_power = 2.15
+streak_brightness = 0.8
+impact_rate = 0.18
+impact_size_min = 0.16
+impact_size_max = 0.38
+impact_brightness = 0.72
+impact_lifetime = 1
+storm_strength = 0.26485
+cloud_cover = 1
+wind_band_response = 0.0686
+wetness = 0.4644

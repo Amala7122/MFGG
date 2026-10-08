@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="CombatSpatialProfile" load_steps=5 format=3]
+[ext_resource type="Script" path="res://scripts/combat_spatial_profile.gd" id="1_profile"]
+[ext_resource type="Script" path="res://scripts/traversal_capability.gd" id="2_capability"]
+[sub_resource type="Resource" id="Walk"]
+script = ExtResource("2_capability")
+id = &"walk"
+kind = 0
+[sub_resource type="Resource" id="Climb"]
+script = ExtResource("2_capability")
+id = &"climb"
+kind = 3
+max_distance = 30.0
+travel_speed = 3.5
+windup = 0.0
+cooldown = 0.0
+[resource]
+script = ExtResource("1_profile")
+capabilities = Array[ExtResource("2_capability")]([SubResource("Walk"), SubResource("Climb")])

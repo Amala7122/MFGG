@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/rain_weather_profile.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+label = "晴朗"
+streak_density = 0
+streak_speed = 0
+streak_width = 0
+streak_length = 0
+streak_length_power = 2.8
+streak_brightness = 0
+impact_rate = 0
+impact_size_min = 0
+impact_size_max = 0
+impact_brightness = 0
+impact_lifetime = 0
+storm_strength = 0
+cloud_cover = 0
+wind_band_response = 0
+wetness = 0

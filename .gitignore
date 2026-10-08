@@ -1,0 +1,30 @@
+# Godot cache / build output
+.godot/
+build/
+export_templates/
+*.log
+
+# Iteration artifacts (screenshots, perf CSVs)
+visual_captures/
+performance_logs/
+captures/
+_artifacts/
+__pycache__/
+*.pyc
+tools/_scratch/
+
+# Local machine / tool configuration
+active-game.json
+opencode.json
+parse_sweep_result.txt
+
+# AI tool caches
+.codebuddy/
+.godot-mcp/
+
+# IDE / OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
