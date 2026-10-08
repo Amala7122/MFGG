@@ -7,7 +7,7 @@ const HealthUtil := preload("res://scripts/health_util.gd")
 ## 核心设计：压力与力量同步蓄积，在极限时刻一键释放毁灭打击！
 ## - 充能来源：受击 (+8~15)、护盾碎裂 (+25)、完美闪避 (+18)、击杀敌人 (+3.5)
 ## - 能量达到 100%（上限可溢出至 150%~200%）后进入「共鸣就绪」状态
-## - 玩家按释放键（单按 R 键或 F 键）触发「共鸣爆发」：
+## - 玩家按独立释放键（默认 C 键）触发「共鸣爆发」：
 ##   全屏能量震荡、小核弹级毁灭脉冲、全场敌人击飞击退、全场散落残骸吹飞、短暂无敌与全场减速
 
 const EventBusUtil := preload("res://scripts/event_bus.gd")
@@ -18,6 +18,8 @@ const CombatFXUtil := preload("res://scripts/combat_fx.gd")
 const ResonanceBurstFXScript := preload("res://scripts/resonance_burst_fx.gd")
 const CinematicActionCamScript := preload("res://scripts/cinematic_action_cam.gd")
 const TerrainFieldUtil := preload("res://scripts/terrain_field.gd")
+const WeaponEffects := preload("res://scripts/weapon_effect_manager.gd")
+const BurningZoneScript := preload("res://scripts/resonance_burning_zone.gd")
 
 var _player: CharacterBody3D
 var _hud: Node
@@ -25,6 +27,8 @@ var _hud: Node
 var _energy: float = 0.0
 var _max_energy: float = 100.0
 var _overflow_cap: float = 150.0
+var _base_max_energy := 100.0
+var _base_overflow_cap := 150.0
 
 var _burst_damage_base: float = 280.0
 var _burst_damage_per_energy: float = 2.6
@@ -58,6 +62,8 @@ func setup(player: CharacterBody3D, hud: Node) -> void:
 func _read_config() -> void:
 	_max_energy = maxf(ConfigUtil.get_float("resonance.max_energy", 100.0), 20.0)
 	_overflow_cap = maxf(ConfigUtil.get_float("resonance.overflow_cap", 150.0), _max_energy)
+	_base_max_energy = _max_energy
+	_base_overflow_cap = _overflow_cap
 	_charge_on_hit = maxf(ConfigUtil.get_float("resonance.charge_on_hit", 9.0), 1.0)
 	_charge_on_dodge = maxf(ConfigUtil.get_float("resonance.charge_on_dodge", 18.0), 1.0)
 	_charge_on_kill = maxf(ConfigUtil.get_float("resonance.charge_on_kill", 3.5), 0.5)
@@ -70,13 +76,13 @@ func _read_config() -> void:
 
 
 func _apply_perks() -> void:
-	# 检查 Roguelite 强化被动加成
+	_max_energy = _base_max_energy + 30.0 * RunStateUtil.get_perk_count("resonance_amplification")
+	_overflow_cap = _base_overflow_cap
 	if RunStateUtil.has_perk("resonance_amplification"):
-		_max_energy += 30.0 * RunStateUtil.get_perk_count("resonance_amplification")
-		_overflow_cap = _max_energy * 1.5
-
+		_overflow_cap = maxf(_overflow_cap, _max_energy * 1.5)
 	if RunStateUtil.has_perk("overload_core"):
-		_overflow_cap += 50.0 * RunStateUtil.get_perk_count("overload_core")
+		_overflow_cap = maxf(_overflow_cap, _max_energy * 2.0)
+	_energy = clampf(_energy, 0.0, _overflow_cap)
 
 
 ## 供外部每当挑选强化后重新刷新加成
@@ -123,7 +129,7 @@ func add_energy(amount: float) -> void:
 		# 刚充满就绪提示
 		AudioUtil.play("pickup", 3.0, 1.8)
 		if _hud and _hud.has_method("show_notice"):
-			_hud.call("show_notice", "★ 遗迹共鸣就绪！[按 R 释放]", "upgrade")
+			_hud.call("show_notice", "★ 遗迹共鸣就绪！[按 C 释放]", "upgrade")
 	EventBusUtil.emit_resonance_changed(_energy, _max_energy, _overflow_cap)
 
 
@@ -222,6 +228,9 @@ func perform_burst() -> void:
 	var p_pos := _player.global_position if _player.is_inside_tree() else Vector3.ZERO
 	var ground_y := TerrainFieldUtil.height_at(p_pos.x, p_pos.z)
 	var burst_pos := Vector3(p_pos.x, ground_y + 0.04, p_pos.z)
+	var ground := CombatFXUtil.sample_ground(_player, p_pos)
+	if not ground.is_empty():
+		burst_pos = ground.position + ground.normal * 0.04
 	var ratio := _energy / _max_energy
 	var is_overload := (ratio >= 1.75) # 接近或达到 200% 充能
 
@@ -262,16 +271,16 @@ func perform_burst() -> void:
 			_player.set("_damage_invulnerability", invuln_duration)
 
 		# 6. 全场生还敌人减速控场
-		var slow_duration := 2.5
+		var slow_duration := 2.2
 		if RunStateUtil.has_perk("timewarp"):
-			slow_duration = 4.5
+			slow_duration = 4.2
 		_apply_slow_to_enemies(burst_pos, effective_radius * 1.2, slow_duration)
 
 		# 7. 特殊强化：余震灼烧
 		if RunStateUtil.has_perk("resonance_burn"):
 			_spawn_burning_aftermath(burst_pos, effective_radius * 0.75)
 
-	# 8. 特殊强化：收割回响 (击杀数 >= 2 时返还能量)
+	# 8. 特殊强化：收割回响（命中数 >= 2 时返还能量）
 	var refund := 0.0
 	if RunStateUtil.has_perk("reaper_echo") and hit_count >= 2:
 		refund = _max_energy * 0.35
@@ -306,12 +315,8 @@ func _calculate_burst_damage(ratio: float) -> float:
 
 	# 强化词条加成
 	if RunStateUtil.has_perk("overload_core"):
-		base_dmg *= 1.35
-	if RunStateUtil.has_perk("desperate_will") and is_instance_valid(_player):
-		var hp := HealthUtil.health_or(_player, 0.0)
-		var max_hp := HealthUtil.health_or(_player, 0.0)
-		if hp < max_hp * 0.35:
-			base_dmg *= 1.5
+		base_dmg *= 1.30
+	base_dmg *= WeaponEffects.damage_multiplier(_player)
 
 	return base_dmg
 
@@ -326,7 +331,7 @@ func _apply_burst_damage(center: Vector3, radius: float, base_damage: float, pus
 
 	for node in enemies:
 		var enemy := node as Node3D
-		if not is_instance_valid(enemy):
+		if not HealthUtil.is_alive(enemy):
 			continue
 		var offset := enemy.global_position - center
 		var dist := offset.length()
@@ -352,7 +357,8 @@ func _apply_burst_damage(center: Vector3, radius: float, base_damage: float, pus
 					target_dmg = maxf(target_dmg, enemy_hp + 600.0)
 
 		if enemy.has_method("take_damage"):
-			enemy.call("take_damage", target_dmg)
+			preload("res://scripts/combat_telemetry.gd").hurt_enemy(enemy, target_dmg,
+				{"source": "resonance", "source_kind": "player", "shot": 0})
 			hits += 1
 
 		# 击退击飞效果：
@@ -396,42 +402,47 @@ func _apply_slow_to_enemies(pos: Vector3, radius: float, duration: float) -> voi
 		return
 	var enemies := tree.get_nodes_in_group("enemies")
 	for node in enemies:
-		if node is CharacterBody3D and is_instance_valid(node):
+		if node is CharacterBody3D and HealthUtil.is_alive(node):
 			var dist := pos.distance_to(node.global_position)
 			if dist <= radius:
 				if node.has_method("apply_slow"):
 					node.call("apply_slow", 0.4, duration)
 				elif node.get("move_speed") != null:
-					var orig_speed := float(node.get("move_speed"))
-					node.set("move_speed", orig_speed * 0.45)
-					var timer := tree.create_timer(duration)
-					timer.timeout.connect(func():
-						if is_instance_valid(node):
-							node.set("move_speed", orig_speed)
-					)
+					_apply_stat_slow(node, "move_speed", duration)
 				elif node.get("speed") != null:
-					var orig_speed := float(node.get("speed"))
-					node.set("speed", orig_speed * 0.45)
-					var timer := tree.create_timer(duration)
-					timer.timeout.connect(func():
-						if is_instance_valid(node):
-							node.set("speed", orig_speed)
-					)
+					_apply_stat_slow(node, "speed", duration)
+
+
+func _apply_stat_slow(enemy: CharacterBody3D, property: String, duration: float) -> void:
+	var timer := enemy.get_node_or_null("ResonanceSlowTimer") as Timer
+	if timer == null:
+		timer = Timer.new()
+		timer.name = "ResonanceSlowTimer"
+		timer.one_shot = true
+		enemy.add_child(timer)
+		var original := float(enemy.get(property))
+		enemy.set(property, original * 0.45)
+		timer.timeout.connect(_restore_stat_slow.bind(weakref(enemy), property, original, weakref(timer)), CONNECT_ONE_SHOT)
+	timer.start(maxf(duration, timer.time_left))
+
+
+static func _restore_stat_slow(enemy_ref: WeakRef, property: String, original: float, timer_ref: WeakRef) -> void:
+	var enemy := enemy_ref.get_ref() as Node
+	if HealthUtil.is_alive(enemy):
+		enemy.set(property, original)
+	var timer := timer_ref.get_ref() as Timer
+	if timer != null:
+		timer.queue_free()
 
 
 func _spawn_burning_aftermath(pos: Vector3, radius: float) -> void:
+	if not is_instance_valid(_player) or not _player.is_inside_tree():
+		return
 	var scene := _player.get_tree().current_scene
 	if not scene:
 		return
-	var burning_zone := Node3D.new()
+	var burning_zone := BurningZoneScript.new()
+	burning_zone.name = "ResonanceBurningZone"
 	scene.add_child(burning_zone)
 	burning_zone.global_position = pos
-
-	# 持续 5 秒，每 0.5 秒对圈内敌人造成持续伤害
-	var ticks := 10
-	var timer := burning_zone.get_tree().create_timer(0.5)
-	var tick_fn = func():
-		pass # 使用连环计时器
-	# 简单的自消亡定时器
-	var cleanup := burning_zone.get_tree().create_timer(5.0)
-	cleanup.timeout.connect(burning_zone.queue_free)
+	burning_zone.setup(radius, ConfigUtil.get_float("resonance.burn_damage_per_second", 40.0))

@@ -60,6 +60,7 @@ var _shockwave_boosted := false
 
 # 倒地殉爆组件（用于特写与20%大型敌人倒地爆炸）
 var _detonated := false
+var _ground_scorched := false
 var _shockwave: MeshInstance3D
 var _shockwave_mat: StandardMaterial3D
 var _blast_dome: MeshInstance3D
@@ -169,15 +170,33 @@ func _build_fx(enemy_model: Node3D, armor_color: Color) -> void:
 
 
 ## 提取敌人自身的全部 MeshInstance3D 构件进行真实散体飞溅（仅挑 1~2 个部件燃烧与拖曳黑烟）
+func _mesh_parts(model: Node3D) -> Array[MeshInstance3D]:
+	var meshes: Array[MeshInstance3D] = []
+	if not is_instance_valid(model):
+		return meshes
+	if model is MeshInstance3D and model.visible and model.mesh != null:
+		meshes.append(model as MeshInstance3D)
+	for child in model.find_children("*", "MeshInstance3D", true, false):
+		var mesh := child as MeshInstance3D
+		if mesh.visible and mesh.mesh != null:
+			meshes.append(mesh)
+	return meshes
+
+
+func _ground_surface(point: Vector3) -> Dictionary:
+	# 碎片积分可能已略穿入平台；射线仍从死亡时的身体高度以上开始。
+	var probe := point
+	probe.y = maxf(probe.y, global_position.y if is_inside_tree() else position.y)
+	var hit := CombatFXUtil.sample_ground(self, probe, 24.0)
+	if not hit.is_empty():
+		return hit
+	return {"position": Vector3(point.x, TerrainFieldUtil.height_at(point.x, point.z), point.z),
+		"normal": TerrainFieldUtil.normal_at(point.x, point.z)}
+
+
 func _build_real_mesh_shards(enemy_model: Node3D, armor_color: Color, is_large_explosion: bool = false) -> void:
 	var center := global_position + Vector3.UP * 0.95 if is_inside_tree() else position + Vector3.UP * 0.95
-	var found_meshes: Array[MeshInstance3D] = []
-
-	if is_instance_valid(enemy_model):
-		for child in enemy_model.find_children("*", "MeshInstance3D", true, false):
-			var m := child as MeshInstance3D
-			if m and m.visible and m.mesh != null:
-				found_meshes.append(m)
+	var found_meshes := _mesh_parts(enemy_model)
 
 	if not found_meshes.is_empty():
 		# 随机挑选 1~2 个关键部件燃烧冒烟，绝不全员着火，避免遮挡视线
@@ -309,8 +328,9 @@ func _do_detach_components() -> void:
 	_falling = false
 
 	var root_pos := global_position if is_inside_tree() else position
-	var ground_y := TerrainFieldUtil.height_at(root_pos.x, root_pos.z)
-	var terrain_normal := TerrainFieldUtil.normal_at(root_pos.x, root_pos.z)
+	var surface := _ground_surface(root_pos)
+	var ground_y: float = surface.position.y
+	var terrain_normal: Vector3 = surface.normal
 
 	var blast_center := root_pos + Vector3.UP * 0.45
 	if is_instance_valid(_collapsed_model):
@@ -352,12 +372,7 @@ func _do_detach_components() -> void:
 			_corpse_light.position = (blast_center + Vector3.UP * 0.25) - root_pos
 		_corpse_light.light_energy = 4.2
 
-	var found_meshes: Array[MeshInstance3D] = []
-	if is_instance_valid(_collapsed_model):
-		for child in _collapsed_model.find_children("*", "MeshInstance3D", true, false):
-			var m := child as MeshInstance3D
-			if m and m.visible and m.mesh != null:
-				found_meshes.append(m)
+	var found_meshes := _mesh_parts(_collapsed_model)
 
 	# Boss 专属：额外生成 4~6 块沉重合金装甲残骸碎块向外飞溅
 	if _is_boss:
@@ -508,7 +523,7 @@ func _build_large_collapse(enemy_model: Node3D, armor_color: Color) -> void:
 	_collapsed_model.visible = true
 
 	var root_pos := global_position if is_inside_tree() else position
-	var ground_y := TerrainFieldUtil.height_at(root_pos.x, root_pos.z)
+	var ground_y: float = _ground_surface(root_pos).position.y
 
 	# 1. 记录初始直立姿态与骨骼局部变换
 	_fall_initial_model_quat = _collapsed_model.quaternion
@@ -642,8 +657,9 @@ func _randomize_corpse_pose(model: Node3D, is_boss_enemy: bool, armor_col: Color
 		return
 
 	var root_pos := global_position if is_inside_tree() else position
-	var ground_y := TerrainFieldUtil.height_at(root_pos.x, root_pos.z)
-	var terrain_normal := TerrainFieldUtil.normal_at(root_pos.x, root_pos.z)
+	var surface := _ground_surface(root_pos)
+	var ground_y: float = surface.position.y
+	var terrain_normal: Vector3 = surface.normal
 
 	if is_boss_enemy:
 		# Boss 专属倒地随机形态：圆柱主轴必须完全水平平躺于地面，绝不以 45 度斜立
@@ -871,14 +887,14 @@ func _build_fallback_shards(armor_color: Color) -> void:
 func _build_impact_explosion_visuals(_armor_color: Color) -> void:
 	# 冲击波环（TorusMesh）
 	var torus := TorusMesh.new()
-	torus.inner_radius = 0.18
-	torus.outer_radius = 0.38
+	torus.inner_radius = 0.82
+	torus.outer_radius = 1.0
 	torus.rings = 20
 	torus.ring_segments = 10
 
 	_shockwave = MeshInstance3D.new()
 	_shockwave.mesh = torus
-	_shockwave.rotation.x = PI * 0.5
+	# TorusMesh 的环面原本就在 XZ 平面；沿地表扩散，不竖起一圈。
 	_shockwave.position.y = 0.08
 
 	_shockwave_mat = StandardMaterial3D.new()
@@ -985,7 +1001,7 @@ func _update_collapse_detach(delta: float) -> void:
 
 		# 地面碰撞与轻度弹跳平卧
 		var world_pos: Vector3 = node.global_position if node.is_inside_tree() else node.position
-		var ground_y := TerrainFieldUtil.height_at(world_pos.x, world_pos.z)
+		var ground_y: float = _ground_surface(world_pos).position.y
 		if world_pos.y <= ground_y + 0.05:
 			if node.is_inside_tree():
 				node.global_position.y = ground_y + 0.05
@@ -1052,7 +1068,7 @@ func _update_shards(delta: float) -> void:
 
 		# 地面碰撞与弹性反弹
 		var world_pos: Vector3 = node.global_position if node.is_inside_tree() else node.position
-		var ground_y := TerrainFieldUtil.height_at(world_pos.x, world_pos.z)
+		var ground_y: float = _ground_surface(world_pos).position.y
 		if world_pos.y <= ground_y + 0.08:
 			if node.is_inside_tree():
 				node.global_position.y = ground_y + 0.08
@@ -1107,14 +1123,15 @@ func _update_large_collapse(delta: float) -> void:
 			if not _impact_triggered:
 				_impact_triggered = true
 				var root_pos := global_position if is_inside_tree() else position
-				var ground_y := TerrainFieldUtil.height_at(root_pos.x, root_pos.z)
-				var terrain_normal := TerrainFieldUtil.normal_at(root_pos.x, root_pos.z)
+				var ground_y: float = _ground_surface(root_pos).position.y
+				var terrain_normal: Vector3 = _ground_surface(root_pos).normal
 
 				# 震耳欲聋的砸地重击音效与冲击波
 				AudioUtil.play_at("hit", root_pos, 2.0, 0.65)
 				AudioUtil.play_at("shockwave", root_pos, 0.0, 0.6)
 
 				# 砸地冲击波尘土与火星
+				CombatFXUtil.spawn_ground_burst(get_parent(), root_pos, 2.4 if _is_boss else 1.7)
 				CombatFXUtil.spawn_impact(
 					self,
 					Vector3(root_pos.x, ground_y + 0.05, root_pos.z),
@@ -1199,15 +1216,18 @@ func _trigger_detonation() -> void:
 func _trigger_detonation_at(pos: Vector3) -> void:
 	_detonated = true
 	_detonation_time = _elapsed
-	var ground_y := TerrainFieldUtil.height_at(pos.x, pos.z)
+	var surface := _ground_surface(pos)
+	var ground_y: float = surface.position.y
+	var normal: Vector3 = surface.normal
 	var my_pos := global_position if is_inside_tree() else position
 	if is_instance_valid(_shockwave):
 		if _shockwave.is_inside_tree():
-			_shockwave.global_position = Vector3(pos.x, ground_y + 0.08, pos.z)
+			_shockwave.global_position = surface.position + normal * 0.08
+			_shockwave.global_basis = Basis(Quaternion(Vector3.UP, normal))
 		else:
 			_shockwave.position = Vector3(pos.x, ground_y + 0.08, pos.z) - my_pos
 		_shockwave.visible = true
-		_shockwave.scale = Vector3(0.4, 1.0, 0.4)
+		_shockwave.scale = Vector3(0.4, 0.3, 0.4)
 	if is_instance_valid(_blast_dome):
 		if _blast_dome.is_inside_tree():
 			_blast_dome.global_position = Vector3(pos.x, ground_y + 0.35, pos.z)
@@ -1222,6 +1242,11 @@ func _trigger_detonation_at(pos: Vector3) -> void:
 			_blast_light.position = Vector3(pos.x, ground_y + 0.6, pos.z) - my_pos
 		_blast_light.light_energy = 3.6
 	AudioUtil.play_at("explosion", pos, -1.0, 1.05)
+	var scene := get_parent()
+	if scene:
+		# 焦痕归场景所有，短命散体退场后仍能看到战斗留下的痕迹。
+		CombatFXUtil.spawn_ground_burst(scene, surface.position, 2.6 if _is_boss else 1.7, not _ground_scorched)
+		_ground_scorched = true
 
 	var player: Node = null
 	if is_inside_tree() and get_tree() != null:
@@ -1237,7 +1262,7 @@ func _update_detonation(_delta: float) -> void:
 
 	if is_instance_valid(_shockwave):
 		var scale_r := lerpf(0.4, 2.2 if _is_cinematic else 1.7, ease_wave)
-		_shockwave.scale = Vector3(scale_r, 1.0, scale_r)
+		_shockwave.scale = Vector3(scale_r, 0.3, scale_r)
 		var alpha := (1.0 - progress) * 0.45
 		_shockwave_mat.albedo_color = Color(1.0, 0.65, 0.2, alpha)
 
@@ -1354,8 +1379,8 @@ func _apply_shockwave_to_falling_large(epicenter: Vector3, radius: float, force:
 
 	# 根据新落点处的地形高度微调 target_pos.y，确保实打实贴地
 	var new_world_pos := root_pos + _fall_target_model_pos
-	var new_ground_y := TerrainFieldUtil.height_at(new_world_pos.x, new_world_pos.z)
-	var old_ground_y := TerrainFieldUtil.height_at(root_pos.x + old_target_pos.x, root_pos.z + old_target_pos.z)
+	var new_ground_y: float = _ground_surface(new_world_pos).position.y
+	var old_ground_y: float = _ground_surface(root_pos + old_target_pos).position.y
 	_fall_target_model_pos.y += (new_ground_y - old_ground_y)
 
 	# 初始失衡点也向外侧轻微位移

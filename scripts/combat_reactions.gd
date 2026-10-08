@@ -29,7 +29,7 @@ var _half_height := 0.7
 func setup(body: CharacterBody3D, assigned: Profile, collision: CollisionShape3D) -> void:
 	_body = body
 	# 可在生成前给实例覆盖；共享资源从不在运行时改写。
-	profile = body.get_meta(&"combat_reaction_profile", assigned) as Profile
+	profile = (body.get_meta(&"combat_reaction_profile") if body.has_meta(&"combat_reaction_profile") else assigned) as Profile
 	_flying = body.motion_mode == CharacterBody3D.MOTION_MODE_FLOATING
 	_motion_mode = body.motion_mode
 	_collision_mask = body.collision_mask

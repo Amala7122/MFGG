@@ -139,11 +139,12 @@ var _landing_dip := 0.0
 var _ghost_spawn_timer := 0.0
 ## 电影镜头期间锁定玩家操作。
 var _cinematic_locked := false
+var _applied_wisp_overclock_count := 0
 ## 震地脉冲后的完美格挡窗口（窗口内挨打算完美格挡，不受伤）。
 var _parry_window := 0.0
-## 共鸣系统引用（尚未接线，保留以便后续接入；guarded 调用当前为静默跳过）。
+## 共鸣系统引用。
 var _resonance: Node = null
-## 浮游卫士引用（尚未接线；赐福 wisp_overclock 用 guarded 调用）。
+## 浮游卫士引用。
 var _wisp: Node = null
 var _fall_speed := 0.0
 var _was_grounded := true
@@ -178,6 +179,8 @@ func _ready() -> void:
 	_read_defense_config()
 	_read_ability_config()
 	_read_feel_config()
+	_apply_passive_perks()
+	health = max_health
 	_last_safe_position = global_position
 	_has_safe_position = true
 	shield = max_shield
@@ -292,6 +295,7 @@ func _setup_components() -> void:
 	_wisp.name = "FloatingWisp"
 	add_child(_wisp)
 	_wisp.setup(self, camera)
+	_apply_wisp_perks()
 	# juice：订阅波间赐福（选择结果由 game_flow 广播）
 	EventBusUtil.subscribe_upgrade_chosen(_on_upgrade_chosen)
 
@@ -347,7 +351,7 @@ func _is_aim_captured() -> bool:
 
 
 func _input(event: InputEvent) -> void:
-	if _dying:
+	if _dying or _cinematic_locked:
 		return
 	# 菜单 / 暂停 / 结算期间完全不接管鼠标，否则点不动按钮。
 	# ESC 也统一交给 GameFlow 处理，避免两边各切一次状态。
@@ -379,7 +383,7 @@ func _physics_process(delta: float) -> void:
 		_update_presentation(delta)
 		return
 	survival_time += delta
-	_free_look = _held("free_look") and _is_aim_captured()
+	_free_look = not _cinematic_locked and _held("free_look") and _is_aim_captured()
 	_tick_timers(delta)
 	_update_camera(delta)
 	_update_movement(delta)
@@ -495,14 +499,15 @@ func _update_camera(delta: float) -> void:
 		pitch += cos(now * 44.0) * (0.018 * shake)
 	camera_pivot.rotation.y = yaw
 	camera_pivot.rotation.x = clampf(pitch, deg_to_rad(-80.0), deg_to_rad(75.0))
-	var zoom := minf(fov_smooth * delta, 1.0)
+	var zoom := 1.0 - exp(-maxf(fov_smooth, 0.0) * delta)
 	# juice：冲刺 FOV 位移 / FOV 冲击 / 落地下沉
 	var sprint_fov_target := 4.5 if _sprinting and not _aiming else 0.0
 	_sprint_fov_offset = move_toward(_sprint_fov_offset, sprint_fov_target, delta * 16.0)
 	_fov_punch = move_toward(_fov_punch, 0.0, delta * 24.0)
 	_landing_dip = move_toward(_landing_dip, 0.0, delta * 1.8)
 	if camera:
-		camera.fov = lerpf(camera.fov, sniper_fov if _aiming else hip_fov, zoom) + _fov_punch + _sprint_fov_offset
+		var target_fov := (sniper_fov if _aiming else hip_fov) + _fov_punch + _sprint_fov_offset
+		camera.fov = lerpf(camera.fov, target_fov, zoom)
 	if spring_arm:
 		spring_arm.spring_length = lerpf(
 			spring_arm.spring_length, sniper_spring_length if _aiming else hip_spring_length, zoom
@@ -612,19 +617,21 @@ func _update_combat(delta: float) -> void:
 	if not _weapon:
 		return
 	_weapon.visual_direction = _compute_weapon_direction()
+	if _cinematic_locked:
+		_aiming = false
+		_weapon.update(delta, false, false, 0.0)
+		if _resonance != null:
+			_resonance.update(delta, false)
+		return
 	var captured := _is_aim_captured()
 	_aiming = _held("aim") and captured and not _rolling and not _free_look
 	var trigger := _held("shoot") and captured and not _rolling
-	# juice：遗迹共鸣释放（R / F 键；能量未满时按键仍是普通换弹）
-	var burst_requested := _just("reload") or Input.is_action_just_pressed("reload") \
-		or Input.is_key_pressed(KEY_F)
-	var burst_fired := false
+	# 共鸣、换弹与手电筒使用独立动作，充能状态不改变其他按键含义。
 	if _resonance != null:
 		_resonance.update(delta, false)
-		if _resonance.is_ready() and burst_requested:
+		if captured and _resonance.is_ready() and _just("resonance_burst"):
 			_resonance.perform_burst()
-			burst_fired = true
-	if _just("reload") and not burst_fired:
+	if _just("reload"):
 		_weapon.start_reload()
 	_handle_grenade()
 	_handle_skill()
@@ -754,6 +761,11 @@ func _update_landing(delta: float) -> void:
 			_landing_dip = impact * 0.22
 			if _rig:
 				_rig.land(impact)
+			var scene := get_tree().current_scene
+			if scene and not _dying and not _cinematic_locked and not get_tree().paused:
+				var strength := ConfigUtil.get_float("ground_feedback.landing_dust_base", 0.55)
+				strength += impact * ConfigUtil.get_float("ground_feedback.landing_dust_impact_scale", 1.5)
+				CombatFXUtil.spawn_ground_burst(scene, global_position, strength, false, 2.0)
 			if impact > 0.18:
 				AudioUtil.play("hurt", -16.0, 0.58)
 	if grounded:
@@ -945,7 +957,7 @@ func try_heal(amount: float) -> bool:
 	return true
 
 
-func register_enemy_kill() -> void:
+func register_enemy_kill(defeated: Node3D = null) -> void:
 	kill_count += 1
 	if _hud:
 		_hud.set_kills(kill_count)
@@ -953,7 +965,8 @@ func register_enemy_kill() -> void:
 	if RunStateUtil.has_perk("vampiric_touch"):
 		try_heal(4.0)
 	if RunStateUtil.has_perk("chain_lightning"):
-		_trigger_chain_lightning()
+		var origin := defeated.global_position if is_instance_valid(defeated) and defeated.is_inside_tree() else global_position
+		_trigger_chain_lightning(origin, defeated)
 	if _resonance != null:
 		_resonance.on_enemy_kill()
 
@@ -1065,18 +1078,17 @@ func set_cinematic_locked(locked: bool) -> void:
 		_sprinting = false
 		_aiming = false
 		_rolling = false
+		_free_look = false
 
 
 func is_cinematic_locked() -> bool:
 	return _cinematic_locked
 
 
-## 震地脉冲破招回调：HUD 提示 + 共鸣完美闪避充能（共鸣未接线时静默跳过）。
+## 震地脉冲破招回调：HUD 提示 + 一次共鸣完美闪避充能。
 func on_shockwave_parry(count: int) -> void:
 	if _hud:
 		_hud.show_notice("震地破招·完美格挡 ×%d！" % count, "shield")
-	if _resonance != null:
-		_resonance.on_perfect_dodge()
 	if _resonance != null:
 		_resonance.on_perfect_dodge()
 
@@ -1115,17 +1127,8 @@ func _spawn_roll_ghost() -> void:
 
 ## 收到"赐福已选择"事件后，把效果作用到玩家身上。
 func _on_upgrade_chosen(perk_id: String) -> void:
-	if perk_id == "shield_overload":
-		max_shield += 35.0
-		shield = max_shield
-		if _hud:
-			_hud.set_shield(shield, max_shield)
-	elif perk_id == "rapid_cycler":
-		speed *= 1.12
-		dodge_cooldown_time *= 0.8
-	elif perk_id == "wisp_overclock":
-		if _wisp and _wisp.has_method("apply_overclock"):
-			_wisp.call("apply_overclock")
+	_apply_passive_perks(perk_id == "shield_overload")
+	_apply_wisp_perks()
 	if _resonance != null:
 		_resonance.refresh_perks()
 	if _hud:
@@ -1134,45 +1137,66 @@ func _on_upgrade_chosen(perk_id: String) -> void:
 		_hud.show_notice("获得赐福：%s" % title, "upgrade")
 
 
-## 连锁闪电赐福：击杀时对最近的敌人放电（用 telegraph 画一道电弧）。
-func _trigger_chain_lightning() -> void:
+## 每次从基础配置和本局卡片重算，选卡与切关使用同一入口。
+func _apply_passive_perks(refill_shield := false) -> void:
+	var shield_count := RunStateUtil.get_perk_count("shield_overload")
+	var mobility_count := RunStateUtil.get_perk_count("rapid_cycler")
+	max_shield = maxf(ConfigUtil.get_float("player.shield_max", 70.0), 0.0) + 35.0 * shield_count
+	_shield_regen_delay = maxf(ConfigUtil.get_float("player.shield_regen_delay", 3.0) - 0.8 * shield_count, 0.0)
+	speed = maxf(ConfigUtil.get_float("player.speed", 5.0), 0.1) * pow(1.12, mobility_count)
+	dodge_cooldown_time = maxf(ConfigUtil.get_float("abilities.dodge.cooldown", 0.85), 0.0) * pow(0.8, mobility_count)
+	shield = max_shield if refill_shield else minf(shield, max_shield)
+	if _hud:
+		_hud.set_shield(shield, max_shield)
+
+
+func _apply_wisp_perks() -> void:
+	if not is_instance_valid(_wisp):
+		return
+	var count := RunStateUtil.get_perk_count("wisp_overclock")
+	for _stack in range(_applied_wisp_overclock_count, count):
+		_wisp.apply_overclock()
+	_applied_wisp_overclock_count = count
+
+
+## 连锁闪电从被击杀敌人跳向 5 米内最近的存活敌人。
+func _trigger_chain_lightning(origin: Vector3, defeated: Node3D = null) -> void:
 	var best_target: CharacterBody3D = null
-	var best_dist := 6.5
+	var best_dist := 5.0
 	for node in get_tree().get_nodes_in_group("enemies"):
-		if node is CharacterBody3D and HealthUtil.is_alive(node):
-			var d := global_position.distance_to(node.global_position)
-			if d > 0.5 and d < best_dist:
+		if node is CharacterBody3D and node != defeated and HealthUtil.is_alive(node):
+			var d := origin.distance_to(node.global_position)
+			if d <= best_dist:
 				best_dist = d
 				best_target = node
 	if best_target == null:
 		return
-	best_target.call("take_damage", 60.0)
 	AudioUtil.play_at("shot", best_target.global_position, -4.0, 1.8)
 	var scene := get_tree().current_scene
 	if scene:
 		TelegraphUtil.create_line(
 			scene,
-			global_position + Vector3.UP * 1.0,
+			origin + Vector3.UP * 1.0,
 			best_target.global_position + Vector3.UP * 0.8,
 			0.25,
 			Color(0.2, 0.8, 1.0, 0.9)
 		)
+	preload("res://scripts/combat_telemetry.gd").hurt_enemy(best_target, 60.0,
+		{"source": "chain_lightning", "source_kind": "player", "shot": 0})
 
 
 ## juice：脚步（player_rig 的 step_taken 驱动）—— 落地音 + 足下扬尘。
 func _on_footstep(is_sprint: bool) -> void:
-	if not is_on_floor() or _dying or _cinematic_locked:
+	if not is_on_floor() or _dying or _cinematic_locked or get_tree().paused:
 		return
 	AudioUtil.play("footstep", -18.0 if not is_sprint else -13.5, randf_range(0.93, 1.08))
 	var sc := get_tree().current_scene if get_tree() else null
 	if sc:
-		var ground_y := TerrainFieldUtil.height_at(global_position.x, global_position.z)
-		var foot_y := maxf(ground_y + 0.04, global_position.y - 0.96)
-		var foot_pos := Vector3(global_position.x, foot_y, global_position.z)
-		CombatFXUtil.spawn_impact(
-			sc,
-			foot_pos,
-			Vector3.UP,
-			Color(0.85, 0.82, 0.74, 0.35),
-			0.35 if not is_sprint else 0.55
-		)
+		var foot := _rig.get_step_position() if _rig else global_position
+		# 脚踝只提供横向位置，射线从胶囊中心开始，避免动画把脚压入地板后漏查。
+		foot.y = global_position.y
+		var ground := CombatFXUtil.sample_ground(sc, foot, 2.0)
+		if not ground.is_empty():
+			var strength := ConfigUtil.get_float("ground_feedback.sprint_dust_strength", 0.55) if is_sprint \
+				else ConfigUtil.get_float("ground_feedback.walk_dust_strength", 0.35)
+			CombatFXUtil.spawn_ground_dust(sc, ground.position, ground.normal, strength)

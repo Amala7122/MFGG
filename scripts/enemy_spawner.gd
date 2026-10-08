@@ -126,6 +126,12 @@ func _apply_enemy_config(enemy: Node3D, info: Dictionary) -> void:
 		_resolve_attrs(entry)
 	)
 	enemy.call("configure_gait", GaitUtil.resolve(entry))
+	# 体型在延后配置时才确定；出生抬升必须覆盖放大后的胶囊半高。
+	var collision := enemy.get_node_or_null("CollisionShape3D") as CollisionShape3D
+	var clearance := _stand_clearance
+	if collision and collision.shape is CapsuleShape3D:
+		clearance = maxf(clearance, collision.shape.height * 0.5 * enemy.scale.y + 0.15)
+	enemy.global_position = (info.get("position", Vector3.ZERO) as Vector3) + Vector3.UP * clearance
 
 
 ## 合并重量属性：默认 → 步态的转向/起停 → 兵种显式 attrs。

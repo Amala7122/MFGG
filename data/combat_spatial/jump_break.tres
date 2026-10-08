@@ -1,24 +1,44 @@
-[gd_resource type="Resource" script_class="CombatSpatialProfile" load_steps=6 format=3]
-[ext_resource type="Script" path="res://scripts/combat_spatial_profile.gd" id="1_profile"]
-[ext_resource type="Script" path="res://scripts/traversal_capability.gd" id="2_capability"]
+[gd_resource type="Resource" script_class="CombatSpatialProfile" format=3 uid="uid://mkoplk6ex0ws"]
+
+[ext_resource type="Script" uid="uid://bknkpmrhgsgw4" path="res://scripts/combat_spatial_profile.gd" id="1_profile"]
+[ext_resource type="Script" uid="uid://bcggfl2clh40a" path="res://scripts/traversal_capability.gd" id="2_capability"]
+
 [sub_resource type="Resource" id="Walk"]
 script = ExtResource("2_capability")
-id = &"walk"
-kind = 0
-parameter_bindings = {"travel_speed": "move_speed"}
+parameter_bindings = {
+"travel_speed": "move_speed"
+}
+
 [sub_resource type="Resource" id="Jump"]
 script = ExtResource("2_capability")
 id = &"jump"
 kind = 1
+parameter_bindings = {
+"cooldown": "leap_cooldown",
+"enabled": "leap_enabled",
+"gravity": "gravity",
+"max_distance": "leap_max_distance",
+"max_drop": "leap_max_elevation",
+"max_flight": "leap_max_flight",
+"max_rise": "leap_max_elevation",
+"min_flight": "leap_min_flight",
+"travel_speed": "leap_travel_speed"
+}
 cooldown_channel = &"leap"
-parameter_bindings = {"enabled": "leap_enabled", "max_distance": "leap_max_distance", "max_rise": "leap_max_elevation", "max_drop": "leap_max_elevation", "travel_speed": "leap_travel_speed", "gravity": "gravity", "min_flight": "leap_min_flight", "max_flight": "leap_max_flight", "cooldown": "leap_cooldown"}
+
 [sub_resource type="Resource" id="Break"]
 script = ExtResource("2_capability")
 id = &"break"
 kind = 2
-cooldown_channel = &"slam"
 max_distance = 4.0
-parameter_bindings = {"power": "slam_break_power", "max_distance": "slam_distance", "windup": "slam_windup", "cooldown": "slam_cooldown"}
+parameter_bindings = {
+"cooldown": "slam_cooldown",
+"max_distance": "slam_distance",
+"power": "slam_break_power",
+"windup": "slam_windup"
+}
+cooldown_channel = &"slam"
+
 [resource]
 script = ExtResource("1_profile")
 capabilities = Array[ExtResource("2_capability")]([SubResource("Walk"), SubResource("Jump"), SubResource("Break")])

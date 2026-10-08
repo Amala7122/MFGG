@@ -32,14 +32,14 @@ enum CloudType { CUMULUS, STRATUS }
 @export_range(0.0, 1.0, 0.01) var cloud_density := 0.47
 ## 关闭雨层不影响云、雾、雪或风。雨量使用下方五档预设/连续雨量设置。
 @export var rain_enabled := true
-## 独立雾层开关；雨雪自带的能见度变化仍由各自天气控制。
+## 独立雾层开关；云、雨、雪不会自动开启雾层。
 @export var fog_enabled := true
 ## 0=无独立雾，1=最浓。开场立即采用 Inspector 数值，运行中平滑变化。
 @export_range(0.0, 1.0, 0.01) var fog_amount := 0.48
 ## 独立雾完全遮蔽远景的距离；值越小，雾越浓。
 @export_range(70.0, 500.0, 5.0) var fog_visibility_distance := 145.0
 @export var fog_color := Color(0.72, 0.79, 0.83)
-## 降雪可与雨、雾同时启用。雪层尚未加积雪材质，只负责雪花及天空联动。
+## 降雪可与云、雨、雾同时启用。雪层尚未加积雪材质，只负责雪花。
 @export var snow_enabled := false
 @export_range(0.0, 1.0, 0.01) var snow_amount := 0.45
 
@@ -79,27 +79,46 @@ func _ready() -> void:
 	if is_instance_valid(_sun):
 		_sun_angular_baseline = _sun.light_angular_distance
 		_sun_pancake_baseline = _sun.directional_shadow_pancake_size
-	# 注：此处旧 WIP 曾写 `_precipitation_environment_coupling = 0.0`，但父类
-	# WeatherRainController 并没有该字段（会导致整个脚本解析失败）。父类现用
-	# storm_environment_strength（默认 1.0）控制“雨量带来阴天”，单独实例化时保留
-	# 旧行为；主游戏的天空参数由下方 _apply_stylized_cloud_field() 逐帧覆写，
-	# 因此这里不再改动该耦合。若确需在主游戏关闭它，在此设 storm_environment_strength = 0.0。
-	_cloud_level = cloud_coverage if cloud_enabled else 0.0
-	_cloud_density_level = cloud_density
+	# 统一入口使用独立云层；父类单独使用时仍保留降雨带来阴天的旧行为。
+	_precipitation_environment_coupling = 0.0
+	_cloud_level = clampf(cloud_coverage, 0.0, 1.0) if cloud_enabled else 0.0
+	_cloud_density_level = clampf(cloud_density, 0.0, 1.0)
 	_snow_level = snow_amount if snow_enabled else 0.0
 	_sync_extra_layers()
 	super._ready()
+	# 主菜单会暂停逐帧更新，首帧也必须把云体变换提交给渲染器。
+	if is_instance_valid(_cloud_field):
+		_cloud_field._update_transforms()
 	_update_snow_layer()
 
 func _process(delta: float) -> void:
+	var transition_step := delta / maxf(weather_transition_seconds, 0.1)
+	var cloud_target := clampf(cloud_coverage, 0.0, 1.0) if cloud_enabled else 0.0
 	var snow_target := snow_amount if snow_enabled else 0.0
-	_snow_level = move_toward(_snow_level, snow_target, delta / maxf(weather_transition_seconds, 0.1))
+	_cloud_level = move_toward(_cloud_level, cloud_target, transition_step)
+	_cloud_density_level = move_toward(_cloud_density_level, clampf(cloud_density, 0.0, 1.0), transition_step)
+	_snow_level = move_toward(_snow_level, snow_target, transition_step)
 	_sync_extra_layers()
 	super._process(delta)
 	_update_snow_layer()
 
+func _update_environment(delta: float = 0.0) -> void:
+	super._update_environment(delta)
+	# 所有环境刷新都最后同步程序云，包括首帧、逐帧和画质设置触发的刷新。
+	_apply_stylized_cloud_field()
+
 func _target_intensity() -> float:
 	return super._target_intensity() if rain_enabled else 0.0
+
+func set_cloud_type(type: int) -> void:
+	cloud_type = clampi(type, CloudType.CUMULUS, CloudType.STRATUS)
+
+func set_cloud_coverage(amount: float) -> void:
+	cloud_coverage = clampf(amount, 0.0, 1.0)
+	cloud_enabled = cloud_coverage > 0.001
+
+func set_cloud_density(amount: float) -> void:
+	cloud_density = clampf(amount, 0.0, 1.0)
 
 func set_rain_amount(amount: float) -> void:
 	rain_enabled = amount > 0.001
@@ -116,8 +135,10 @@ func set_snow_amount(amount: float) -> void:
 func _sync_extra_layers() -> void:
 	_baseline_fog_enabled = fog_enabled
 	_external_fog_strength = fog_amount if fog_enabled else 0.0
-	_external_cloud_cover = _snow_level * 0.65
-	_external_storm_strength = _snow_level * 0.45
+	_external_cloud_cover = _cloud_level
+	_external_cloud_density = _cloud_density_level
+	_external_cloud_style = cloud_type
+	_external_storm_strength = _cloud_darkness(_cloud_level, _cloud_density_level, cloud_type)
 	_standalone_fog_distance = fog_visibility_distance
 	_standalone_fog_color = fog_color
 

@@ -183,11 +183,19 @@ static func play_hit_feedback(
 	var is_enemy := target != null and target.is_in_group("enemies")
 	var is_metal := false
 	if is_enemy and target != null:
-		is_metal = target.is_in_group("boss") or float(target.get("_armor")) > 0.15
+		is_metal = is_metal_target(target)
 	play_hit_feedback_flagged(
 		scene, position, normal, is_enemy, amount, headshot, killed,
 		impact_scale, marker, is_metal, target
 	)
+
+
+## 只有伤害接口的目标也能命中；未声明护甲时使用普通命中表现。
+static func is_metal_target(target: Variant) -> bool:
+	if not is_instance_valid(target) or not target is Node:
+		return false
+	var armor: Variant = target.get("_armor")
+	return target.is_in_group("boss") or (armor != null and float(armor) > 0.15)
 
 
 ## 同上，但"打中的是不是敌人"直接给出。

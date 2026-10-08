@@ -130,6 +130,7 @@ func explode() -> void:
 		CombatFX.spawn_impact(
 			scene, global_position, Vector3.UP, Color(1.0, 0.62, 0.18, 1.0), 3.2
 		)
+		CombatFX.spawn_ground_burst(scene, global_position, blast_radius * 0.55, true, blast_radius)
 		var flash := BlastFlash.new()
 		scene.add_child(flash)
 		flash.global_position = global_position

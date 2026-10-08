@@ -9,6 +9,9 @@ extends Camera3D
 ## 4. 运镜结束或界面切换时，平滑将控制权无缝归还给玩家主相机。
 const TerrainFieldUtil := preload("res://scripts/terrain_field.gd")
 const AudioUtil := preload("res://scripts/audio_manager.gd")
+const Session := preload("res://scripts/cinematic_session.gd")
+
+signal finished
 
 static var active_cam: CinematicKillCam = null
 
@@ -30,6 +33,8 @@ var _duration := 2.6
 var _elapsed_real_time := 0.0
 var _last_msec := 0
 var _finished := false
+var _restored := true
+var _original_time_scale := 1.0
 
 
 ## 全局清理当前激活的特写镜头，无缝归还给玩家主相机。
@@ -40,9 +45,11 @@ static func dismiss_active() -> void:
 
 func start(target: Node3D = null, fallback_pos: Vector3 = Vector3.ZERO, is_boss: bool = false, duration_sec: float = 2.6) -> void:
 	# 若之前已有特写镜头未销毁，先清理
-	if active_cam != null and active_cam != self and is_instance_valid(active_cam):
-		active_cam.restore_and_destroy()
+	Session.claim(self)
 	active_cam = self
+	_restored = false
+	_original_time_scale = Engine.time_scale
+	Engine.time_scale = 0.15
 
 	_target_node = target
 	_target_pos = fallback_pos
@@ -63,6 +70,8 @@ func start(target: Node3D = null, fallback_pos: Vector3 = Vector3.ZERO, is_boss:
 		player = get_tree().get_first_node_in_group("player")
 	if player:
 		_player_node = player as Node3D
+		if player.has_method("set_cinematic_locked"):
+			player.call("set_cinematic_locked", true)
 		_player_camera = player.get_node_or_null("CameraPivot/SpringArm3D/Camera3D") as Camera3D
 		if _player_camera == null:
 			_player_camera = player.get("camera") as Camera3D
@@ -108,20 +117,21 @@ func start(target: Node3D = null, fallback_pos: Vector3 = Vector3.ZERO, is_boss:
 
 
 func _process(_delta: float) -> void:
-	if _finished:
+	var now := Time.get_ticks_msec()
+	var real_delta := maxf(float(now - _last_msec) * 0.001, 0.0)
+	_last_msec = now
+	if _finished or _restored or get_tree().paused:
 		return
 
 	# 使用真实时间跨度，保证慢动作（time_scale 0.16）下运镜依然保持电影级平滑优雅
-	var now := Time.get_ticks_msec()
-	var real_delta := float(now - _last_msec) * 0.001
-	_last_msec = now
 	_elapsed_real_time += real_delta
 
 	var t := clampf(_elapsed_real_time / maxf(_duration, 0.01), 0.0, 1.0)
 	_update_cam_transform(t)
 
 	if t >= 1.0:
-		_finished = true
+		restore_and_destroy()
+		finished.emit()
 
 
 func _update_cam_transform(t: float) -> void:
@@ -211,16 +221,25 @@ func _update_cam_transform(t: float) -> void:
 
 ## 恢复玩家相机并安全释放自身
 func restore_and_destroy() -> void:
-	if active_cam == self:
-		active_cam = null
-	if is_instance_valid(_player_camera):
-		_player_camera.make_current()
+	_restore_controls()
 	queue_free()
 
 
-func _exit_tree() -> void:
+func _restore_controls() -> void:
+	if _restored:
+		return
+	_restored = true
+	_finished = true
 	if active_cam == self:
 		active_cam = null
-	if current and is_instance_valid(_player_camera):
+	Session.release(self)
+	if is_instance_valid(_player_node) and _player_node.has_method("set_cinematic_locked"):
+		_player_node.call("set_cinematic_locked", false)
+	Engine.time_scale = _original_time_scale
+	if current and is_instance_valid(_player_camera) and _player_camera.is_inside_tree():
 		_player_camera.make_current()
+
+
+func _exit_tree() -> void:
+	_restore_controls()
 

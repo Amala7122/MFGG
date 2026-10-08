@@ -13,6 +13,7 @@ const HealthUtil := preload("res://scripts/health_util.gd")
 
 const CombatFXUtil := preload("res://scripts/combat_fx.gd")
 const AudioUtil := preload("res://scripts/audio_manager.gd")
+const Telemetry := preload("res://scripts/combat_telemetry.gd")
 
 var _target: Node = null
 var _duration: float = 2.5
@@ -21,6 +22,8 @@ var _tick_interval: float = 0.5
 var _tick_timer: float = 0.5
 var _tick_damage: float = 2.0
 var _extinguishing := false
+var _context: Dictionary = {}
+var _fade_tween: Tween
 
 var _flames: CPUParticles3D
 var _sparks: CPUParticles3D
@@ -30,28 +33,42 @@ var _light: OmniLight3D
 
 func setup(target_node: Node, params: Dictionary) -> void:
 	_target = target_node
-	_duration = float(params.get("duration", 2.5))
+	_duration = maxf(float(params.get("duration", 2.5)), 0.01)
 	_remaining_time = _duration
-	var total_dmg: float = float(params.get("total_damage", 10.0))
-	var ticks_count: float = maxf(_duration / _tick_interval, 1.0)
-	_tick_damage = maxf(total_dmg / ticks_count, 1.0)
+	_tick_timer = _tick_interval
+	_tick_damage = maxf(float(params.get("total_damage", 10.0)), 0.0) * _tick_interval / _duration
+	_context = params.get("context", {}).duplicate()
 
-	# 居中对齐到怪物体表中心（胸腹高度）
-	var height_offset := 0.85
+	# 新敌人以胶囊中心定位，旧 Boss 以脚底定位；按实际碰撞体附着到胸腹。
+	position = Vector3(0.0, 0.85, 0.0)
 	if _target is Node3D:
-		height_offset = 0.85 * (_target as Node3D).scale.y
-	position = Vector3(0.0, height_offset, 0.0)
+		var actor := _target as Node3D
+		var collision := actor.get_node_or_null("CollisionShape3D") as CollisionShape3D
+		if collision != null and collision.shape != null:
+			var height := 0.0
+			if collision.shape is CapsuleShape3D:
+				height = (collision.shape as CapsuleShape3D).height
+			elif collision.shape is BoxShape3D:
+				height = (collision.shape as BoxShape3D).size.y
+			elif collision.shape is SphereShape3D:
+				height = (collision.shape as SphereShape3D).radius * 2.0
+			position = actor.to_local(collision.global_position + collision.global_basis.y * height * 0.1)
 
 	_build_visuals()
 	AudioUtil.play_at("shot", global_position, -8.0, 2.4)
 
 
 func refresh(params: Dictionary) -> void:
-	var new_duration: float = float(params.get("duration", 2.5))
+	var new_duration: float = maxf(float(params.get("duration", 2.5)), 0.01)
+	if _extinguishing:
+		_tick_timer = _tick_interval
+	if _fade_tween != null and _fade_tween.is_valid():
+		_fade_tween.kill()
+	_duration = maxf(_duration, new_duration)
 	_remaining_time = maxf(_remaining_time, new_duration)
 	var new_total_dmg: float = float(params.get("total_damage", 10.0))
-	var ticks_count: float = maxf(_remaining_time / _tick_interval, 1.0)
-	_tick_damage = maxf(_tick_damage, new_total_dmg / ticks_count)
+	_tick_damage = maxf(_tick_damage, maxf(new_total_dmg, 0.0) * _tick_interval / new_duration)
+	_context = params.get("context", _context).duplicate()
 	_extinguishing = false
 
 	if is_instance_valid(_flames):
@@ -154,24 +171,29 @@ func _process(delta: float) -> void:
 	# 若目标已死亡（如血量归零或处于濒死动画中），停止喷火并优雅退场
 	if not HealthUtil.is_alive(_target):
 		_extinguish()
-
-	_remaining_time -= delta
-	if _remaining_time <= 0.0:
+		return
+	if _extinguishing:
+		return
+	var active_delta := minf(maxf(delta, 0.0), _remaining_time)
+	_remaining_time = maxf(_remaining_time - active_delta, 0.0)
+	_tick_timer -= active_delta
+	# 先结算完整的存活时间，再退场；低帧率也不能漏跳或吞掉最后一跳。
+	while _tick_timer <= 0.000001 and not _extinguishing:
+		_tick_timer += _tick_interval
+		_apply_tick_damage(_tick_damage)
+	if _remaining_time <= 0.000001:
+		var partial := _tick_interval - _tick_timer
+		if partial > 0.000001 and not _extinguishing:
+			_apply_tick_damage(_tick_damage * partial / _tick_interval)
 		_extinguish()
+		return
 
 	# 火光微晃
 	if is_instance_valid(_light):
-		_light.light_energy = (3.2 + sin(Time.get_ticks_msec() * 0.02) * 0.6) * (_remaining_time / _duration if _extinguishing else 1.0)
-
-	# 周期结算 DoT 伤害与跳字
-	if not _extinguishing:
-		_tick_timer -= delta
-		if _tick_timer <= 0.0:
-			_tick_timer = _tick_interval
-			_apply_tick_damage()
+		_light.light_energy = 3.2 + sin(Time.get_ticks_msec() * 0.02) * 0.6
 
 
-func _apply_tick_damage() -> void:
+func _apply_tick_damage(amount: float) -> void:
 	if not is_instance_valid(_target):
 		return
 	if not HealthUtil.is_alive(_target):
@@ -179,7 +201,7 @@ func _apply_tick_damage() -> void:
 		return
 
 	if _target.has_method("take_damage"):
-		_target.call("take_damage", _tick_damage)
+		Telemetry.hurt_enemy(_target, amount, _context)
 
 	# 弹出暖橙色灼烧伤害飘字
 	var scene := get_tree().current_scene if get_tree() else null
@@ -188,7 +210,7 @@ func _apply_tick_damage() -> void:
 		CombatFXUtil.spawn_damage_number(
 			scene,
 			target_pos + Vector3.UP * (1.6 * (_target.scale.y if _target is Node3D else 1.0)),
-			_tick_damage,
+			amount,
 			Color(1.0, 0.45, 0.12, 1.0),
 			0.85
 		)
@@ -205,10 +227,10 @@ func _extinguish() -> void:
 	if is_instance_valid(_smoke):
 		_smoke.emitting = false
 	if is_instance_valid(_light):
-		var tween := create_tween()
-		if tween:
-			tween.tween_property(_light, "light_energy", 0.0, 0.4)
-			tween.tween_callback(queue_free)
+		_fade_tween = create_tween()
+		if _fade_tween:
+			_fade_tween.tween_property(_light, "light_energy", 0.0, 0.4)
+			_fade_tween.tween_callback(queue_free)
 		else:
 			queue_free()
 	else:

@@ -29,6 +29,7 @@ const AudioUtil := preload("res://scripts/audio_manager.gd")
 const CombatFXUtil := preload("res://scripts/combat_fx.gd")
 const EventBusUtil := preload("res://scripts/event_bus.gd")
 const ConfigUtil := preload("res://scripts/game_config.gd")
+const WeaponEffects := preload("res://scripts/weapon_effect_manager.gd")
 
 ## 武器挂点独立于手臂：枪不再挂在手上，而是由 WeaponRig 统一定位与指向，
 ## 这样两条手臂的 IK 才能真正"追着枪走"，不会与枪的位置互相依赖成环。
@@ -519,6 +520,8 @@ func _collect_hits(direction: Vector3, sniper: bool, origin: Vector3, distance: 
 	if world == null:
 		return hits
 	var max_targets := sniper_pierce_max_targets if sniper else 1
+	if sniper and RunStateUtil.has_perk("armor_pierce"):
+		max_targets = mini(max_targets + 2 * RunStateUtil.get_perk_count("armor_pierce"), 5)
 	var exclude: Array[RID] = [_host.get_rid()]
 	for _i in range(maxi(max_targets, 1)):
 		var hit := _shot_ray(origin, origin + direction * (shot_range if distance < 0.0 else distance), exclude)
@@ -606,7 +609,8 @@ func _shot_entry(hit: Dictionary, sniper: bool, direction: Vector3) -> Dictionar
 	var headshot := is_enemy and sniper and not normal.is_zero_approx() and BallisticsUtil.is_headshot(enemy, position.y, sniper_headshot_height_ratio)
 	var amount := get_bullet_damage()
 	if sniper:
-		amount = BallisticsUtil.damage_with_headshot(BallisticsUtil.sniper_damage(_weapon_level), sniper_headshot_multiplier, headshot)
+		amount = BallisticsUtil.damage_with_headshot(BallisticsUtil.sniper_damage(_weapon_level), sniper_headshot_multiplier, headshot) \
+			* WeaponEffects.damage_multiplier(_host)
 	return {"collider": collider, "position": position,
 		"normal": -direction if normal.is_zero_approx() else normal,
 		"is_enemy": is_enemy, "headshot": headshot, "amount": amount}
@@ -639,11 +643,16 @@ func _fire_hitscan(direction: Vector3, sniper: bool) -> void:
 		var killed := BallisticsUtil.apply_damage(
 			entry["collider"], entry["amount"], entry["position"], entry["headshot"], get_meta(&"combat_context", {})
 		)
+		if entry["is_enemy"]:
+			WeaponEffects.apply_hit_effects(entry["collider"], {
+				"damage": entry["amount"], "is_sniper": sniper,
+				"context": get_meta(&"combat_context", {})
+			})
 		# juice：命中材质分化（重甲/Boss = 金属跳弹）
 		var collider_node := entry["collider"] as Node
 		var is_metal := false
 		if entry["is_enemy"] and is_instance_valid(collider_node):
-			is_metal = collider_node.is_in_group("boss") or float(collider_node.get("_armor")) > 0.15
+			is_metal = BallisticsUtil.is_metal_target(collider_node)
 		BallisticsUtil.play_hit_feedback_flagged(
 			scene, entry["position"], entry["normal"], entry["is_enemy"],
 			entry["amount"], entry["headshot"], killed, impact_scale, true,
@@ -1088,7 +1097,7 @@ func get_bullet_damage() -> float:
 		var late_start := per_level.size() + 1
 		base = late_base + float(_weapon_level - late_start) * late_per_level
 	# 威力模块在这里生效一次，显式档位与线性段两条路都不会漏。
-	return base * get_damage_multiplier()
+	return base * get_damage_multiplier() * WeaponEffects.damage_multiplier(_host)
 
 
 func _update_muzzle_flash(delta: float) -> void:

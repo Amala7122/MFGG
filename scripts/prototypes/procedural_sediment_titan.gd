@@ -1340,7 +1340,7 @@ func _apply_damage(amount: float) -> void:
 	_update_health_label()
 	if current_hp <= 0.0:
 		if Telemetry.credits_player(self) and is_instance_valid(target) and target.has_method("register_enemy_kill"):
-			target.call("register_enemy_kill")
+			target.call("register_enemy_kill", self)
 		trigger_death_scatter()
 
 
@@ -1396,6 +1396,7 @@ func trigger_death_scatter() -> void:
 	var debris_parent := get_tree().current_scene
 	if debris_parent == null:
 		debris_parent = get_parent()
+	preload("res://scripts/combat_fx.gd").spawn_ground_burst(debris_parent, global_position, 2.6, true)
 	# 所有世界变换在解绑前缓存，包含巨拳子节点里的断柱。
 	var transforms: Array[Transform3D] = []
 	for part in destructible_parts:

@@ -378,7 +378,7 @@ func take_damage(amount: float) -> void:
 	_update_health_label()
 	if health <= 0.0:
 		if Telemetry.credits_player(self) and is_instance_valid(target) and target.has_method("register_enemy_kill"):
-			target.call("register_enemy_kill")
+			target.call("register_enemy_kill", self)
 		trigger_death_scatter()
 	elif bool(_tuning.stagger_on_damage) and not Telemetry.manages_reaction(self):
 		trigger_hit_stagger(Vector3.ZERO)
@@ -431,6 +431,7 @@ func trigger_death_scatter() -> void:
 	var debris_parent := get_tree().current_scene
 	if debris_parent == null:
 		debris_parent = get_parent()
+	preload("res://scripts/combat_fx.gd").spawn_ground_burst(debris_parent, global_position, 1.2)
 	for part in body_parts:
 		if not is_instance_valid(part):
 			continue

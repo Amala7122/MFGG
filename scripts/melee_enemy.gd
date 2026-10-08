@@ -268,7 +268,7 @@ func _credit_killer() -> void:
 		return
 	var player := TargetingUtil.nearest_player(self)
 	if player != null and player.has_method("register_enemy_kill"):
-		player.call("register_enemy_kill")
+		player.call("register_enemy_kill", self)
 
 
 func _update_behavior(delta: float) -> void:

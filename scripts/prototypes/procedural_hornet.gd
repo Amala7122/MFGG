@@ -392,7 +392,7 @@ func take_damage(amount: float, hit_dir := Vector3.ZERO) -> void:
 	_update_health_label()
 	if health <= 0.0:
 		if Telemetry.credits_player(self) and is_instance_valid(target) and target.has_method("register_enemy_kill"):
-			target.call("register_enemy_kill")
+			target.call("register_enemy_kill", self)
 		trigger_death_fall()
 		return
 	var direction := hit_dir.normalized() if not hit_dir.is_zero_approx() else global_basis.z

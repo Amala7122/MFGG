@@ -146,7 +146,7 @@ func _run() -> void:
 	weather.cloud_wind_direction_degrees = 72.0
 	weather.cloud_size_multiplier = 1.2
 	weather.cloud_deformation_amount = 0.03
-	weather.call("_apply_stylized_cloud_field")
+	weather.call("_process", 0.0)
 	_check(is_equal_approx(field.wind_speed, 13.0) and is_equal_approx(field.wind_direction_degrees, 72.0), "天气入口传递云风速和方向")
 	_check(is_equal_approx(field.size_multiplier, 1.2) and is_equal_approx(field.deformation_amount, 0.03), "天气入口传递缩放与轻微变形")
 	var baseline: Array = field.get_weather_state()
@@ -161,12 +161,12 @@ func _run() -> void:
 	var shadow_distance := sun.directional_shadow_max_distance
 	var engine_baseline := float(weather.get("_sun_angular_baseline"))
 	weather.cloud_shadow_enabled = false
-	weather.call("_apply_stylized_cloud_field")
+	weather.call("_process", 0.0)
 	_check(is_equal_approx(sun.light_angular_distance, engine_baseline), "关闭云影恢复原太阳角径，关闭新增软影开销")
 	_check(is_equal_approx(sun.directional_shadow_pancake_size, float(weather.get("_sun_pancake_baseline"))), "关闭云影恢复原投影深度")
 	_check(is_equal_approx(sun.directional_shadow_max_distance, shadow_distance), "云影不扩大近景接收阴影的范围")
 	weather.cloud_shadow_enabled = true
-	weather.call("_apply_stylized_cloud_field")
+	weather.call("_process", 0.0)
 	var host := scene.get_node("WeatherEnvironment/Sky3DExperimentController")
 	var preview := Preview.new()
 	preview._capture_baseline(host, sky, dome, sun)

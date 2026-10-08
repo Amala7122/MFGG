@@ -10,7 +10,7 @@ config_version=5
 
 [application]
 
-config/name="遗迹星球"
+config/name="遗迹星球-new"
 run/main_scene="res://scenes/hyrule_field.tscn"
 config/use_custom_user_dir=true
 config/custom_user_dir_name="Godot/app_userdata/godot-zelda"
@@ -116,6 +116,11 @@ free_look={
 flashlight={
 "deadzone": 0.5,
 "events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":70,"key_label":0,"unicode":102,"location":0,"echo":false,"script":null)
+]
+}
+resonance_burst={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":67,"key_label":0,"unicode":99,"location":0,"echo":false,"script":null)
 ]
 }
 

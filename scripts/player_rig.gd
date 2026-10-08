@@ -87,6 +87,7 @@ var _flinch := 0.0
 var _land := 0.0
 ## 空/地状态下的额外屈膝量（由 update 设置）。
 var _leg_knee_extra := 0.0
+var _step_uses_gun_foot := false
 var _hit_flash_remaining := 0.0
 var _hit_flash_material: StandardMaterial3D
 var _hit_flash_meshes: Array[MeshInstance3D] = []
@@ -168,6 +169,13 @@ func land(impact: float) -> void:
 	_land = clampf(impact, 0.0, 1.0)
 
 
+func get_step_position() -> Vector3:
+	var ankle := _gun_ankle if _step_uses_gun_foot else _support_ankle
+	if is_instance_valid(ankle) and ankle.is_inside_tree():
+		return ankle.global_position
+	return _model.global_position if is_instance_valid(_model) else Vector3.ZERO
+
+
 func begin_death() -> void:
 	dying = true
 	death_progress = 0.0
@@ -206,11 +214,12 @@ func update(
 	var run_blend := _run_blend_for_speed(horizontal_speed, walk_speed, max_speed)
 	var cadence := _cadence_for_speed(horizontal_speed, walk_speed, max_speed)
 	var swing_amount := lerpf(walk_swing, run_swing, run_blend)
-	if moving and grounded:
+	if moving and grounded and not rolling:
 		var prev_phase := _gait_phase
 		_gait_phase = fmod(_gait_phase + delta * cadence, TAU)
 		# juice：相位跨过半圈（或回绕）即视为落下一步
 		if (prev_phase < PI and _gait_phase >= PI) or (prev_phase > _gait_phase):
+			_step_uses_gun_foot = _gait_phase >= PI
 			step_taken.emit(sprinting)
 	else:
 		_gait_phase = lerp_angle(_gait_phase, 0.0, minf(delta * 8.0, 1.0))

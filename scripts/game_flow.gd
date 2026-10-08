@@ -19,6 +19,7 @@ const CinematicActionCamScript := preload("res://scripts/cinematic_action_cam.gd
 const UpgradePoolScript := preload("res://scripts/upgrade_pool.gd")
 ## 赐福是否已经选过（防重复触发）。
 var _upgrade_picked := false
+var _pending_transition: Dictionary = {}
 const ArenaUtil := preload("res://scripts/arena.gd")
 const DisplaySettingsUtil := preload("res://scripts/display_settings.gd")
 const TerrainUtil := preload("res://scripts/terrain_field.gd")
@@ -64,6 +65,8 @@ var _title: Label
 var _body: Label
 var _hint: TrackedLabelScript
 var _actions: VBoxContainer
+var _action_scroll: ScrollContainer
+var _column: VBoxContainer
 ## 关卡选择那一行。测试时不用每次从第一张图打过来。
 var _arena_row: HBoxContainer
 ## 统计读数行。暂停 / 阵亡 / 肃清各有各的三块，菜单下整行隐藏。
@@ -104,6 +107,8 @@ static func is_playing() -> bool:
 static func begin_death_transition() -> void:
 	if instance != null and instance.get("state") == State.PLAYING:
 		instance.set("state", State.DYING)
+		instance._pending_transition.clear()
+		instance._dismiss_cinematics()
 
 
 # ---------------------------------------------------------------- UI 构建
@@ -135,6 +140,7 @@ func _build_ui() -> void:
 	# 列宽写死而不是跟着文字走：三种屏幕的正文长短差别很大，
 	# 让容器按内容撑开的话，切一次界面整块石板会横向抽动一下。
 	var column := VBoxContainer.new()
+	_column = column
 	column.custom_minimum_size = Vector2(COLUMN_WIDTH, 0.0)
 	column.alignment = BoxContainer.ALIGNMENT_CENTER
 	column.add_theme_constant_override("separation", 16)
@@ -173,15 +179,62 @@ func _build_ui() -> void:
 	_stats_row.visible = false
 	column.add_child(_stats_row)
 
+	_action_scroll = ScrollContainer.new()
+	_action_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_action_scroll.follow_focus = true
+	_action_scroll.mouse_filter = Control.MOUSE_FILTER_PASS
+	column.add_child(_action_scroll)
 	_actions = VBoxContainer.new()
+	_actions.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_actions.alignment = BoxContainer.ALIGNMENT_CENTER
 	_actions.add_theme_constant_override("separation", 10)
-	column.add_child(_actions)
+	_action_scroll.add_child(_actions)
 
 	_hint = TrackedLabelScript.new()
 	_hint.font_size = 11
 	_hint.tracking = 2.0
 	column.add_child(_hint)
+	_root.resized.connect(_refresh_menu_layout, CONNECT_DEFERRED)
+	_actions.minimum_size_changed.connect(_refresh_menu_layout, CONNECT_DEFERRED)
+	call_deferred("_refresh_menu_layout")
+
+
+## 按逻辑视口限制面板尺寸；内容过高时按钮区域滚动并跟随键盘焦点。
+func _refresh_menu_layout() -> void:
+	if not is_instance_valid(_column):
+		return
+	var width := minf(COLUMN_WIDTH, maxf(_root.size.x - 2.0 * (MenuPanelScript.PAD_H + 16.0), 0.0))
+	_column.custom_minimum_size.x = width
+	for button in _actions.get_children():
+		if button is Button and not button.is_queued_for_deletion():
+			button.custom_minimum_size.x = minf(float(button.get_meta("action_width", BUTTON_WIDTH)), width)
+	var other_height := 0.0
+	var visible_count := 0
+	for child in _column.get_children():
+		if child is Control and child.visible:
+			visible_count += 1
+			if child != _action_scroll:
+				other_height += child.get_combined_minimum_size().y
+	other_height += maxf(visible_count - 1, 0) * _column.get_theme_constant("separation")
+	var available := maxf(_root.size.y - 2.0 * (MenuPanelScript.PAD_V + 16.0) - other_height, 0.0)
+	_action_scroll.custom_minimum_size.y = minf(_actions.get_combined_minimum_size().y, available)
+	call_deferred("_ensure_action_focus_visible")
+
+
+func _ensure_action_focus_visible() -> void:
+	if not is_inside_tree():
+		return
+	var focus := get_viewport().gui_get_focus_owner()
+	if focus != null and _actions.is_ancestor_of(focus):
+		_action_scroll.ensure_control_visible(focus)
+
+
+func _focus_action(button_ref: WeakRef) -> void:
+	var button := button_ref.get_ref() as Button
+	if is_instance_valid(button) and button.is_inside_tree() and not button.is_queued_for_deletion() \
+			and _actions.is_ancestor_of(button):
+		button.grab_focus()
+		_action_scroll.ensure_control_visible(button)
 
 
 ## 字号与颜色由主题变体决定，这里不再逐个 add_theme_*_override。
@@ -203,6 +256,7 @@ func _present(caption: String, accent: Color, hint: String, stats: Array = []) -
 		_title.add_theme_font_size_override("font_size", 44)
 	else:
 		_title.remove_theme_font_size_override("font_size")
+	_column.add_theme_constant_override("separation", 10 if state == State.UPGRADE_PICK else 16)
 	_caption.text = caption
 	_caption.visible = not caption.is_empty()
 	_caption.color = Color(0.73, 0.77, 0.80, 0.8)
@@ -215,6 +269,7 @@ func _present(caption: String, accent: Color, hint: String, stats: Array = []) -
 	_set_stats(stats)
 	_set_overlay_visible(true)
 	_panel.play_entrance()
+	call_deferred("_refresh_menu_layout")
 
 
 ## 装满统计读数行。entries 为 [{ "label": String, "value": String, "sub": String }]。
@@ -250,6 +305,7 @@ func _clear_arena_row() -> void:
 ## 与整块菜单一起淡入，保留原生焦点与键盘操作。
 func _set_actions(actions: Array, focus_index: int = 0) -> void:
 	for child in _actions.get_children():
+		_actions.remove_child(child)
 		child.queue_free()
 	var focus_target: Button = null
 	var index := 0
@@ -257,12 +313,18 @@ func _set_actions(actions: Array, focus_index: int = 0) -> void:
 		var button := GlassButtonScript.new()
 		button.text = String(action["text"])
 		button.tooltip_text = String(action.get("tooltip", ""))
-		# size_flags 收窄 + custom_minimum_size 定宽：容器是 620 宽的列，
-		# 不这么写按钮会被拉成通栏，四个等宽通栏按钮比现在要"廉价"得多。
-		button.custom_minimum_size = Vector2(BUTTON_WIDTH, BUTTON_HEIGHT)
+		var width := float(action.get("width", BUTTON_WIDTH))
+		button.set_meta("action_width", width)
+		button.custom_minimum_size = Vector2(width, float(action.get("height", BUTTON_HEIGHT)))
+		if bool(action.get("autowrap", false)):
+			button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			button.clip_text = true
 		button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		button.pressed.connect(action["callback"] as Callable)
 		_actions.add_child(button)
+		if action.has("font_color"):
+			for color_name in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "font_hover_pressed_color"]:
+				button.add_theme_color_override(color_name, action.font_color)
 		index += 1
 		if index - 1 == focus_index:
 			focus_target = button
@@ -270,7 +332,9 @@ func _set_actions(actions: Array, focus_index: int = 0) -> void:
 	if focus_target == null and _actions.get_child_count() > 0:
 		focus_target = _actions.get_child(0) as Button
 	if focus_target:
-		focus_target.call_deferred("grab_focus")
+		call_deferred("_focus_action", weakref(focus_target))
+	_action_scroll.scroll_vertical = 0
+	call_deferred("_refresh_menu_layout")
 
 
 func _set_overlay_visible(enabled: bool) -> void:
@@ -280,6 +344,8 @@ func _set_overlay_visible(enabled: bool) -> void:
 # ---------------------------------------------------------------- 状态切换
 
 func _enter_menu() -> void:
+	_pending_transition.clear()
+	_dismiss_cinematics()
 	state = State.MENU
 	_ensure_menu_camera()
 	_title.text = "遗迹星球"
@@ -458,6 +524,8 @@ func _first_arena_id() -> String:
 
 ## 一局真正开始：重置进度、定下竞技场、进游戏态。
 func _begin_run() -> void:
+	_pending_transition.clear()
+	_dismiss_cinematics()
 	RunStateUtil.begin_run()
 	_apply_start_arena(_start_arena)
 	_resume_play()
@@ -492,17 +560,16 @@ func _dismiss_cinematics() -> void:
 
 
 func _resume_play() -> void:
-	_dismiss_cinematics()
 	_upgrade_picked = false
 	_root.modulate.a = 1.0
 	state = State.PLAYING
 	_set_overlay_visible(false)
 	get_tree().paused = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_apply_pending_transition()
 
 
 func _enter_pause() -> void:
-	_dismiss_cinematics()
 	state = State.PAUSED
 	_title.text = "已 暂 停"
 	_clear_arena_row()
@@ -543,6 +610,7 @@ func _on_resume() -> void:
 
 
 func _on_restart() -> void:
+	_pending_transition.clear()
 	_dismiss_cinematics()
 	AudioUtil.play("ui")
 	# 清掉上一局的池化对象，避免把旧场景的实例带进新一局。
@@ -565,6 +633,7 @@ func _on_quit() -> void:
 
 
 func _enter_game_over(survival: float, kills: int) -> void:
+	_pending_transition.clear()
 	_dismiss_cinematics()
 	if state == State.GAME_OVER:
 		return
@@ -611,9 +680,13 @@ func _preview_game_over() -> void:
 ## 所以这里给的是"进入下一区域"，并且明确告诉玩家武装会保留 ——
 ## 不然玩家会以为换图等于重开，不敢往下走。
 func _enter_stage_cleared(stage: int) -> void:
-	_dismiss_cinematics()
-	if state == State.DYING or state == State.GAME_OVER or state == State.STAGE_CLEAR:
+	if _transition_must_wait():
+		_remember_transition({"kind": "stage", "stage": stage})
 		return
+	if state != State.PLAYING:
+		return
+	_pending_transition.clear()
+	_dismiss_cinematics()
 	state = State.STAGE_CLEAR
 	var next_id := ArenaUtil.next_id(ArenaUtil.current_id)
 	var next_label := String(ArenaUtil.get_params(next_id).get("label", next_id))
@@ -648,6 +721,8 @@ func _on_next_stage() -> void:
 
 
 func _apply_next_stage(next_id: String) -> void:
+	_pending_transition.clear()
+	_dismiss_cinematics()
 	# 池化对象属于上一张图，必须清掉，否则会把旧场景的实例带过去。
 	PoolUtil.clear_all()
 	RunStateUtil.advance_stage()
@@ -722,17 +797,46 @@ func _format_time(seconds: float) -> String:
 # ────────────────────────── 遗迹赐福（波间强化）──────────────────────────
 
 func _on_upgrade_pick_requested(wave: int, total_waves: int) -> void:
-	if state == State.DYING or state == State.GAME_OVER \
-			or state == State.STAGE_CLEAR or state == State.UPGRADE_PICK:
+	if _transition_must_wait():
+		if _pending_transition.get("kind", "") != "stage":
+			_remember_transition({"kind": "upgrade", "wave": wave, "total_waves": total_waves})
+		return
+	if state != State.PLAYING:
 		return
 	var stage := RunStateUtil.get_stage()
 	var picks := UpgradePoolScript.roll_three(stage, wave)
 	_enter_upgrade_pick(picks, wave, total_waves)
 
 
+func _transition_must_wait() -> bool:
+	return state == State.PAUSED or (state == State.DISPLAY_SETTINGS and _display_settings_return_state == State.PAUSED)
+
+
+func _remember_transition(request: Dictionary) -> void:
+	var scene := get_tree().current_scene
+	if scene == null:
+		return
+	_pending_transition = request.duplicate()
+	_pending_transition["scene"] = scene.get_instance_id()
+
+
+func _apply_pending_transition() -> void:
+	if _pending_transition.is_empty():
+		return
+	var request := _pending_transition.duplicate()
+	_pending_transition.clear()
+	var scene := get_tree().current_scene
+	if scene == null or int(request.get("scene", 0)) != scene.get_instance_id():
+		return
+	if request.get("kind", "") == "stage":
+		_enter_stage_cleared(int(request.stage))
+	else:
+		_on_upgrade_pick_requested(int(request.wave), int(request.total_waves))
+
+
 func _enter_upgrade_pick(picks: Array[Dictionary], wave: int, total_waves: int) -> void:
-	Engine.time_scale = 1.0
 	_dismiss_cinematics()
+	Engine.time_scale = 1.0
 	print("[GameFlow] 进入遗迹赐福: 第 %d/%d 波" % [wave, total_waves])
 	state = State.UPGRADE_PICK
 	_upgrade_picked = false
@@ -785,7 +889,7 @@ func _enter_upgrade_pick(picks: Array[Dictionary], wave: int, total_waves: int) 
 
 
 func _on_pick_upgrade(pick: Dictionary) -> void:
-	if _upgrade_picked:
+	if state != State.UPGRADE_PICK or _upgrade_picked:
 		return
 	_upgrade_picked = true
 	# 立刻禁用全部选项，确保只能选一次且不可重复触发。

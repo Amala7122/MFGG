@@ -9,6 +9,7 @@ extends RefCounted
 
 const RunStateUtil := preload("res://scripts/run_state.gd")
 const StatusEffectBurnScript := preload("res://scripts/status_effect_burn.gd")
+const HealthUtil := preload("res://scripts/health_util.gd")
 
 const EFFECT_BURN := "burn"
 const EFFECT_SHOCK := "shock"
@@ -25,15 +26,21 @@ static func apply_hit_effects(target: Node, hit_data: Dictionary) -> void:
 
 	var damage: float = float(hit_data.get("damage", 10.0))
 	var is_sniper: bool = bool(hit_data.get("is_sniper", false))
+	if damage <= 0.0 or not HealthUtil.is_alive(target):
+		return
 
 	# 1. 赐福效果分发：灼热射击 (Incendiary Rounds)
 	# 主武器子弹点燃目标，2.5s 内造成 35% 额外 DoT 伤害并显示烈焰燃烧视觉表现
 	if not is_sniper and RunStateUtil.has_perk("incendiary_rounds"):
-		var burn_damage: float = maxf(damage * 0.35, 2.0)
+		var context: Dictionary = hit_data.get("context", {}).duplicate()
+		context["source"] = context.get("source", "primary")
+		# 持续伤害归属原武器，但不能把每次跳伤算成新的子弹命中。
+		context["shot"] = 0
+		context["headshot"] = false
 		apply_status_effect(target, EFFECT_BURN, {
 			"duration": 2.5,
-			"total_damage": burn_damage,
-			"attacker": hit_data.get("attacker", null)
+			"total_damage": damage * 0.35,
+			"context": context
 		})
 
 	# 2. 预留未来扩展点（词缀、属性子弹、元素附魔等）
@@ -42,6 +49,15 @@ static func apply_hit_effects(target: Node, hit_data: Dictionary) -> void:
 	#     apply_status_effect(target, EFFECT_FROST, { "duration": 2.0, "slow_ratio": 0.4 })
 	# if RunStateUtil.has_perk("arc_rounds"):
 	#     apply_status_effect(target, EFFECT_SHOCK, { "chain_count": 3, "chain_damage": damage * 0.5 })
+
+
+## 绝境意志只改变玩家武器与共鸣伤害，统一使用描述中的 35% / 40%。
+static func damage_multiplier(attacker: Variant) -> float:
+	if not RunStateUtil.has_perk("desperate_will"):
+		return 1.0
+	var maximum := HealthUtil.max_health_or(attacker, 0.0)
+	var current := HealthUtil.health_or(attacker, 0.0)
+	return 1.4 if maximum > 0.0 and current > 0.0 and current < maximum * 0.35 else 1.0
 
 
 ## 挂载或刷新状态效果（自动处理重复挂载叠加、刷新持续时间）

@@ -92,6 +92,7 @@ var _strike_done := false
 var _dead := false
 
 var _target: Node3D
+var _body_root: Node3D
 var _visual: MeshInstance3D
 var _material: StandardMaterial3D
 var _warning: Node3D
@@ -129,9 +130,13 @@ func configure(boss_id: String, fallback_label: String = "BOSS") -> void:
 
 func _build_body() -> void:
 	add_to_group(GROUP_ENEMIES)
+	add_to_group("boss")
 	# 根节点缩放。is_headshot 是按 global_basis 的 y 缩放换算局部高度的，
 	# 所以体型必须体现在这里，而不是只缩放网格。
 	scale = Vector3(_body_scale, _body_scale, _body_scale)
+	_body_root = Node3D.new()
+	_body_root.name = "BodyRoot"
+	add_child(_body_root)
 
 	var capsule := CapsuleMesh.new()
 	capsule.radius = 0.62
@@ -148,7 +153,7 @@ func _build_body() -> void:
 	_visual.name = "Visual"
 	_visual.mesh = capsule
 	_visual.position = Vector3(0.0, _capsule_half_height, 0.0)
-	add_child(_visual)
+	_body_root.add_child(_visual)
 
 	# 弱点标记：顶端一圈亮色，让"打哪有效"看得见而不是靠猜。
 	var core := SphereMesh.new()
@@ -166,7 +171,7 @@ func _build_body() -> void:
 	core_mesh.mesh = core
 	# 放在弱点区正中：weak_ratio 是"从顶部往下占多少比例"。
 	core_mesh.position = Vector3(0.0, _capsule_half_height * 2.0 * (1.0 - _weak_ratio * 0.5), 0.0)
-	add_child(core_mesh)
+	_body_root.add_child(core_mesh)
 
 	var shape := CapsuleShape3D.new()
 	shape.radius = 0.62
@@ -249,9 +254,9 @@ func _die() -> void:
 	var scene := get_tree().current_scene
 	var death_fx: Node3D = null
 	if scene:
-		if is_instance_valid(_visual):
+		if is_instance_valid(_body_root):
 			death_fx = EnemyDeathFXUtil.spawn_large(
-				scene, _visual, global_position, Color(0.34, 0.09, 0.4), true, true
+				scene, _body_root, global_position, Color(0.34, 0.09, 0.4), true, true
 			)
 		for index in range(12):
 			var angle := TAU * float(index) / 12.0

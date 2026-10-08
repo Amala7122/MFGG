@@ -472,7 +472,7 @@ func take_damage(amount: float) -> void:
 	_update_health_label()
 	if health <= 0.0:
 		if Telemetry.credits_player(self) and is_instance_valid(target) and target.has_method("register_enemy_kill"):
-			target.call("register_enemy_kill")
+			target.call("register_enemy_kill", self)
 		trigger_death_shatter()
 		return
 	_flash_crystals()
@@ -748,6 +748,7 @@ func trigger_death_shatter() -> void:
 	var debris_parent := get_tree().current_scene
 	if debris_parent == null:
 		debris_parent = get_parent()
+	preload("res://scripts/combat_fx.gd").spawn_ground_burst(debris_parent, global_position, 0.9)
 	# 先缓存全部世界变换，拆掉胸部也不会改变后续子部件的参考坐标。
 	var transforms: Array[Transform3D] = []
 	for part in breakable_parts:

@@ -112,10 +112,12 @@ fog_mie_depth = 0.0071012676
 current_time = 11.83
 
 [node name="WeatherSystem" parent="WeatherEnvironment" index="2" unique_id=714604810]
-cloud_enabled = true
 cloud_type = 0
-cloud_coverage = 0.62
+cloud_coverage = 0.46
 cloud_size_multiplier = 0.55
+
+[node name="ProceduralCloudField" parent="WeatherEnvironment/WeatherSystem" index="1"]
+visible = false
 
 [node name="FillLight" parent="WeatherEnvironment" index="3" unique_id=2003871144]
 light_color = Color(0.55, 0.67, 0.82, 1)
@@ -124,11 +126,9 @@ light_color = Color(0.55, 0.67, 0.82, 1)
 light_energy = 0.0
 
 [node name="Ground" type="StaticBody3D" parent="." unique_id=271098666]
-visible = false
 script = ExtResource("8_terrain")
 
 [node name="Roads" type="Node3D" parent="." unique_id=384994603]
-visible = false
 
 [node name="MainRoad" type="MeshInstance3D" parent="Roads" unique_id=132273789]
 transform = Transform3D(6.5, 0, 0, 0, 1, 0, 0, 0, 86, 0, 0.012, -8)
@@ -146,7 +146,6 @@ material_override = SubResource("StandardMaterial3D_path")
 mesh = SubResource("PlaneMesh_unit")
 
 [node name="Lake" type="Node3D" parent="." unique_id=45268982]
-visible = false
 
 [node name="LakeBed" type="MeshInstance3D" parent="Lake" unique_id=1679228978]
 transform = Transform3D(34, 0, 0, 0, 1, 0, 0, 0, 22, 25, 0.018, 20)
@@ -172,7 +171,6 @@ mesh = SubResource("BoxMesh_unit")
 
 [node name="AncientRuins" type="Node3D" parent="." unique_id=1381980084]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -29, 0, -29)
-visible = false
 
 [node name="RuinFloor" type="StaticBody3D" parent="AncientRuins" unique_id=744029933]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.18, 0)
@@ -229,7 +227,6 @@ omni_range = 9.0
 
 [node name="EnemyCamp" type="Node3D" parent="." unique_id=1541449912]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0, -11)
-visible = false
 
 [node name="Log01" type="MeshInstance3D" parent="EnemyCamp" unique_id=684969187]
 transform = Transform3D(-3.6199901e-06, -1, 0, 1, -3.6199901e-06, 0, 0, 0, 1, 0, 0.18, 0)
@@ -253,7 +250,6 @@ light_energy = 3.0
 omni_range = 8.0
 
 [node name="Forest" type="Node3D" parent="." unique_id=2082198695]
-visible = false
 script = ExtResource("10_snap")
 
 [node name="Tree01" parent="Forest" unique_id=718456942 instance=ExtResource("2_tree")]
@@ -323,15 +319,12 @@ transform = Transform3D(0.85, 0, 0, 0, 0.85, 0, 0, 0, 0.85, 18, 0, 33)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 31, 0, 36)
 
 [node name="Grass" type="Node3D" parent="." unique_id=2056372697]
-visible = false
 script = ExtResource("17_grass")
 
 [node name="WorldDecor" type="Node3D" parent="." unique_id=502388631]
-visible = false
 script = ExtResource("5_decor")
 
 [node name="Cover" type="Node3D" parent="." unique_id=1120520866]
-visible = false
 script = ExtResource("9_cover")
 
 [node name="NavRegion" type="NavigationRegion3D" parent="." unique_id=150477537]

@@ -5,6 +5,7 @@ extends Camera3D
 ## 支持多套随机的运镜轨迹、多角度和不同距离，确保每次表现不重复。
 const TerrainFieldUtil := preload("res://scripts/terrain_field.gd")
 const AudioUtil := preload("res://scripts/audio_manager.gd")
+const Session := preload("res://scripts/cinematic_session.gd")
 
 static var active_cam: CinematicActionCam = null
 
@@ -15,6 +16,7 @@ var _duration := 1.0
 var _elapsed_real_time := 0.0
 var _last_msec := 0
 var _finished := false
+var _restored := true
 
 var _original_time_scale := 1.0
 
@@ -37,9 +39,9 @@ static func dismiss_active() -> void:
 		active_cam.restore_and_destroy()
 
 func start(target: Node3D, duration_sec: float = 1.0, slow_mo_scale: float = 0.12) -> void:
-	if active_cam != null and active_cam != self and is_instance_valid(active_cam):
-		active_cam.restore_and_destroy()
+	Session.claim(self)
 	active_cam = self
+	_restored = false
 
 	_target_node = target
 	_duration = maxf(duration_sec, 0.4)
@@ -52,7 +54,7 @@ func start(target: Node3D, duration_sec: float = 1.0, slow_mo_scale: float = 0.1
 		_target_node.call("set_cinematic_locked", true)
 
 	_original_time_scale = Engine.time_scale
-	Engine.time_scale = slow_mo_scale
+	Engine.time_scale = maxf(slow_mo_scale, 0.001)
 
 	# 压低战场常规枪声杂音，让位于慢动作与大招低频轰鸣
 	AudioUtil.duck(_duration + 0.4, -11.0)
@@ -122,12 +124,11 @@ func start(target: Node3D, duration_sec: float = 1.0, slow_mo_scale: float = 0.1
 	make_current()
 
 func _process(_delta: float) -> void:
-	if _finished:
-		return
-
 	var now := Time.get_ticks_msec()
-	var real_delta := float(now - _last_msec) * 0.001
+	var real_delta := maxf(float(now - _last_msec) * 0.001, 0.0)
 	_last_msec = now
+	if _finished or _restored or get_tree().paused:
+		return
 	_elapsed_real_time += real_delta
 
 	var t := clampf(_elapsed_real_time / maxf(_duration, 0.01), 0.0, 1.0)
@@ -188,24 +189,27 @@ func _update_cam_transform(t: float) -> void:
 		transform.basis = Basis(final_quat)
 
 func restore_and_destroy() -> void:
+	_restore_controls()
+	queue_free()
+
+
+func _restore_controls() -> void:
+	if _restored:
+		return
+	_restored = true
+	_finished = true
 	if active_cam == self:
 		active_cam = null
+	Session.release(self)
 
 	# 恢复控制权与时间倍率
 	if is_instance_valid(_target_node) and _target_node.has_method("set_cinematic_locked"):
 		_target_node.call("set_cinematic_locked", false)
 
 	Engine.time_scale = _original_time_scale
-	if is_instance_valid(_player_camera):
+	if current and is_instance_valid(_player_camera) and _player_camera.is_inside_tree():
 		_player_camera.make_current()
-	queue_free()
 
 func _exit_tree() -> void:
-	if active_cam == self:
-		active_cam = null
-	if is_instance_valid(_target_node) and _target_node.has_method("set_cinematic_locked"):
-		_target_node.call("set_cinematic_locked", false)
-	Engine.time_scale = _original_time_scale
-	if current and is_instance_valid(_player_camera):
-		_player_camera.make_current()
+	_restore_controls()
 

@@ -1,4 +1,5 @@
 extends RefCounted
+const SkillLimiterUtil := preload("res://scripts/skill_limiter.gd")
 ## 一局进度（纯静态，不需要注册 autoload）。
 ##
 ## ── 为什么必须有它 ──────────────────────────────────────────────
@@ -34,6 +35,7 @@ static var _best_stage := 1
 
 ## 开一局新的：从第 1 阶段、第 1 波、1 级武器开始。
 static func begin_run() -> void:
+	SkillLimiterUtil.clear()
 	_active = true
 	_stage = 1
 	_wave = 0
@@ -44,6 +46,7 @@ static func begin_run() -> void:
 
 ## 结束一局。这里刻意不清 _best_stage —— 它是跨局的记录。
 static func end_run() -> void:
+	SkillLimiterUtil.clear()
 	_active = false
 
 
@@ -70,6 +73,7 @@ static func set_progress(stage: int, wave: int) -> void:
 
 
 static func advance_stage() -> void:
+	SkillLimiterUtil.clear()
 	_stage += 1
 	_wave = 0
 	_best_stage = maxi(_best_stage, _stage)

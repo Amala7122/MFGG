@@ -21,7 +21,13 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		# local 表示本体一侧的接触；引擎返回世界方向，不再乘身体旋转。
 		var normal := state.get_contact_local_normal(index)
 		if normal.dot(Vector3.UP) > 0.5:
-			impacted = true
+			if not impacted:
+				impacted = true
+				_ground_impact.call_deferred()
+
+
+func _ground_impact() -> void:
+	preload("res://scripts/combat_fx.gd").spawn_ground_burst(get_parent(), global_position, 0.9, false, 1.5)
 
 
 func _physics_process(delta: float) -> void:

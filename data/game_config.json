@@ -288,6 +288,15 @@
     "flower_seed": 93211
   },
 
+  "ground_feedback": {
+    "_doc": "脚步与落地使用无发光扬尘，按实际碰撞地面定位；max_dust_effects 为 0 可关闭扬尘，硬上限 48。",
+    "walk_dust_strength": 0.35,
+    "sprint_dust_strength": 0.55,
+    "landing_dust_base": 0.55,
+    "landing_dust_impact_scale": 1.5,
+    "max_dust_effects": 48
+  },
+
   "performance": {
     "_doc": "性能相关。max_idle_per_key 是每个对象池键常驻的空闲节点上限（内存 vs 复用率的取舍）。",
     "max_idle_per_key": 64
@@ -314,13 +323,14 @@
     "_mode_doc": "刷怪模式。waves = 波次制（Boss 波与阶段推进由 wave_director 驱动）；endless = 原来的纯无尽 DDA（survival_director 驱动，15 个固定刷怪点同时生效）。两者互斥 —— 切回 endless 即可完整还原改动前的行为，方便对照。",
     "mode": "waves",
     "_dormant_doc": "waves 模式下 survival_director 与 15 个固定刷怪点都会休眠（只读配置、不生成敌人），出怪完全交给 wave_director。",
-    "_anchors_doc": "刷怪锚点由竞技场提供（arenas.definitions.<id>.spawn_anchors），因此同一份图鉴能在四张不同地形上出怪 —— 这也是为什么波次系统不再依赖场景里那 15 个固定坐标。",
+    "_anchors_doc": "波次按 2～4 人小队在玩家周围动态选点。竞技场 spawn_anchors 仅作安全兜底；每个落点都重新检查玩家距离、身体空间与通路。",
     "_max_alive_doc": "同时存活上限。波次是一波里陆续放人，而不是一次性倒出来：既保留原来『持续压力』的节奏，也避免一次生成几十个节点造成尖峰。",
     "max_alive": 14,
     "_prepare_doc": "第一波开始前的准备时间（秒），给玩家环顾四周的余地。",
     "prepare_seconds": 4.0,
-    "_spawn_interval_doc": "同一波内两个敌人的生成间隔（秒）。",
+    "_spawn_interval_doc": "两个小队之间的投放间隔（秒）；小队内成员使用 squad_member_interval。",
     "spawn_interval": 0.85,
+    "squad_member_interval": 0.25,
     "_stuck_doc": "波次状态机的看门狗：超过这么久【没有任何可识别进展】（生成敌人、敌人死亡、状态切换都会清零）才强制推进。它的语义是『彻底卡死』的保护，不是『一波最多打多久』 —— 早先写成 20 秒的无脑超时，结果在一波正常进行中就把波次判成清空了。",
     "wave_stuck_guard": 120.0,
     "_clearance_doc": "敌人落地时相对地形高度的抬升量。敌人的碰撞胶囊以根节点为圆心，所以这个值必须约等于胶囊半高 —— 偏高只是落一点点，**偏低会穿透地形并无限下坠**。",
@@ -378,6 +388,7 @@
     "_speed_cap_note": "max_speed_growth = 1.25 才是【实际生效】的那个。enemy 段里另有一个 speed_growth_max = 1.12，但那张表只有 survival_director 会读、波次模式下整体休眠。以本段为准：最快的是猎杀幼体 6.2×1.25 = 7.75，仍低于玩家冲刺 8.5。",
     "_anchor_doc": "锚点站位保护：生成点与玩家的最小距离，避免贴着玩家脸上刷出来。",
     "anchor_min_player_distance": 14.0,
+    "anchor_max_player_distance": 32.0,
     "_attrs_doc": "敌人重量属性。先读 attrs_default，再套用步态预设的 turn_speed / accel_ratio / brake_ratio，最后由条目的 attrs 覆盖。护甲、接触伤害、抗击退等只沿用原 attrs，本轮步态不会修改。",
     "_attrs_fields_doc": "turn_speed: 转向速度(度/秒)，0 = 瞬时（旧 look_at 行为）；accel_ratio: 起步加速度 ÷ move_speed；brake_ratio: 刹停加速度 ÷ move_speed（不配置时近战沿用 accel_ratio×9/7，远程沿用 5）；knockback_resistance: 0~1 霸体，1 = 手雷/脉冲完全推不动；stagger_duration: 被击退的硬直秒数（旧值 0.42）；attack_distance_scale: 0 = 攻击距离不随体型缩放（旧值），1 = 完全随体型缩放（base × scale）；contact_damage: 贴身压力折算到每次可预警挥击（每秒值 × 攻击间隔），0 = 关；armor: 0~1 减伤，对【所有伤害来源】生效（含手雷 / 脉冲）。",
     "attrs_default": {
@@ -1318,7 +1329,9 @@
     "burst_damage_base": 520.0,
     "burst_damage_per_energy": 9.5,
     "burst_push": 28.0,
-    "burst_hold_seconds": 0.65
+    "burst_hold_seconds": 0.65,
+    "burn_damage_per_second": 40.0,
+    "_burn_doc": "余震烈焰持续 5 秒，每 0.5 秒灼烧一次；范围为爆发半径的 75%，伤害与显示共用可达地表，不穿掩体或跨楼层。"
   },
   "wisp": {
     "_doc": "战术浮游卫士：盘旋在玩家身旁的战术支援无人机，主要协助玩家警戒并射击后方与侧翼视野盲区（>65°）的偷袭敌人，攻击力偏低但具备稳定自保骚扰与遇袭预警价值。",

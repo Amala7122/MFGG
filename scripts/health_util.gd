@@ -44,6 +44,15 @@ static func health_or(actor: Variant, fallback: float = 0.0) -> float:
 	return float(value)
 
 
+## 最大生命值与当前血量分开读取；Boss 优先使用对外的访问器。
+static func max_health_or(actor: Variant, fallback: float = 0.0) -> float:
+	if actor == null or not is_instance_valid(actor):
+		return fallback
+	var value: Variant = actor.call("get_max_health") if actor.has_method("get_max_health") \
+		else actor.get("max_health")
+	return fallback if value == null else float(value)
+
+
 ## 是否存活。无法判定血量时视为存活；已失效或排队删除的视为不存活。
 static func is_alive(actor: Variant) -> bool:
 	if actor == null or not is_instance_valid(actor):

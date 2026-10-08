@@ -95,6 +95,7 @@ var _pending_mortars: Array[WeakRef] = []
 # juice：狙击锁定红线状态（复用主线的 _aim_locked 协议，不再另建一套锁定机制）
 var _sniper_line: Telegraph = null
 var _sniper_locked := false
+var _sniper_slot_held := false
 var _sniper_locked_point := Vector3.ZERO
 var _stagger_time: float = 0.0
 var _stagger_velocity := Vector3.ZERO
@@ -322,7 +323,7 @@ func _credit_killer() -> void:
 		return
 	var player := TargetingUtil.nearest_player(self)
 	if player != null and player.has_method("register_enemy_kill"):
-		player.call("register_enemy_kill")
+		player.call("register_enemy_kill", self)
 
 
 func _update_behavior(delta: float) -> void:
@@ -464,14 +465,15 @@ func update_firing(delta: float, distance: float) -> void:
 			and distance < detection_range * _fire_range_ratio \
 			and can_attack_from_current_view():
 		var is_sniper := _is_sniper_pattern()
-		if is_sniper and not SkillLimiterUtil.can_start("sniper_lock", 1):
-			return
+		if is_sniper:
+			if not SkillLimiterUtil.acquire("sniper_lock", self, 1):
+				return
+			_sniper_slot_held = true
 		attack_queued = true
 		attack_charge_time = _charge_duration * (1.35 if is_sniper else 1.0)
 		_aim_locked = false
 		_landing_valid = false
 		if is_sniper:
-			SkillLimiterUtil.acquire("sniper_lock")
 			var target_head := target.global_position + Vector3.UP * 0.8
 			_sniper_locked_point = target_head
 			_sniper_line = TelegraphUtil.create_line(
@@ -528,8 +530,7 @@ func cancel_attack_charge() -> void:
 	if _sniper_line != null and is_instance_valid(_sniper_line):
 		_sniper_line.cancel()
 		_sniper_line = null
-	if _sniper_locked or _is_sniper_pattern():
-		SkillLimiterUtil.release("sniper_lock")
+	_release_sniper_slot()
 	_sniper_locked = false
 
 
@@ -601,8 +602,21 @@ func fire_sniper_shot() -> void:
 	if _sniper_line != null and is_instance_valid(_sniper_line):
 		_sniper_line.cancel()
 		_sniper_line = null
-	SkillLimiterUtil.release("sniper_lock")
+	_release_sniper_slot()
 	_sniper_locked = false
+
+
+func _release_sniper_slot() -> void:
+	if _sniper_slot_held:
+		SkillLimiterUtil.release("sniper_lock", self)
+		_sniper_slot_held = false
+
+
+func _exit_tree() -> void:
+	_release_sniper_slot()
+	if is_instance_valid(_sniper_line):
+		_sniper_line.queue_free()
+	_sniper_line = null
 
 
 func fire_mortar_warning() -> void:

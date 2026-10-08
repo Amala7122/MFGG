@@ -30,6 +30,7 @@ const CinematicKillCamScript := preload("res://scripts/cinematic_kill_cam.gd")
 const GameFlowUtil := preload("res://scripts/game_flow.gd")
 
 const TargetingUtil := preload("res://scripts/targeting.gd")
+const DeploymentScript := preload("res://scripts/enemy_deployment.gd")
 
 const GROUP_PLAYER := "player"
 
@@ -86,12 +87,13 @@ var _spawn_cfg: Dictionary = {}
 var _roster: Array = []
 var _anchors: Array = []
 var _alive: Array = []
-var _anchor_cursor := 0
 var _player: Node3D
 ## 敌人生成器（Enemies 容器下的 EnemySpawner）。只在服务器上有意义。
 var _spawner: Node
 var _weapon_level := 1
+var _clear_cinematic: Camera3D
 var _random := RandomNumberGenerator.new()
+var _deployment := DeploymentScript.new()
 
 
 # ---------------------------------------------------------------- 生命周期
@@ -133,6 +135,7 @@ func _ready() -> void:
 	_boss_id = String(_wave_cfg.get("boss_id", ""))
 	_random.randomize()
 	_build_anchors()
+	_deployment.configure(self, _arena, _random)
 	EventBusUtil.subscribe_weapon_level_changed(_on_weapon_level_changed)
 	# 玩家死亡后不该继续推进波次 —— 否则结算面板背后还在刷怪。
 	EventBusUtil.subscribe_player_died(_on_player_died)
@@ -170,7 +173,20 @@ func _on_weapon_level_changed(level: int) -> void:
 
 
 func _on_player_died(_survival: float, _kills: int) -> void:
+	_cancel_clear_cinematic()
 	set_process(false)
+
+
+func _exit_tree() -> void:
+	_cancel_clear_cinematic()
+	if instance == self:
+		instance = null
+
+
+func _cancel_clear_cinematic() -> void:
+	if is_instance_valid(_clear_cinematic):
+		_clear_cinematic.call("restore_and_destroy")
+	_clear_cinematic = null
 
 
 func _build_anchors() -> void:
@@ -197,6 +213,9 @@ func _process(delta: float) -> void:
 	# 改成判断明确的战局状态之后，门控完全建立在"战局是否在进行中"上，
 	# 位置与作用与这里完全一致。
 	if not GameFlowUtil.is_playing():
+		return
+	# 特写结束并选完赐福之后才继续波间倒数，不能在慢镜头背后开下一波。
+	if is_instance_valid(_clear_cinematic) and not _clear_cinematic.is_queued_for_deletion():
 		return
 	_publish_timer -= delta
 	_stuck += delta
@@ -230,7 +249,6 @@ func _tick_fight(delta: float) -> void:
 		var max_alive := maxi(int(_spawn_cfg.get("max_alive", 14)), 1)
 		if _spawn_cooldown <= 0.0 and _alive.size() < max_alive:
 			_spawn_one()
-			_spawn_cooldown = maxf(float(_spawn_cfg.get("spawn_interval", 0.85)), 0.05)
 		return
 	if _alive.is_empty():
 		_finish_wave()
@@ -249,32 +267,19 @@ func _tick_boss() -> void:
 	set_process(false)
 
 	# juice：Boss 击杀慢动作特写（0.15 倍速 + 环绕镜头）
-	Engine.time_scale = 0.15
 	AudioUtil.play("explode", 4.0, 0.65)
 	AudioUtil.play("shockwave", 3.0, 0.45)
-	var kill_cam := CinematicKillCamScript.new()
-	kill_cam.name = "BossClearKillCam"
-	var scene := get_tree().current_scene
-	if scene:
-		scene.add_child(kill_cam)
 	# 取景目标必须经过校验：_boss 在这里已经无效（本函数正是被"Boss 不见了"唤醒的）
 	var focus := _cinematic_focus()
 	var boss_pos := _last_killed_pos if not _last_killed_pos.is_zero_approx() else _player_position()
 	if is_instance_valid(focus):
 		boss_pos = focus.global_position
-	kill_cam.start(focus, boss_pos, true, 3.0)
+	_start_clear_cinematic(focus, boss_pos, true, 3.0, _wave, _total_waves)
 	var player := get_tree().get_first_node_in_group(GROUP_PLAYER)
 	if player and player.get("_hud") != null:
 		var hud: Node = player.get("_hud")
 		if hud.has_method("show_notice"):
 			hud.call("show_notice", "◆ 区域霸主讨伐完成 · 战局肃清 ◆", "victory")
-	# 用 ignore_time_scale 的真实计时器，等慢动作演完再结算
-	var timer := get_tree().create_timer(3.0, true, false, true)
-	timer.timeout.connect(func():
-		CinematicKillCamScript.dismiss_active()
-		Engine.time_scale = 1.0
-		EventBusUtil.emit_stage_cleared(_stage)
-	)
 
 
 func _advance() -> void:
@@ -307,14 +312,15 @@ func _note_progress() -> void:
 
 
 func _start_wave() -> void:
-	_wave += 1
-	if _wave > _total_waves:
+	if _wave >= _total_waves:
 		_start_boss()
 		return
+	_wave += 1
 	_state = State.FIGHT
 	_spawn_budget = _count_for_wave(_wave)
 	_spawn_cooldown = 0.0
 	_wave_spawned = 0
+	_deployment.begin_wave(_spawn_budget)
 	# juice：清掉上一波的取景状态，避免特写对着早已消失的目标
 	_last_killed_enemy = null
 	_last_death_fx = null
@@ -339,26 +345,40 @@ func _finish_wave() -> void:
 func _play_wave_clear_cinematic(
 	cleared_wave: int, total_waves: int, last_enemy: Node3D = null, last_pos: Vector3 = Vector3.ZERO
 ) -> void:
-	Engine.time_scale = 0.15
+	if not GameFlowUtil.is_playing():
+		return
 	AudioUtil.play("pickup", 3.0, 0.45)
 	AudioUtil.play("shockwave", 2.0, 0.5)
-	var kill_cam := CinematicKillCamScript.new()
-	kill_cam.name = "WaveClearKillCam"
-	var scene := get_tree().current_scene
-	if scene:
-		scene.add_child(kill_cam)
-	kill_cam.start(last_enemy, last_pos, false, 2.2)
+	_start_clear_cinematic(last_enemy, last_pos, false, 2.2, cleared_wave, total_waves)
 	var player := get_tree().get_first_node_in_group(GROUP_PLAYER)
 	if player and player.get("_hud") != null:
 		var hud: Node = player.get("_hud")
 		if hud.has_method("show_notice"):
 			hud.call("show_notice", "◆ 第 %d 波肃清 ◆" % cleared_wave, "upgrade")
-	var timer := get_tree().create_timer(2.2, true, false, true)
-	timer.timeout.connect(func():
-		CinematicKillCamScript.dismiss_active()
-		Engine.time_scale = 1.0
+
+
+func _start_clear_cinematic(focus: Node3D, pos: Vector3, is_boss: bool, duration: float,
+	cleared_wave: int, total_waves: int) -> void:
+	_cancel_clear_cinematic()
+	var scene := get_tree().current_scene
+	if scene == null:
+		return
+	var kill_cam := CinematicKillCamScript.new()
+	kill_cam.name = "BossClearKillCam" if is_boss else "WaveClearKillCam"
+	scene.add_child(kill_cam)
+	_clear_cinematic = kill_cam
+	kill_cam.finished.connect(_on_clear_cinematic_finished.bind(is_boss, cleared_wave, total_waves, _stage), CONNECT_ONE_SHOT)
+	kill_cam.start(focus, pos, is_boss, duration)
+
+
+func _on_clear_cinematic_finished(is_boss: bool, cleared_wave: int, total_waves: int, stage: int) -> void:
+	_clear_cinematic = null
+	if not GameFlowUtil.is_playing():
+		return
+	if is_boss:
+		EventBusUtil.emit_stage_cleared(stage)
+	else:
 		EventBusUtil.emit_upgrade_pick_requested(cleared_wave, total_waves)
-	)
 
 
 func _start_boss() -> void:
@@ -373,7 +393,18 @@ func _start_boss() -> void:
 	var bcfg := ConfigUtil.get_dictionary("bosses.%s" % _boss_id)
 	if _spawner == null:
 		return
-	_boss = _spawner.call("spawn_boss", _boss_id, _pick_anchor()) as Node3D
+	var location := _deployment.select_single({"scale": float(bcfg.get("scale", 2.2)),
+		"body_radius": ConfigUtil.get_float("bosses.capsule_radius", 0.62),
+		"body_height": ConfigUtil.get_float("bosses.capsule_half_height", 1.15) * 2.0}, _anchors)
+	if location.is_empty():
+		_state = State.BREAK
+		_timer = 0.5
+		return
+	_boss = _spawner.call("spawn_boss", _boss_id, location.position) as Node3D
+	if _boss == null:
+		_state = State.BREAK
+		_timer = 0.5
+		return
 	_connect_death_focus(_boss)
 	_state = State.BOSS
 	_stuck = 0.0
@@ -404,11 +435,16 @@ func _spawn_one() -> void:
 		# 图鉴里没有当前等级可用的敌人 —— 直接算这波出完，避免永远等下去。
 		_spawn_budget = 0
 		return
-	var enemy := _make_enemy(entry, _pick_anchor())
-	_spawn_budget -= 1
-	_wave_spawned += 1
+	var location := _deployment.pick_position(entry, _anchors)
+	_spawn_cooldown = 0.35
+	if location.is_empty():
+		return
+	var enemy := _make_enemy(entry, location.position)
 	if enemy == null:
 		return
+	_spawn_budget -= 1
+	_wave_spawned += 1
+	_spawn_cooldown = _deployment.commit_spawn()
 	# 每波只报第一个：既能在日志里确认"敌人真的落地了、落在哪"，
 	# 又不会把日志刷满（后面的数量看"剩 N"就够）。
 	if _wave_spawned == 1:
@@ -471,48 +507,10 @@ func _pick_entry() -> Dictionary:
 	return {}
 
 
-## 选一个离玩家足够远的锚点。
-##
-## 沿锚点环顺序推进（游标），而不是每次随机 —— 随机会让同一方向反复出怪，
-## 玩家只需要守一个口；顺序推进能逼他转身。
-func _pick_anchor() -> Vector3:
-	if _anchors.is_empty():
-		var player := _player_position()
-		return player + Vector3(0.0, 0.0, -22.0)
-	var minimum := ConfigUtil.get_float("enemy_roster.anchor_min_player_distance", 14.0)
-	# 上限同样是硬需求：太远的锚点可能落在敌人察觉距离之外，
-	# 敌人生成后就不会来追（各竞技场 radius_max 最大 44 米）。
-	var maximum := ConfigUtil.get_float("enemy_roster.anchor_max_player_distance", 34.0)
-	var origin := _player_position()
-	var best: Vector3 = _anchors[_anchor_cursor % _anchors.size()]
-	var best_distance := -1.0
-	for offset in range(_anchors.size()):
-		var index := (_anchor_cursor + offset) % _anchors.size()
-		var candidate: Vector3 = _anchors[index]
-		# "不能贴脸刷"要按【所有玩家】判：两人分开跑时，只避开其中一个
-		# 等于把敌人直接刷在另一个人的脸上。
-		if TargetingUtil.any_within(self, candidate, minimum):
-			continue
-		# 上限按"离最近的玩家"算：锚点至少要落在某个人的追击范围内，
-		# 否则敌人刷出来谁也不追。
-		var nearest := TargetingUtil.nearest_to(self, candidate)
-		var distance := (
-			candidate.distance_to(nearest.global_position) if nearest != null else INF
-		)
-		if distance <= maximum:
-			_anchor_cursor = (index + 1) % _anchors.size()
-			return candidate
-		if distance > best_distance:
-			best_distance = distance
-			best = candidate
-	_anchor_cursor = (_anchor_cursor + 1) % _anchors.size()
-	return best
-
-
 func _player_position() -> Vector3:
 	# 本节点是 Node（没有自己的位置），所以"最近的玩家"对它没有意义 ——
 	# 这里只取任意一个玩家，用于"一个锚点都没有"时的兜底落点。
-	# 真正需要"离所有玩家多远"的判断在 _pick_anchor 里按每个候选点单独算。
+	# 投放距离由 enemy_deployment 对每个候选点按所有玩家检查。
 	if not is_instance_valid(_player):
 		_player = TargetingUtil.first_player(self)
 	if is_instance_valid(_player):

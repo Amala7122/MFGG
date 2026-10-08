@@ -9,7 +9,7 @@ class_name WeatherTimeline
 ##   1. 每局游戏用种子 RNG 在 _ready 时生成多日"天气预报"，同一种子必定产出同样的天气。
 ##   2. 天气不是瞬间切换，而是在两个预报节点之间做 smoothstep 插值，模拟自然过渡。
 ##   3. 遵循"气象学常识"：晴→多云→小雨→大雨是渐进的，暴雨后通常放晴。
-##   4. 驱动维度：雨量 / 雾量 / 雪量 / 风强度 / 风向，覆盖游戏内全部天气表现。
+##   4. 驱动维度：云覆盖率 / 云厚度 / 云型 / 雨量 / 雾量 / 雪量 / 风强度 / 风向。
 
 ## ───────────────────────── 配置 ─────────────────────────
 
@@ -35,6 +35,9 @@ class_name WeatherTimeline
 
 class WeatherKeyframe:
 	var abs_hour: float = 0.0
+	var cloud_coverage: float = 0.0
+	var cloud_density: float = 0.25
+	var cloud_type: int = WeatherSystem.CloudType.CUMULUS
 	var rain: float = 0.0
 	var fog: float = 0.0
 	var snow: float = 0.0
@@ -107,7 +110,8 @@ func _ready() -> void:
 	_original_minutes_per_day = float(_time_of_day.get("minutes_per_day"))
 
 	_generate_forecast(forecast_days)
-	_apply_weather_at(_get_abs_hour())
+	# 开场云层立即采用 Inspector 设置，开始推进时间后再平滑进入预报。
+	_apply_weather_at(_get_abs_hour(), false)
 
 	if debug_log:
 		_print_forecast()
@@ -312,7 +316,46 @@ func _generate_day(day_idx: int, pattern: DayPattern, wind_dir: float) -> Array:
 				else: lbl = "多云间晴"
 				kfs.append(WeatherKeyframe.new(b+hours[j], types[0], types[1], types[2], types[3], wd.call(wind_dir), lbl))
 
+	_assign_cloud_forecast(kfs, pattern)
 	return kfs
+
+
+func _assign_cloud_forecast(keyframes: Array, pattern: DayPattern) -> void:
+	# 预报显式保存独立云层输入；雨雪控制器不再隐式改写天空。
+	# 复用已有日型和降水预报，不追加随机抽样，保持种子的天气顺序。
+	for index in range(keyframes.size()):
+		var frame: WeatherKeyframe = keyframes[index]
+		var precipitation := maxf(frame.rain, frame.snow)
+		match pattern:
+			DayPattern.SUNNY_DAY, DayPattern.BREEZY_CLEAR, DayPattern.FOGGY_MORNING:
+				frame.cloud_coverage = 0.08
+				frame.cloud_density = 0.25
+			DayPattern.MORNING_CLEAR_AFTERNOON_RAIN:
+				frame.cloud_coverage = [0.08, 0.12, 0.68, 0.78, 0.90, 0.60, 0.08][index]
+				frame.cloud_density = [0.25, 0.25, 0.45, 0.55, 0.70, 0.45, 0.25][index]
+			DayPattern.RAINY_DAY:
+				frame.cloud_coverage = lerpf(0.70, 0.97, frame.rain)
+				frame.cloud_density = lerpf(0.45, 0.85, frame.rain)
+			DayPattern.STORM_DAY:
+				frame.cloud_coverage = [0.25, 0.75, 0.93, 1.0, 1.0, 0.70, 0.12][index]
+				frame.cloud_density = [0.35, 0.65, 0.80, 0.97, 0.95, 0.55, 0.25][index]
+			DayPattern.OVERCAST_DAY:
+				frame.cloud_coverage = [0.55, 0.80, 0.95, 0.85, 0.65][index]
+				frame.cloud_density = [0.40, 0.55, 0.75, 0.60, 0.50][index]
+			DayPattern.SNOW_DAY, DayPattern.RAIN_TO_SNOW:
+				frame.cloud_coverage = lerpf(0.75, 0.98, precipitation)
+				frame.cloud_density = lerpf(0.50, 0.80, precipitation)
+			DayPattern.EVENING_DRIZZLE:
+				frame.cloud_coverage = [0.08, 0.10, 0.60, 0.80, 0.85, 0.75][index]
+				frame.cloud_density = [0.25, 0.25, 0.40, 0.50, 0.60, 0.45][index]
+			DayPattern.WINDY_OVERCAST:
+				frame.cloud_coverage = 0.85
+				frame.cloud_density = 0.60
+			_:
+				frame.cloud_coverage = lerpf(0.30, 0.98, clampf(precipitation / 0.65, 0.0, 1.0))
+				frame.cloud_density = lerpf(0.35, 0.85, clampf(precipitation / 0.65, 0.0, 1.0))
+		frame.cloud_type = WeatherSystem.CloudType.STRATUS if frame.cloud_coverage >= 0.60 \
+			else WeatherSystem.CloudType.CUMULUS
 
 
 ## ───────────────────────── 天气应用 ─────────────────────────
@@ -325,7 +368,7 @@ func _get_abs_hour() -> float:
 	return float(day - _current_day_base) * 24.0 + hour
 
 
-func _apply_weather_at(abs_hour: float) -> void:
+func _apply_weather_at(abs_hour: float, apply_cloud_layer: bool = true) -> void:
 	if _keyframes.is_empty():
 		return
 
@@ -357,6 +400,13 @@ func _apply_weather_at(abs_hour: float) -> void:
 	var wind_dir := lerp_angle(deg_to_rad(kf_a.wind_dir_degrees), deg_to_rad(kf_b.wind_dir_degrees), t)
 
 	# 驱动 WeatherSystem
+	if apply_cloud_layer:
+		if _weather_system.has_method("set_cloud_coverage"):
+			_weather_system.call("set_cloud_coverage", lerpf(kf_a.cloud_coverage, kf_b.cloud_coverage, t))
+		if _weather_system.has_method("set_cloud_density"):
+			_weather_system.call("set_cloud_density", lerpf(kf_a.cloud_density, kf_b.cloud_density, t))
+		if _weather_system.has_method("set_cloud_type"):
+			_weather_system.call("set_cloud_type", kf_a.cloud_type if t < 0.5 else kf_b.cloud_type)
 	if _weather_system.has_method("set_rain_amount"):
 		_weather_system.call("set_rain_amount", rain)
 	if _weather_system.has_method("set_fog_amount"):

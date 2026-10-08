@@ -85,7 +85,7 @@ const PERKS: Array[Dictionary] = [
 		"title": "时空裂隙",
 		"icon": "⏱️",
 		"rarity": Rarity.RARE,
-		"desc": "共鸣爆发造成的敌人减速时长从 2.2 秒翻倍延长至 4.2 秒。"
+		"desc": "共鸣爆发造成的敌人减速时长从 2.2 秒延长至 4.2 秒。"
 	},
 	{
 		"id": "vampiric_touch",

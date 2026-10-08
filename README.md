@@ -12,6 +12,8 @@ MFGG 是一个使用 Godot 4.7.x 开发的第三人称动作 / 探索游戏原�
 - 可调参数说明：`docs/参数速查表.md`
 - 当前进度与下一步：`docs/项目总进度与下一步.md`
 - 稳定性 / 性能基线：`docs/稳定性与性能基线.md`
+- 自动验收入口：`python tools/run_acceptance.py`，用法与检查范围见 `tests/README.md`
+- 地面反馈与动态小队移植记录：`docs/ruin-star移植补齐-地面反馈与动态投放.md`
 - 战斗实验室：`prototypes/README.md`
 - 文档索引：`docs/README.md`
 
@@ -68,5 +70,7 @@ MFGG 是一个使用 Godot 4.7.x 开发的第三人称动作 / 探索游戏原�
 `.godot/`、`build/`、`visual_captures/`、`performance_logs/`、`.godot-mcp/`
 
 ## 开发方向
+
+战斗操作中，R 换弹、F 切换手电筒、C 释放已充满的遗迹共鸣，三个动作互不占用按键。
 
 当前优先顺序以 `docs/项目总进度与下一步.md` 为准。近期重点是收尾当前 Boss / 战斗实验，并把已有系统串成一段有开始、过程、结尾的首章试玩流程，而不是继续无限扩张新系统。

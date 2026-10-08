@@ -16,6 +16,8 @@ const ImpactSparkUtil := preload("res://scripts/impact_spark.gd")
 const DamageNumberUtil := preload("res://scripts/damage_number.gd")
 const Telemetry := preload("res://scripts/combat_telemetry.gd")
 const ShellCasingUtil := preload("res://scripts/shell_casing.gd")
+const HealthUtil := preload("res://scripts/health_util.gd")
+const GroundDustUtil := preload("res://scripts/ground_dust.gd")
 
 const COLOR_ENEMY_HIT := Color(1.0, 0.78, 0.24, 1.0)
 const COLOR_PLAYER_HIT := Color(1.0, 0.26, 0.22, 1.0)
@@ -173,14 +175,26 @@ static func hitstop(victim: Node, duration: float = 0.035) -> void:
 	# 1. 玩家受击/特写顿帧：通过 Player 自身的 _hitstop_timer 局部暂停物理计算
 	if victim.has_method("apply_hitstop"):
 		victim.call("apply_hitstop", real_duration)
-	# 2. 敌人受击局部顿帧：直接降级 process_mode
+	# 2. 暂停敌人自身更新，保留碰撞与身上的燃烧粒子。
 	elif victim.is_in_group("enemies"):
-		var orig_mode: Node.ProcessMode = victim.process_mode
-		victim.process_mode = Node.PROCESS_MODE_DISABLED
+		if not victim.has_meta(&"hitstop_restore"):
+			victim.set_meta(&"hitstop_restore", {
+				"process": victim.is_processing(), "physics": victim.is_physics_processing()})
+		var token: int = int(victim.get_meta(&"hitstop_token", 0)) + 1
+		victim.set_meta(&"hitstop_token", token)
+		victim.set_process(false)
+		victim.set_physics_process(false)
+		var victim_ref: WeakRef = weakref(victim)
 		var timer := tree.create_timer(real_duration, true, false, true)
 		timer.timeout.connect(func():
-			if is_instance_valid(victim):
-				victim.process_mode = orig_mode
+			var actor := victim_ref.get_ref() as Node
+			if actor == null or int(actor.get_meta(&"hitstop_token", 0)) != token:
+				return
+			var restore: Dictionary = actor.get_meta(&"hitstop_restore", {})
+			actor.remove_meta(&"hitstop_restore")
+			if actor.is_inside_tree() and HealthUtil.is_alive(actor):
+				actor.set_process(bool(restore.get("process", false)))
+				actor.set_physics_process(bool(restore.get("physics", false)))
 		)
 
 
@@ -270,10 +284,40 @@ static func _get_scorch_texture() -> ImageTexture:
 	return _scorch_texture
 
 
+## 从效果来源向下寻找真实支撑面；只查世界碰撞层，不命中角色或散落碎片。
+static func sample_ground(parent: Node, world_position: Vector3, max_drop: float = 8.0) -> Dictionary:
+	if not is_instance_valid(parent) or not parent.is_inside_tree():
+		return {}
+	var world := parent.get_viewport().find_world_3d()
+	if world == null:
+		return {}
+	var query := PhysicsRayQueryParameters3D.create(
+		world_position + Vector3.UP * 0.2, world_position - Vector3.UP * maxf(max_drop, 0.1), 1)
+	var hit := world.direct_space_state.intersect_ray(query)
+	if hit.is_empty() or (hit.normal as Vector3).dot(Vector3.UP) < 0.25:
+		return {}
+	return hit
+
+
+static func spawn_ground_dust(parent: Node, point: Vector3, normal: Vector3, strength: float = 0.5) -> Node3D:
+	return GroundDustUtil.spawn(parent, point, normal, strength)
+
+
+## 纯视觉地面反馈，不改变伤害或范围判定。无真实落点时不在空中绘制地面效果。
+static func spawn_ground_burst(parent: Node, origin: Vector3, strength: float = 1.5, scorch: bool = false, max_drop: float = 8.0) -> void:
+	var ground := sample_ground(parent, origin, max_drop)
+	if ground.is_empty():
+		return
+	spawn_ground_dust(parent, ground.position, ground.normal, strength)
+	if scorch:
+		spawn_scorch_mark(parent, ground.position, strength)
+
+
 static func spawn_ground_crater(parent: Node, world_position: Vector3, normal: Vector3, is_heavy: bool = false) -> void:
 	if not is_instance_valid(parent) or not parent.is_inside_tree():
 		return
 	var decal := Decal.new()
+	decal.name = "GroundCrater"
 	var w := 1.35 if is_heavy else 0.75
 	decal.size = Vector3(w, 2.0, w)
 	decal.texture_albedo = _get_crater_texture()
@@ -288,6 +332,7 @@ static func spawn_bullet_hole(parent: Node, world_position: Vector3, normal: Vec
 	if not is_instance_valid(parent) or not parent.is_inside_tree():
 		return
 	var decal := Decal.new()
+	decal.name = "BulletHole"
 	var w := 0.65 if is_heavy else 0.38
 	decal.size = Vector3(w, 1.4, w)
 	decal.texture_albedo = _get_bullet_hole_texture()
@@ -301,14 +346,18 @@ static func spawn_bullet_hole(parent: Node, world_position: Vector3, normal: Vec
 static func spawn_scorch_mark(parent: Node, world_position: Vector3, radius: float = 3.0) -> void:
 	if not is_instance_valid(parent) or not parent.is_inside_tree():
 		return
+	var ground := sample_ground(parent, world_position)
+	if ground.is_empty():
+		return
 	var decal := Decal.new()
+	decal.name = "ScorchMark"
 	var d_size := maxf(radius * 1.8, 1.8)
 	decal.size = Vector3(d_size, 2.4, d_size)
 	decal.texture_albedo = _get_scorch_texture()
 	decal.modulate = Color(0.92, 0.92, 0.92, 0.92)
 	decal.cull_mask = 1
 	parent.add_child(decal)
-	_orient_decal(decal, world_position, Vector3.UP)
+	_orient_decal(decal, ground.position, ground.normal)
 	_track_decal(decal, 26.0)
 
 
@@ -320,11 +369,13 @@ static func _orient_decal(decal: Decal, world_pos: Vector3, normal: Vector3) -> 
 	var right := safe_normal.cross(forward).normalized()
 	forward = right.cross(safe_normal).normalized()
 	decal.global_transform.basis = Basis(right, safe_normal, forward)
-	decal.rotate(safe_normal, randf() * TAU)
+	decal.rotate_object_local(Vector3.UP, randf() * TAU)
 
 
 static func _track_decal(decal: Decal, duration: float) -> void:
+	decal.add_to_group("combat_decal")
 	_active_decals.append(decal)
+	decal.tree_exited.connect(func(): _active_decals.erase(decal), CONNECT_ONE_SHOT)
 	if _active_decals.size() > MAX_DECALS:
 		var oldest: Decal = _active_decals.pop_front() as Decal
 		if is_instance_valid(oldest):

@@ -4,7 +4,7 @@ extends Control
 ##
 ## 位于屏幕中下方（生命面板正上方），实时反映能量蓄积与爆发就绪状态。
 ## - 充能中：紫蓝能量流动，显示百分比
-## - 蓄满 100% 时：金色脉冲外框 + 呼吸发光，提示「★ 共鸣就绪 [长按 R / F 释放]」
+## - 蓄满 100% 时：金色脉冲外框 + 呼吸发光，提示「★ 共鸣就绪 [按 C 释放]」
 ## - 溢出阶段：超过 100% 的部分显示为高亮琥珀金，提示额外伤害加成
 
 const UiThemeUtil := preload("res://scripts/ui_theme.gd")
@@ -75,10 +75,10 @@ func _draw() -> void:
 	# 4. 文字提示
 	var text_y := 15.0
 	if is_ready:
-		var label := "★ 共鸣就绪 [按 R / F 爆发]"
+		var label := "★ 共鸣就绪 [按 C 爆发]"
 		if is_overflow:
 			var bonus := roundi((_energy / _max_energy - 1.0) * 100.0)
-			label = "★ 满载过载 +%d%% [按 R 释放]" % bonus
+			label = "★ 满载过载 +%d%% [按 C 释放]" % bonus
 		var pulse_val := 0.75 + sin(_pulse_time * 8.0) * 0.25
 		var txt_col := Color(1.0, 0.95, 0.4, pulse_val)
 		var w := UiThemeUtil.tracked_width(_font, label, 11, 0.2)
