@@ -347,7 +347,10 @@ func _spatial_attack_pose(pose: Transform3D) -> bool:
 		"angle": _p("attack_angle") * 2.0, "height": 2.0 * _crowd.size_multiplier, "ground_effect": false}, target)
 
 
-func trigger_hit_stagger(knockback_dir: Vector3) -> void:
+func apply_grenade_stagger(seconds: float) -> void:
+	trigger_hit_stagger(_push_velocity, seconds)
+
+func trigger_hit_stagger(knockback_dir: Vector3, minimum_seconds: float = 0.0) -> void:
 	if current_state == State.DEAD or not _reactions.allow_normal_stagger():
 		return
 	_stop_action()
@@ -356,6 +359,7 @@ func trigger_hit_stagger(knockback_dir: Vector3) -> void:
 	_push_velocity = Vector3(knockback_dir.x, 0.0, knockback_dir.z)
 	_action_tween = create_tween().set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
 	_action_tween.tween_property(torso_pivot, "rotation_degrees", Vector3(-35, randf_range(-15, 15), 0), _p("stagger_hit_time")).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
+	_action_tween.tween_interval(maxf(minimum_seconds - _p("stagger_hit_time") - _p("stagger_recovery"), 0.0))
 	_action_tween.tween_property(torso_pivot, "rotation_degrees", Vector3.ZERO, _p("stagger_recovery")).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_action_tween.tween_callback(_finish_action)
 

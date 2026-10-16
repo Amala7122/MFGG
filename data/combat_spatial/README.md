@@ -23,9 +23,9 @@
 
 ## 物理和策略
 
-行走使用实际碰撞烘焙的导航，逐段验证地板、完整身体与头顶。跳越验证起跳、整个弧线、完整脚印和下降后的出口，用正常碰撞与重力移动。薄板坡仍保留挡脚边，由既有 0.3m 跨坎能力通过。
+行走使用实际碰撞烘焙的导航，逐段验证地板、完整身体与头顶。跳越验证起跳、整个弧线、完整脚印和下降后的出口，用正常碰撞与重力移动。以目标为中心生成落点时，候选半径至少容纳双方实际身体半径与 0.25m 余量，避免放大角色的整圈候选都与目标重叠。薄板坡仍保留挡脚边，由既有 0.3m 跨坎能力通过。
 
-破障只预测具体物件与足够强度的真实动作；未击破前不能通行。破坏 / 恢复使路线失效并合并导航重烘焙。攻击玩家的候选检查当前真实遮挡，合法破障则可以先攻击物件。
+破障只预测具体物件与足够强度的真实动作；未击破前不能通行。破坏 / 恢复使路线失效并合并导航重烘焙。攻击玩家的候选检查当前真实遮挡，合法破障则可以先攻击物件。正式圣所的 `FieldCover` 已接入同一石材 / 木材破坏组件，沉积泰坦沿用自身砸地前摇与命中结算，不复制演示场专用动作。
 
 主动下降前证明能从预计落点返回原安全支撑。入口消耗计入返程冷却，等待不能超过 `max_escape_wait`；坑内预留出口。玩家真正离坑后优先返程，回到安全支撑才释放预留。强制掉落保留真实物理后果，从已知上层支撑重验出口，不瞬移或刷新技能。
 
@@ -47,4 +47,4 @@
 
 `FLY` 支持经验证的空域连接；`CUSTOM` 通过 `TraversalCapability` 的 `plan_custom / begin_custom / step_custom / cancel_custom` 扩展，默认拒绝。潜地介质与出土执行器尚未实现；泰坦的出生出土动画不算脱困能力。
 
-演示：`res://prototypes/combat/spatial/capability_lab.tscn`；真实敌人投放：同目录 `combat_spatial_lab.tscn`。行为测试：`tests/test_combat_spatial_capabilities.gd`、`test_combat_spatial_policy.gd`。
+演示：`res://prototypes/spatial_lab/capability_lab.tscn`；真实敌人投放：同目录 `combat_spatial_lab.tscn`。行为测试：`tests/test_combat_spatial_capabilities.gd`、`test_combat_spatial_policy.gd`。

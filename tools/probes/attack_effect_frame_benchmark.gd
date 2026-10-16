@@ -1,6 +1,6 @@
 extends SceneTree
 ## 六个持续转向的地面预警、三个横扫效果，测量实际渲染帧间隔与效果 CPU 成本。
-const SpatialScene := preload("res://prototypes/combat/spatial/combat_spatial_lab.tscn")
+const SpatialScene := preload("res://prototypes/spatial_lab/combat_spatial_lab.tscn")
 const AttackArea := preload("res://scripts/enemy_attack_area.gd")
 const MeleeEffect := preload("res://scripts/prototypes/titan_melee_effect.gd")
 var _lab: Node3D

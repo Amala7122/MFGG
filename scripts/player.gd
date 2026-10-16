@@ -120,7 +120,14 @@ var _roll_time := 0.0
 var _roll_direction := Vector3.FORWARD
 var _dodge_cooldown := 0.0
 var _grenade_cooldown := 0.0
+var _grenade_reserve := preload("res://scripts/grenade_reserve.gd").new()
 var _skill_cooldown := 0.0
+## 震地脉冲（Q）的点数：用一次扣 1，随时间逐个回充。
+## 冷却只负责两次使用之间的间隔（防止一口气把点数全放掉）。
+var _skill_charges := 3
+var _skill_charges_max := 3
+var _skill_recharge_time := 16.0
+var _skill_recharge_timer := 16.0
 var _damage_invulnerability := 0.0
 ## ── juice 底座（ruin-star 移植）────────────────────────────────────
 ## 受击顿帧计时：CombatFX.hitstop() 会调 apply_hitstop()，_tick_timers 里消费。
@@ -185,6 +192,10 @@ func _ready() -> void:
 	_has_safe_position = true
 	shield = max_shield
 	_setup_components()
+	# 通常玩家先生成；也兼容玩家晚于正式Boss入树。
+	for boss in get_tree().get_nodes_in_group("boss"):
+		if boss.has_method("get_grenade_resource_config"):
+			enter_titan_grenade_reserve(boss, boss.call("get_grenade_resource_config"))
 	_update_flashlight()
 	_refresh_hud()
 
@@ -218,6 +229,17 @@ func _read_ability_config() -> void:
 	skill_radius = maxf(ConfigUtil.get_float("abilities.skill.radius", 9.0), 0.5)
 	skill_damage = maxf(ConfigUtil.get_float("abilities.skill.damage", 55.0), 0.0)
 	skill_push = maxf(ConfigUtil.get_float("abilities.skill.push", 15.0), 0.0)
+	# Q 的点数：上限 / 起手 / 每点回充秒数。起手给满，方便试玩时立刻感受到
+	# "攒着三点"和"只剩一点"的差别。
+	_skill_charges_max = maxi(int(ConfigUtil.get_float("abilities.skill.charges_max", 3.0)), 1)
+	_skill_recharge_time = maxf(
+		ConfigUtil.get_float("abilities.skill.charge_recharge_seconds", 16.0), 0.5
+	)
+	_skill_charges = clampi(
+		int(ConfigUtil.get_float("abilities.skill.charges_start", float(_skill_charges_max))),
+		0, _skill_charges_max
+	)
+	_skill_recharge_timer = _skill_recharge_time
 	dodge_speed = maxf(ConfigUtil.get_float("abilities.dodge.speed", 12.5), 0.0)
 	dodge_duration = maxf(ConfigUtil.get_float("abilities.dodge.duration", 0.42), 0.05)
 	dodge_cooldown_time = maxf(ConfigUtil.get_float("abilities.dodge.cooldown", 0.85), 0.0)
@@ -307,7 +329,7 @@ func _refresh_hud() -> void:
 	_hud.set_shield(shield, max_shield)
 	_hud.set_kills(kill_count)
 	_hud.set_survival(survival_time, best_survival_time)
-	_hud.set_abilities(_grenade_cooldown, _skill_cooldown)
+	_hud.set_abilities(_grenade_cooldown, _skill_cooldown, _skill_charges, _skill_charges_max, get_grenade_status())
 	if _weapon:
 		_hud.set_weapon_level(
 			_weapon.get_level(), _weapon.get_pellet_count(), _weapon.get_bullet_damage()
@@ -456,10 +478,32 @@ func _try_step_up(start: Transform3D, horizontal_motion: Vector3, started_on_flo
 	apply_floor_snap()
 
 
+## 震地脉冲的点数回充：满点时不走计时（避免"满着还在读条"的错觉）。
+##
+## 速率上限由回充速度决定，冷却只负责两次使用之间的最小间隔 ——
+## 两者合起来的效果是：应急时能连着放三点（每点位 3 秒），
+## 但长期平均使用频率反而比改动前的"每 9 秒固定一次"更低。
+func _tick_skill_charges(delta: float) -> void:
+	if _skill_charges >= _skill_charges_max:
+		_skill_recharge_timer = _skill_recharge_time
+		return
+	_skill_recharge_timer = maxf(_skill_recharge_timer - delta, 0.0)
+	if _skill_recharge_timer > 0.0:
+		return
+	_skill_charges = mini(_skill_charges + 1, _skill_charges_max)
+	_skill_recharge_timer = _skill_recharge_time
+	if _hud:
+		_hud.set_abilities(_grenade_cooldown, _skill_cooldown, _skill_charges, _skill_charges_max, get_grenade_status())
+
+
 func _tick_timers(delta: float) -> void:
+	if _grenade_reserve.active() and not _grenade_reserve.owner_alive():
+		_grenade_cooldown = _grenade_reserve.leave(_grenade_cooldown)
+	_grenade_reserve.tick(delta)
 	_dodge_cooldown = maxf(_dodge_cooldown - delta, 0.0)
 	_grenade_cooldown = maxf(_grenade_cooldown - delta, 0.0)
 	_skill_cooldown = maxf(_skill_cooldown - delta, 0.0)
+	_tick_skill_charges(delta)
 	_damage_invulnerability = maxf(_damage_invulnerability - delta, 0.0)
 	_hitstop_timer = maxf(_hitstop_timer - delta, 0.0)
 	_parry_window = maxf(_parry_window - delta, 0.0)
@@ -662,13 +706,42 @@ func _compute_weapon_direction() -> Vector3:
 	return (horizontal * cos(pitch) + Vector3.UP * sin(pitch)).normalized()
 
 
+## 【实验场】无冷却无限次。
+##
+## 与 `experiment_invincible` 同一套约定：实验场给玩家挂 meta，正式游戏永远没有这个 meta，
+## 于是同一份实现在两边的行为不受影响（AGENTS.md：预览和正式游戏共用实现与配置）。
+##
+## 为什么需要它：机制验证要**反复触发同一个事件**（盾卫迎面对盾、手雷破防），
+## 卡在冷却上会把单次观察拉长到十几秒；Q 还额外受点数制限制。
+func _abilities_unlimited() -> bool:
+	return bool(get_meta(&"experiment_unlimited_abilities", false))
+
+
+func enter_titan_grenade_reserve(boss: Node, values: Dictionary) -> void:
+	if not bool(boss.get_meta(&"formal_boss", false)) or not bool(values.get("grenade_reserve_enabled", false)):
+		return
+	_grenade_cooldown = _grenade_reserve.enter(boss, values, _grenade_cooldown)
+	_refresh_hud()
+
+func leave_titan_grenade_reserve(boss: Node) -> void:
+	if _grenade_reserve.matches(boss):
+		_grenade_cooldown = _grenade_reserve.leave(_grenade_cooldown)
+		_refresh_hud()
+
+func get_grenade_status() -> Dictionary:
+	return _grenade_reserve.snapshot(_grenade_cooldown)
+
+func can_throw_grenade() -> bool:
+	return _grenade_cooldown <= 0.0 and (_abilities_unlimited() or not _grenade_reserve.active() or _grenade_reserve.count() > 0)
+
 func _handle_grenade() -> void:
-	if _grenade_cooldown > 0.0 or not _just("grenade"):
+	if not can_throw_grenade() or not _just("grenade"):
 		return
 	var scene := get_tree().current_scene
 	if not scene:
 		return
-	_grenade_cooldown = grenade_cooldown_time
+	if not _abilities_unlimited():
+		_grenade_cooldown = _grenade_reserve.spend(grenade_cooldown_time) if _grenade_reserve.active() else grenade_cooldown_time
 	var forward := -camera_pivot.global_basis.z
 	var origin := global_position + Vector3.UP * 1.35 + forward * 0.7
 	var grenade := Grenade.new()
@@ -678,12 +751,21 @@ func _handle_grenade() -> void:
 
 
 func _handle_skill() -> void:
-	if _skill_cooldown > 0.0 or not _just("skill"):
+	# 【点数 + 冷却】点数决定"一场里能用几次"，冷却决定"两次之间隔多久"。
+	# 两个条件都要满足：只有点数没有冷却，会在被围住时一口气把 3 点全放掉
+	# （用户明确要求防止"直接 3"）；只有冷却没有点数，就是改动前那种
+	# "每 9 秒固定一次"，攒不出应急手段。
+	if _skill_cooldown > 0.0 or _skill_charges <= 0 or not _just("skill"):
 		return
 	var scene := get_tree().current_scene
 	if not scene:
 		return
-	_skill_cooldown = skill_cooldown_time
+	# 实验场无冷却无限次：不扣点、不进冷却，于是使用条件恒成立，可以连着放。
+	if not _abilities_unlimited():
+		_skill_cooldown = skill_cooldown_time
+		_skill_charges -= 1
+	if _hud:
+		_hud.set_abilities(_grenade_cooldown, _skill_cooldown, _skill_charges, _skill_charges_max, get_grenade_status())
 	# juice：震地格挡的保命机制 —— 0.65s 绝对防御 + 同长的完美格挡窗口
 	grant_invulnerability(0.65)
 	_parry_window = 0.65
@@ -718,7 +800,7 @@ func _update_presentation(delta: float) -> void:
 	if _hud.has_method("set_sprint"):
 		_hud.set_sprint(_sprinting)
 	_hud.set_survival(survival_time, best_survival_time)
-	_hud.set_abilities(_grenade_cooldown, _skill_cooldown)
+	_hud.set_abilities(_grenade_cooldown, _skill_cooldown, _skill_charges, _skill_charges_max, get_grenade_status())
 	# 生命与护盾都必须每帧刷新，不能只在受伤时推送。
 	# 原因：两者都会【自动回复】，而回复这条路不会经过 take_damage / try_heal ——
 	# 只推一次的话，自愈期间 HUD 显示的是旧值，低血量叠加层也会一直不消退。
@@ -788,12 +870,18 @@ func _recover_if_below_world() -> bool:
 	var rescue := _last_safe_position if _has_safe_position else Vector3(
 		0.0, TerrainFieldUtil.height_at(0.0, 0.0), 0.0
 	)
+	var fallen_from := global_position
 	global_position = rescue + Vector3.UP * FALL_RESCUE_LIFT
 	velocity = Vector3.ZERO
 	_fall_speed = 0.0
 	_was_grounded = false
 	_safe_ground_time = 0.0
 	apply_floor_snap()
+	var recorder := preload("res://scripts/combat_telemetry.gd").recorder(self)
+	if recorder != null and recorder.has_method("_event"):
+		recorder.call("_event", "player_recovered", {"from": [fallen_from.x, fallen_from.y, fallen_from.z],
+			"to": [global_position.x, global_position.y, global_position.z], "expected_ground": expected_ground,
+			"rolling": _rolling, "collision_mask": collision_mask})
 	if _hud:
 		_hud.show_notice("已返回最近的安全位置", "shield")
 	return true
@@ -850,7 +938,8 @@ func take_damage(
 	shield = maxf(shield - absorbed_raw * scale, 0.0)
 	# 先扣护盾，溢出部分才进生命。护盾吸完就"碎"，不会挡住溢出伤害 ——
 	# 否则高护盾等于一段无敌时间，生存压力会消失。
-	health = maxf(health - (amount - absorbed_raw), 0.0)
+	var health_damage := amount - absorbed_raw
+	health = maxf(health - health_damage, 0.0)
 	# juice：护盾被打穿 → 共鸣充能激增 + 破盾反馈
 	if prev_shield > 0.0 and shield <= 0.0:
 		if _resonance != null:
@@ -868,14 +957,21 @@ func take_damage(
 	_health_regen_timer = _health_regen_delay
 	_damage_invulnerability = hit_invulnerability
 	AudioUtil.play("hurt")
+	# 【打中能量盾 ≠ 打中身体】护盾全吸收时角色不播受击白闪，
+	# 改由 HUD 播青色能量护盾闪光（见 player_hud.flash_shield_hit）——
+	# 否则护盾只是一段"看不见的血量"，玩家感觉不到它挡了什么。
+	var shield_only := health_damage <= 0.001 and absorbed_raw > 0.0
 	if _rig:
-		if amount > 0.0:
+		if amount > 0.0 and not shield_only:
 			_rig.flash_hit()
 		_rig.flinch()
 	if _hud:
 		_hud.set_health(health, max_health)
 		_hud.set_shield(shield, max_shield)
-		_hud.flash_damage()
+		if shield_only:
+			_hud.flash_shield_hit()
+		else:
+			_hud.flash_damage()
 		_hud.show_damage_direction(global_position, source_position)
 	if health <= 0.0:
 		_die()

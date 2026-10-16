@@ -12,6 +12,14 @@ static func recorder(node: Object) -> RefCounted:
 		return null
 	return node.get_meta(RECORDER, null) as RefCounted
 
+static func enemy_attack_started(host: Node, attack: String) -> void:
+	var stats := recorder(host)
+	if stats == null:
+		return
+	host.set_meta(&"sparring_attack_serial", int(host.get_meta(&"sparring_attack_serial", 0)) + 1)
+	if stats.has_method("record_enemy_attack"):
+		stats.call("record_enemy_attack", host, attack)
+
 
 static func begin_attack(host: Node, source: String) -> Dictionary:
 	var stats := recorder(host)
@@ -24,10 +32,13 @@ static func begin_attack(host: Node, source: String) -> Dictionary:
 static func source_info(source: Node, attack: String) -> Dictionary:
 	if not is_instance_valid(source):
 		return {"id": "unknown", "title": "未归属", "attack": attack}
-	return {
+	var info := {
 		"id": String(source.get_meta(&"lab_roster_id", "unknown")),
 		"title": String(source.get_meta(&"lab_title", "未归属")), "attack": attack,
 	}
+	if source.has_meta(&"sparring_actor_id"):
+		info["subject_id"] = String(source.get_meta(&"sparring_actor_id"))
+	return info
 
 
 static func hurt_player(target: Node, amount: float, at: Vector3, scale: float, info: Dictionary) -> void:

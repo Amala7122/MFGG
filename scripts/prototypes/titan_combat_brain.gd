@@ -11,6 +11,46 @@ var last_established_near := false
 var history: Array[Dictionary] = []
 var _settings: Dictionary
 var elapsed := 0.0
+var group_index := 0
+var group_count := 0
+var link_elapsed := 0.0
+var group_limit := 2
+var group_result := "ready"
+
+func rhythm_enabled() -> bool:
+	return bool(_settings.get("offense_enabled", false))
+
+func commit_offense(rage: bool, heavy: bool) -> void:
+	if not rhythm_enabled():
+		return
+	if group_count == 0:
+		group_index += 1
+		# 已开始的一组不因半血切换临时多加一刀。
+		group_limit = int(_settings.offense_rage_limit if rage else _settings.offense_front_limit)
+	group_count += 1
+	link_elapsed = 0.0
+	group_result = "heavy" if heavy else "pressure"
+
+func finish_group(reason: String) -> void:
+	group_count = 0
+	link_elapsed = 0.0
+	group_result = reason
+
+func needs_heavy(rage := false) -> bool:
+	if not rhythm_enabled():
+		return false
+	var limit := group_limit if group_count > 0 else int(_settings.offense_rage_limit if rage else _settings.offense_front_limit)
+	return group_count >= limit - 1
+
+func link_expired(delta: float) -> bool:
+	if not rhythm_enabled() or group_count == 0:
+		return false
+	link_elapsed += delta
+	return link_elapsed >= float(_settings.offense_link_timeout)
+
+func rhythm_snapshot() -> Dictionary:
+	return {"enabled": rhythm_enabled(), "group": group_index, "count": group_count,
+		"limit": group_limit, "link_elapsed": link_elapsed, "result": group_result}
 
 func setup(settings: Dictionary) -> void:
 	_settings = settings
@@ -66,6 +106,8 @@ func started(skill: String, reason: String, distance: float) -> void:
 	last_established_near = false
 	history.append({"time": snappedf(elapsed, 0.001), "skill": skill, "reason": reason,
 		"distance": snappedf(distance, 0.01), "result": last_result})
+	if rhythm_enabled():
+		history[-1]["rhythm"] = rhythm_snapshot()
 	if history.size() > 64:
 		history.pop_front()
 

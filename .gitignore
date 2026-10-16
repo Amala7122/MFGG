@@ -4,6 +4,11 @@ build/
 export_templates/
 *.log
 
+# Godot engine binaries — never commit
+# 单个 exe 超过 GitHub 的 100 MB 单文件上限，误提交会导致 push 被拒绝
+Godot_v*.exe
+Godot_v*.exe.sha256
+
 # Iteration artifacts (screenshots, perf CSVs)
 visual_captures/
 performance_logs/
@@ -28,3 +33,7 @@ parse_sweep_result.txt
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# 第三方音效库：Ovani Sound 授权要求不要把原始音频提交到公开仓库
+# （FAQ 明确建议开源项目忽略音频目录；见 docs/issues.md 的 I-035）
+addons/Sound FX Starter Pack Vol. 1/

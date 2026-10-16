@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "active": "mixed_patrol",
+  "max_enemies": 128,
+  "groups": {
+    "melee_patrol": {"title": "近战小队", "selection": {"L1MeleeSoldier": 2, "L2SwiftBlade": 1}},
+    "mixed_patrol": {"title": "近远程混合小队", "selection": {"L1MeleeSoldier": 2, "L1ScoutGunner": 2, "L2BurstRanger": 1}}
+  }
+}

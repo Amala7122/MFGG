@@ -41,7 +41,11 @@ def main() -> int:
     results = [run_check(godot, isolated, run / "logs", "import",
                          ["--editor", "--import"], max(args.timeout, 240), False)]
     if results[0]["passed"]:
-        command = ["--fixed-fps", "60", "--script", "res://" + script.relative_to(project).as_posix(),
+        # 实战 NPC 有真实毫秒限流；无头不应等于加速模拟。机制快测须显式请求 fast。
+        sparring = script.stem in {"combat_sparring", "titan_sparring", "sparring_human_check"}
+        fast = "--pacing=fast" in args.args
+        pacing = ["--max-fps", "60"] if sparring and not fast else ["--fixed-fps", "60"]
+        command = [*pacing, "--script", "res://" + script.relative_to(project).as_posix(),
                    "--", "--artifact-dir=" + str(run), *args.args]
         results.append(run_check(godot, isolated, run / "logs", script.stem, command, args.timeout, args.graphics))
     passed = write_report(run / "reports", results, [], project)

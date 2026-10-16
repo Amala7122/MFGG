@@ -12,6 +12,7 @@ const TICK_INTERVAL := 0.5
 var _remaining_time := DURATION
 var _tick_elapsed := 0.0
 var _tick_damage := 20.0
+var _boss_damage_scale := 1.0
 var _area: Node3D
 
 
@@ -20,15 +21,16 @@ func _ready() -> void:
 	add_child(_area)
 
 
-func setup(radius: float, damage_per_second: float) -> void:
+func setup(radius: float, damage_per_second: float, boss_damage_scale := 1.0) -> void:
 	_tick_damage = maxf(damage_per_second, 0.0) * TICK_INTERVAL
+	_boss_damage_scale = maxf(boss_damage_scale, 0.0)
 	_area.prepare(global_transform, {"kind": "circle", "radius": maxf(radius, 0.1),
 		"height": 2.5, "source_height": 0.2,
 		"exclude_bodies": _enemy_bodies()}, _tick_damage)
 	_area.lock()
 	_area.set_progress(1.0)
 	_area._material.shader = BurnShader
-	(_area._border.material_override as StandardMaterial3D).albedo_color = Color(1.0, 0.65, 0.1, 0.9)
+	(_area._border.material_override as ShaderMaterial).set_shader_parameter("border_color", Color(1.0, 0.65, 0.1, 1.0))
 
 
 func _physics_process(delta: float) -> void:
@@ -58,10 +60,14 @@ func _damage_targets() -> void:
 			target.global_position, 1, excluded)
 		if not get_world_3d().direct_space_state.intersect_ray(ray).is_empty():
 			continue
-		Telemetry.hurt_enemy(target, _tick_damage, {"source": "resonance_burn", "source_kind": "player"})
+		var is_boss: bool = target.is_in_group("boss") or target.name == "Boss" or target.get("is_boss") == true
+		var damage := _tick_damage * (_boss_damage_scale if is_boss else 1.0)
+		if damage <= 0.0:
+			continue
+		Telemetry.hurt_enemy(target, damage, {"source": "resonance_burn", "source_kind": "player"})
 		if is_instance_valid(target):
 			CombatFXUtil.spawn_damage_number(self, target.global_position + Vector3.UP,
-				_tick_damage, Color(1.0, 0.55, 0.1), 0.85)
+				damage, Color(1.0, 0.55, 0.1), 0.85)
 
 
 func _enemy_bodies() -> Array[RID]:

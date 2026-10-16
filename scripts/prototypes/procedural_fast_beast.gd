@@ -443,7 +443,10 @@ func _land_recovery() -> void:
 	_action_tween.tween_callback(_enter_circle)
 
 
-func trigger_hit_stagger(recoil: Vector3) -> void:
+func apply_grenade_stagger(seconds: float) -> void:
+	trigger_hit_stagger(_push_velocity, seconds)
+
+func trigger_hit_stagger(recoil: Vector3, minimum_seconds: float = 0.0) -> void:
 	if current_state == State.DEAD or not _reactions.allow_normal_stagger():
 		return
 	_stop_action()
@@ -458,7 +461,7 @@ func trigger_hit_stagger(recoil: Vector3) -> void:
 	_action_tween = create_tween().set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
 	_action_tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_action_tween.tween_property(head_pivot, "rotation_degrees:y", randf_range(-35.0, 35.0), _p("stagger_hit_time"))
-	_action_tween.tween_interval(_p("stagger_hold"))
+	_action_tween.tween_interval(maxf(_p("stagger_hold"), minimum_seconds - _p("stagger_hit_time") - _p("stagger_recovery")))
 	_action_tween.tween_property(head_pivot, "rotation_degrees:y", 0.0, _p("stagger_recovery"))
 	_action_tween.tween_callback(_enter_circle)
 

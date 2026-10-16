@@ -148,6 +148,11 @@ static func _sanctum_micro_clearance(x: float, z: float) -> float:
 	clearance = minf(clearance, _outside_detail_rect(x, z, -12, 12, -83, 84, 2.5))
 	clearance = minf(clearance, _outside_detail_rect(x, z, -31, 33, -53, -8, 3.0))
 	clearance = minf(clearance, _outside_detail_rect(x, z, -43, 58, -5, 9, 3.0))
+	var map: Dictionary = _arena_params.get("map", {})
+	for rect in map.get("decor_clear_rects", []):
+		if rect is Array and rect.size() >= 4:
+			clearance = minf(clearance, _outside_detail_rect(x, z,
+				float(rect[0]), float(rect[1]), float(rect[2]), float(rect[3]), 3.0))
 	return clearance
 
 

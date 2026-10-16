@@ -1,6 +1,6 @@
 extends SceneTree
 ## 使用默认 AI 与真实攻击，不抑制停步 / 选招来绕过空间决策。
-const Scene := preload("res://prototypes/combat/spatial/combat_spatial_lab.tscn")
+const Scene := preload("res://prototypes/spatial_lab/combat_spatial_lab.tscn")
 const Query := preload("res://scripts/spatial_query.gd")
 const Retreat := preload("res://scripts/spatial_retreat_planner.gd")
 var lab: Node3D

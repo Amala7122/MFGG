@@ -3,12 +3,20 @@ const Query := preload("res://scripts/spatial_query.gd")
 const Capability := preload("res://scripts/traversal_capability.gd")
 const Destruction := preload("res://scripts/environment_destruction.gd")
 const SurfaceTraversal := preload("res://scripts/surface_traversal.gd")
+const PathStyle := preload("res://scripts/navigation_path.gd")
 var body: CharacterBody3D
 var profile: Resource
 var capabilities: Array[Resource] = []
 var navigation_map := RID()
 var target: Node3D
 var goal := Vector3.ZERO
+## 粗略 / 环带目标：非零时用它替代目标节点的位置作为落脚目标。
+## 只用它算路线，朝向 / 接战判定仍然对着 target 节点。
+##
+## 【调用顺序】这两个字段只在 begin() 内被读取。必须在 begin() **之前**设置，
+## 放到 begin() 之后再设会被静默忽略（I-082：环带目标与粗略目标的搜索目标曾因此从未生效）。
+var goal_override := Vector3.ZERO
+var has_goal_override := false
 var ready_after: Dictionary = {}
 var done := false
 var result: Dictionary = {}
@@ -30,6 +38,9 @@ func begin(actor: CharacterBody3D, settings: Resource, abilities: Array[Resource
 	ready_after = availability.duplicate()
 	_goal_support = Query.support(target)
 	goal = Query.body_on_floor(body, _goal_support) if not _goal_support.is_empty() else target.global_position
+	# 远处的粗略目标：只改「落脚在哪」，不改朝向与接战判定对象。
+	if has_goal_override:
+		goal = goal_override
 	_queue.append({"at": body.global_position, "pose": body.global_transform, "cost": 0.0, "time": 0.0, "segments": [], "exclude": [], "used": {}})
 
 func set_attack_goal(check: Callable) -> void:
@@ -134,17 +145,20 @@ func walk_route(origin: Vector3, destination: Vector3, exclude: Array[RID] = [])
 		return {}
 	var points := PackedVector3Array([origin, destination])
 	if Query.ground_segment(body, origin, destination, float(profile.safe_drop), exclude):
-		return {"kind": "walk", "points": points, "landing": destination, "cost": origin.distance_to(destination) / speed}
+		return {"kind": "walk", "points": points, "landing": destination, "cost": origin.distance_to(destination) / speed, "direct": true}
 	if not navigation_map.is_valid() or NavigationServer3D.map_get_iteration_id(navigation_map) == 0:
 		return {}
 	var half := float(Query.dimensions(body).half_height)
 	var source := NavigationServer3D.map_get_closest_point(navigation_map, origin - Vector3.UP * half)
 	var end := NavigationServer3D.map_get_closest_point(navigation_map, destination - Vector3.UP * half)
+	var radius := float(Query.dimensions(body).radius)
+	var floor_depth := maxf(1.5, radius * tan(body.floor_max_angle) + 0.35)
+	var end_floor := Query.floor_at(body, end, floor_depth, exclude)
 	# 投影只能补偿烘焙余量，不能把另一个楼层 / 部分路径当成完整可达。
-	if absf(end.y - (destination.y - half)) > 0.4:
+	# 比较真实落脚高度：体素网格在平地也可能高出两个垂直栅格，不能据此拒绝地面。
+	if end_floor.is_empty() or absf(Query.ground_pose(body, end_floor, exclude).y - destination.y) > 0.4:
 		if Query.debug: print("[T03 nav] goal_height ", end, " destination=", destination)
 		return {}
-	var radius := float(Query.dimensions(body).radius)
 	if Vector2(end.x - destination.x, end.z - destination.z).length() > radius + 0.5:
 		var projected := Query.floor_at(body, end, 0.35, exclude)
 		if projected.is_empty() or not _can_attack_at(Query.body_on_floor(body, projected)):
@@ -154,29 +168,72 @@ func walk_route(origin: Vector3, destination: Vector3, exclude: Array[RID] = [])
 	parameters.map = navigation_map
 	parameters.start_position = source
 	parameters.target_position = end
-	parameters.path_postprocessing = NavigationPathQueryParameters3D.PATH_POSTPROCESSING_EDGECENTERED
-	var answer := NavigationPathQueryResult3D.new()
-	NavigationServer3D.query_path(parameters, answer)
-	var path := answer.path
-	if path.is_empty() or path[path.size() - 1].distance_to(end) > 0.4:
-		if Query.debug: print("[T03 nav] partial ", end, " path=", path)
-		return {}
-	points = PackedVector3Array([origin])
-	var cost := 0.0
-	for ground in path:
-		var hit := Query.floor_at(body, ground, maxf(0.65, radius * tan(body.floor_max_angle) + 0.25), exclude)
+	var preferred := NavigationPathQueryParameters3D.PATH_POSTPROCESSING_EDGECENTERED if radius >= 1.3 or absf(source.y - end.y) > float(profile.safe_drop) + 0.1 else NavigationPathQueryParameters3D.PATH_POSTPROCESSING_CORRIDORFUNNEL
+	var alternative := NavigationPathQueryParameters3D.PATH_POSTPROCESSING_CORRIDORFUNNEL if preferred == NavigationPathQueryParameters3D.PATH_POSTPROCESSING_EDGECENTERED else NavigationPathQueryParameters3D.PATH_POSTPROCESSING_EDGECENTERED
+	var complete_paths: Array[PackedVector3Array] = []
+	# 网格门户的中点可落在体素近似的陡边上，最短通道也可能擦角。
+	# 第一种落脚线失败时尝试另一种；两者接受标准完全相同，不能放松碰撞/支撑。
+	for processing in [preferred, alternative]:
+		parameters.path_postprocessing = processing
+		var answer := NavigationPathQueryResult3D.new()
+		NavigationServer3D.query_path(parameters, answer)
+		var path := answer.path
+		if path.is_empty() or path[path.size() - 1].distance_to(end) > 0.4:
+			if Query.debug: print("[T03 nav] partial ", end, " path=", path)
+			continue
+		complete_paths.append(path)
+		points = _physical_walk_points(origin, path, floor_depth, exclude)
+		if points.is_empty(): continue
+		var base_points := points
+		points = PathStyle.shape(body, navigation_map, points, float(profile.safe_drop), exclude)
+		var cost := 0.0
+		for i in range(1, points.size()): cost += points[i - 1].distance_to(points[i]) / speed
+		# base = APS 流水线的输入（基础网格路径经真实落脚后的点列），观察台据此画三段路线。
+		return {"kind": "walk", "points": points, "base": base_points, "landing": points[points.size() - 1], "cost": cost}
+	# 门户本身可能位于陡边；允许略过无支撑的中间提示点，但不略过身体通道检查。
+	for path in complete_paths:
+		points = _physical_walk_points(origin, path, floor_depth, exclude, true)
+		if points.is_empty(): continue
+		var base_points := points
+		points = PathStyle.shape(body, navigation_map, points, float(profile.safe_drop), exclude)
+		var cost := 0.0
+		for i in range(1, points.size()): cost += points[i - 1].distance_to(points[i]) / speed
+		return {"kind": "walk", "points": points, "base": base_points, "landing": points[points.size() - 1], "cost": cost}
+	return {}
+
+func _physical_walk_points(origin: Vector3, path: PackedVector3Array, floor_depth: float, exclude: Array[RID], repair := false) -> PackedVector3Array:
+	var points := PackedVector3Array([origin])
+	var pinned := PackedVector3Array()
+	for index in range(path.size()):
+		var ground := path[index]
+		# 网格坡面是体素近似，路径点可能高于真实坡脚；先找到真实支撑再验身体通道。
+		# 下探范围不是允许跌落高度，下面 ground_segment 仍按 safe_drop 逐段守住。
+		var hit := Query.floor_at(body, ground, floor_depth, exclude)
 		if hit.is_empty():
 			if Query.debug: print("[T03 nav] missing_ground ", ground)
-			return {}
-		var point := Query.ground_pose(body, hit, exclude)
+			if repair and index < path.size() - 1: continue
+			return PackedVector3Array()
+		pinned.append(Query.ground_pose(body, hit, exclude))
+	var index := 0
+	while index < pinned.size():
+		var point := pinned[index]
 		var previous := points[points.size() - 1]
 		if previous.distance_to(point) < 0.12:
+			index += 1
 			continue
 		if not Query.ground_segment(body, previous, point, float(profile.safe_drop), exclude):
-			return {}
-		cost += previous.distance_to(point) / speed
+			var found := false
+			if repair:
+				for next_index in range(index + 1, mini(index + 5, pinned.size())):
+					if Query.ground_segment(body, previous, pinned[next_index], float(profile.safe_drop), exclude):
+						point = pinned[next_index]
+						index = next_index
+						found = true
+						break
+			if not found: return PackedVector3Array()
 		points.append(point)
-	return {"kind": "walk", "points": points, "landing": points[points.size() - 1], "cost": cost}
+		index += 1
+	return points
 
 func _enqueue(state: Dictionary, segment: Dictionary, ability: Resource, wait: float, extra_exclude: Array[RID] = []) -> void:
 	var point: Vector3 = segment.landing

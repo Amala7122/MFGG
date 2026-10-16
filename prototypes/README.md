@@ -2,32 +2,77 @@
 
 > 本文保留实验场用法与历史实现说明，不是当前任务入口。2026-10-08 文档重置后，功能是否已接入须按当前代码核对；本文及 [原型登记表](STATUS.md) 中的历史状态、待办和归档链接不决定后续工作。除非用户明确要求追溯历史，不打开归档链接。
 
+## 哪个台子在哪（先看这张表）
+
+当前共有 **12 个可直接 F6 运行的有效入口**。统计不包含 `enemy_prototypes/` 与
+`visual_lab/` 里的被加载子场景、`spatial_lab/` 的场景零件、`legacy/` 旧原型，也不把
+根目录历史转发壳 `combat_lab.tscn` 重复计数。
+
+**每个实验场一个目录，目录深度只有一层**，不再出现「实验场里套实验场」。
+（2026-10-09 扁平化：原先 `combat/spatial/` 里放的是更常用的小空间台，找起来要记两个路径。）
+
+| 目录 | 入口场景（F6 运行） | 用来干什么 |
+|---|---|---|
+| **`boss_lab/`** ★直接开打 | `sediment_titan_boss_lab.tscn` | **沉积泰坦正式 Boss 直战**：复用圣所、正式生成器与结算；跳过四波，武器 25 级、三模块各 8 层、弹药全满；C 共鸣、R 换弹、F5 重新挑战 |
+| `boss_lab/` | `titan_sparring_lab.tscn` | **可复用自动陪练／真人录制**：真实血盾、弹药、冷却与碰撞；命名策略、固定种子、反应／瞄准误差、完整输入和战斗报告；Tab 面板、F5 重跑；[用法](../docs/features/沉积泰坦自动陪练.md) |
+| `sparring_lab/` | `combat_sparring_lab.tscn` | **通用实战陪练**：F6 默认真人准备；也可从主菜单「实战陪练 / 真人录制」进入，顶部「真人打一局并录制」，Tab 暂停后结束并保存。正式地形／投放、独立敌人组、多策略／种子重复、无头实战与异常片段；F5 重跑；[用法](../docs/features/通用实战陪练.md) |
+| `navigation_lab/` | `navigation_lab.tscn` | 正式主场景的固定俯视导航观察台；只有移动，固定种子重播、目标点击、路线/轨迹与共享参数保存；[用法](../docs/features/敌人导航与俯视观察台.md) |
+| `ring_chase_lab/`（保留原路径） | `ring_chase_lab.tscn` | 精确追击压力观察台：256 体追移动标记，WASD/Shift 移动、F 重置视角；单环模型已退役，无 P 键切换；近距/掉队回收仅维持压力，不计为到达目标 |
+| **`spatial_lab/`** ★常用 | `combat_spatial_lab.tscn` | **小型战斗空间测试场**：44×41 米、9 个起点、整组投放、机制验证组（盾卫/狙击/重型反应）、实验场专属便利（共鸣读数、E/Q 无冷却、敌人不死） |
+| `spatial_lab/` | `capability_lab.tscn` | 空间能力：跳障、浅坑返程 / 深坑拒绝、破障、墙顶接战 |
+| `combat_lab/` | `combat_lab.tscn` | **主战斗实验场**：120×90 米大空场、图鉴全兵种、参数面板、循环战斗与统计 |
+| `visual_lab/` | `enemy_visual_lab.tscn` | **敌人视觉实验场**：外形 / 剪影 / 姿态（泥土傀儡、沉积泰坦及尚未正式投放的新外形；大型盾卫已按要求撤出） |
+| `painterly_lab/` | `painterly_style_lab.tscn` | 绘画风格实验（材质、描边、天空） |
+| `weather_lab/` | `weather_lab.tscn`、`sanctum_sky3d_experiment.tscn` | 天气与环境 / 天空 |
+| `enemy_prototypes/` | —（被上面几个台子 `preload`） | 四种程序化敌人场景：泥傀儡 / 沉积泰坦 / 迅捷晶兽 / 晶刺蜂 |
+| `legacy/` | — | 旧实验归档，不再主动开发 |
+
+行为脚本仍按代码职责放在 `scripts/prototypes/`（项目规则：实验场景与行为脚本分开）。
+**找不到东西时先回这张表。**
+
+已归档（`docs/archive/prototypes_cleanup_20261009/`）：
+- `combat_lab.tscn` —— 只是指向 `combat_lab/combat_lab.tscn` 的转发壳，不是第二个台子；
+- `tuner_panel.gd` —— 早期写死 schema 的调参面板，全项目零引用，已被 `combat_lab/enemy_tuning_panel.gd` 取代。
+
 ## 目录约定
 
 可直接运行的实验场景统一放在 `prototypes/`，不再分散到正式 `scenes/`：
 
 ```text
 prototypes/
-├─ combat/              当前战斗实验场与其专用工具
-│  └─ enemies/          Combat Lab 使用的程序化敌人场景
-├─ visual/              纯视觉观察台：造型、轮廓、材质、灯光检查
-├─ environment/         天空、天气、环境等隔离实验场（Weather Lab 入口在这里）
-└─ legacy/              已归档但仍保留参考价值的旧实验
+├─ boss_lab/             正式圣所中的沉积泰坦 Boss 直战入口
+├─ navigation_lab/       主场景俯视导航与避障观察台（无战斗）
+├─ spatial_lab/          ★小型战斗空间测试场（常用）+ 空间能力台
+├─ combat_lab/           主战斗实验场（大空场 · 图鉴全兵种 · 参数面板）
+├─ visual_lab/           纯视觉观察台：造型、轮廓、材质、姿态
+├─ painterly_lab/        绘画风格实验（材质 / 描边 / 天空）
+├─ weather_lab/          天空、天气、环境等隔离实验场
+├─ enemy_prototypes/     四种程序化敌人场景（被上面几个台子共用）
+├─ README.md             本文件（含"哪个台子在哪"索引表）
+├─ STATUS.md             原型生命周期登记
+└─ legacy/               已归档但仍保留参考价值的旧实验
    ├─ melee/
    └─ visual/            仅保留被替代的旧视觉原型资产
 ```
 
+**约定：每个实验场一个目录，深度只有一层。** 不要出现「实验场里套实验场」——
+2026-10-09 之前 `combat/spatial/` 里放的是更常用的小空间台，找起来要同时记住两个路径。
+
 行为脚本仍按代码职责保留在 `scripts/prototypes/`；这里统一解决的是“实验场景从哪里打开”的入口问题。Combat Lab 用来验证战斗行为与数值，Visual Lab 则保持无战斗干扰的固定观察条件，两者长期并存。
 
-在 Godot 打开 `res://prototypes/visual/enemy_visual_lab.tscn` 后按 **F6**，可以预览裂釉镇墓兽和现有四种程序化敌人。左右方向键或 A/D 换角色，M 冻结/恢复动作，P 切换支持的展示姿态，B 看纯黑剪影；左键拖拽环绕、滚轮缩放，1/2/3 选距离，F 复位，Esc 释放鼠标。新角色可在 `scripts/prototypes/enemy_visual_lab.gd` 的 `GALLERY` 中登记场景与机位。镇墓兽按参考重建了连续回钩双角、中央折脊、深眼窝、前突方吻与尖犬齿，以及高胸长腿、肩背尖甲和上翘长尾。釉陶使用三张共享的 256×256 程序烘焙纹理；同关节同材质的零件在生成后合并，每帧只更新关节。外形预设在 `prototypes/visual/enemies/tomb_guardian_reference.tres`，可在 Inspector 调整体型、头部、角、肩宽、三色釉、磨损、眼光和展示动作参数，再另存复用。目前只有外形和展示动作，还没有战斗逻辑。
+在 Godot 打开 `res://prototypes/visual_lab/enemy_visual_lab.tscn` 后按 **F6**，可以预览裂釉镇墓兽和现有四种程序化敌人。左右方向键或 A/D 换角色，M 冻结/恢复动作，P 切换支持的展示姿态，B 看纯黑剪影；左键拖拽环绕、滚轮缩放，1/2/3 选距离，F 复位，Esc 释放鼠标。新角色可在 `scripts/prototypes/enemy_visual_lab.gd` 的 `GALLERY` 中登记场景与机位。镇墓兽按参考重建了连续回钩双角、中央折脊、深眼窝、前突方吻与尖犬齿，以及高胸长腿、肩背尖甲和上翘长尾。釉陶使用三张共享的 256×256 程序烘焙纹理；同关节同材质的零件在生成后合并，每帧只更新关节。外形预设在 `prototypes/visual_lab/tomb_guardian_reference.tres`，可在 Inspector 调整体型、头部、角、肩宽、三色釉、磨损、眼光和展示动作参数，再另存复用。目前只有外形和展示动作，还没有战斗逻辑。
 
-天气与环境效果统一在 `res://prototypes/environment/weather_lab.tscn` 验证。它直接复制主场景的地形、植被、玩家与 WeatherEnvironment，但移除全部敌人和波次，F6 运行后跳过主菜单直接进入场景。
+**正式敌人的动作也可以在这里单独看姿态**：`大型盾卫 · 插盾姿态`（`prototypes/visual_lab/shield_guard_visual.tscn`）用 **P** 在「收盾 / 插盾防御 / 插盾受击 / 全程循环」之间切换，用 **M** 冻结后可以停在起手或解除的中间帧上逐帧看盾面角度与下蹲量，**B** 看剪影是否还读得出"一堵墙"。切姿态是**瞬间生效**的，冻结状态下按 P 也能立刻看到变化。它不重写任何数字：走 `enemy_spawner.spawn_enemy()` + 图鉴条目 `L3ShieldGuard` 生成（所以护甲色 / 体型 / 剖面与正式游戏一致），姿态机来自 `melee_enemy.gd` 的正式相位方法，时长与姿态参数取自 `enemy.shield_*`。行为验证（格挡、手雷破防、共鸣对阵）在 [小型战斗空间测试场](spatial_lab/README.md) 的机制验证组里做。
 
-在 Godot 中打开 `res://prototypes/combat/combat_lab.tscn`，按 **F6（运行当前场景）** 启动。
+需要可重复的对照截图时运行：`--script res://tests/test_enemy_visual_lab.gd -- --capture-shield-guard`，会产出收盾 / 插盾 / 起手中间帧 / 剪影等六张图到 `_artifacts/<项目>/editor/<运行号>/screenshots/shield_guard/`。（该脚本需要真实渲染，headless 下会挂；不需要渲染的守卫是 `tests/test_shield_guard_preview.gd`。）
 
-新增小空间入口：`res://prototypes/combat/spatial/combat_spatial_lab.tscn`。同样 F6 运行，约 44 × 41 米，包含九个玩家起点和一键整组投放；布局预设可整体实例化。薄板坡保留坡脚挡边，小台面用于验证跳起来的普通攻击，石块 / 残柱 / 小树 / 矮墙区验证泰坦各攻击的破坏。物件可赋予同一组件并共享破坏材质。操作见[小空间测试场说明](combat/spatial/README.md)。
+天气与环境效果统一在 `res://prototypes/weather_lab/weather_lab.tscn` 验证。它直接复制主场景的地形、植被、玩家与 WeatherEnvironment，但移除全部敌人和波次，F6 运行后跳过主菜单直接进入场景。
 
-通用空间能力入口：`res://prototypes/combat/spatial/capability_lab.tscn`。F6 观察跳障、浅坑返程 / 深坑拒绝、真实破障及墙顶接战；E 切换浅坑目标，R 重开。T03 的追击、下坑与返程规则由可赋予资源和共享策略实现，见 [空间能力说明](../data/combat_spatial/README.md)。
+在 Godot 中打开 `res://prototypes/combat_lab/combat_lab.tscn`，按 **F6（运行当前场景）** 启动。
+
+新增小空间入口：`res://prototypes/spatial_lab/combat_spatial_lab.tscn`。同样 F6 运行，约 44 × 41 米，包含九个玩家起点和一键整组投放；布局预设可整体实例化。薄板坡保留坡脚挡边，小台面用于验证跳起来的普通攻击，石块 / 残柱 / 小树 / 矮墙区验证泰坦各攻击的破坏。物件可赋予同一组件并共享破坏材质。操作见[小空间测试场说明](spatial_lab/README.md)。
+
+通用空间能力入口：`res://prototypes/spatial_lab/capability_lab.tscn`。F6 观察跳障、浅坑返程 / 深坑拒绝、真实破障及墙顶接战；E 切换浅坑目标，R 重开。T03 的追击、下坑与返程规则由可赋予资源和共享策略实现，见 [空间能力说明](../data/combat_spatial/README.md)。
 
 「泰坦反应组 · 7 只」可验证跃击周围的小怪：泥偶硬吃且不被击退，晶兽 / 蜂主动撤离；躲不开时晶兽击退、蜂坠地后存活起飞。反应通过独立资源赋予，敌人场景根节点可更换，见 [可赋予战斗反应](../data/combat_reactions/README.md)。
 
@@ -35,7 +80,7 @@ prototypes/
 
 ## 使用方法
 
-1. 在右侧面板复选需要测试的敌人，分别填写数量；列表可以滚动，包含当前图鉴全部 15 种敌人，以及顶部的“泥土傀儡 · 动作原型”、“沉积泰坦 · 巨拳原型”、“迅捷晶兽 · 四足飞扑原型”和“晶刺蜂 · 飞行原型”。
+1. 在右侧面板复选需要测试的敌人，分别填写数量；列表可以滚动，**直接读取 `data/game_config.json` 的 `enemy_roster.entries`（图鉴有多少种就有多少项，加条目不用改实验场）**，以及顶部的“泥土傀儡 · 动作原型”、“沉积泰坦 · 巨拳原型”、“迅捷晶兽 · 四足飞扑原型”和“晶刺蜂 · 飞行原型”。
 2. 可选择玩家测试等级（1–12）、“玩家无敌”，以及循环战斗模式：关闭 / A / B。
 3. 点击“生成并开始战斗”，屏幕倒数 **3、2、1**。倒数期间玩家与敌人保持静止，结束后开始战斗。
 4. 战斗中按 **Esc**，暂停、打开面板并释放鼠标；再次按 Esc 保持暂停与鼠标释放。点击“继续战斗”或按 **Tab** 恢复并重新捕获鼠标，Tab 也可切换暂停。死亡演出期间 Esc 只释放鼠标，演出继续播放。
@@ -106,7 +151,7 @@ prototypes/
 
 项目运行时，命名方案保存到 `res://data/enemy_presets/PrototypeMudGolem.json` 、`PrototypeSedimentTitan.json` 、`PrototypeFastBeast.json` 与 `PrototypeHornet.json`，可随项目复用。保存先写临时文件，成功后替换原方案；保存失败不会修改当前选用的方案。非法数值、随机区间下限大于上限，横扫优先距离大于半径，以及晶兽绕行内圈大于外圈 / 飞扑距离下限大于上限都会阻止保存。导出资源包含这些配置，导出版本继承项目中选用的方案，后续修改写入 `user://enemy_presets/`。
 
-配置接入代码：`res://scripts/prototypes/enemy_tuning.gd`；面板：`res://prototypes/combat/enemy_tuning_panel.gd`。后续程序化敌人按同样的配置结构登记，不再往动作代码里填平衡数值。
+配置接入代码：`res://scripts/prototypes/enemy_tuning.gd`；面板：`res://prototypes/combat_lab/enemy_tuning_panel.gd`。后续程序化敌人按同样的配置结构登记，不再往动作代码里填平衡数值。
 
 检查：`res://tests/test_enemy_tuning.gd`，覆盖面板输入、命名 / 覆盖 / 重读、独立属性、实际前摇 / 施放 / 后摇 / 距离 / 伤害、预警顶点、狂暴倍率、Esc 与点击期间的鼠标状态、B 补兵快照和自定义死亡演出等待。测试方案仅写到截图目录，不覆盖实际调参方案。有渲染时添加 `--capture-enemy-tuning` 保存面板截图；启动测试场添加 `--lab-enemy-tuning` 默认打开泰坦参数面板；同时添加 `--lab-fast-beast`、`--lab-mud-golem` 或 `--lab-hornet` 则打开对应敌人的参数。
 
@@ -140,7 +185,7 @@ prototypes/
 
 项目默认参数为 120 生命、2.4 m/s、10 点攻击伤害、2.2 秒攻击间隔，可在独立参数面板中修改并保存；面板的测试等级仍调整玩家武器，不缩放此原型的数值。支持暂停、重开、A/B 循环和伤害统计，只注册在测试场，不影响正式图鉴和关卡刷怪。
 
-场景资源：`res://prototypes/combat/enemies/procedural_mud_golem.tscn`；脚本：`res://scripts/prototypes/procedural_mud_golem.gd`。脚本挂在 `CharacterBody3D` 根节点，运行时自动创建模型、碰撞与生命标签。测试场用统一敌人接口注入玩家目标，并按胶囊中心摆位。
+场景资源：`res://prototypes/enemy_prototypes/procedural_mud_golem.tscn`；脚本：`res://scripts/prototypes/procedural_mud_golem.gd`。脚本挂在 `CharacterBody3D` 根节点，运行时自动创建模型、碰撞与生命标签。测试场用统一敌人接口注入玩家目标，并按胶囊中心摆位。
 
 专用检查：`res://tests/test_mud_golem.gd`；无界面运行时使用 `--fixed-fps 60` 保证按动画时间推进。添加 `--capture-mud-golem` 可在有渲染的运行中保存待机、蓄力和散架截图。启动战斗测试场时添加 `--lab-mud-golem` 会预选 1 只傀儡并开启无敌，等待点击生成。
 
@@ -156,7 +201,7 @@ prototypes/
 - **弱点机制替换**：移除晶核专属 2.5 倍伤害、Q 破盾额外 100 点伤害和跪地弱点窗口。Q 沿用现有距离衰减、范围伤害和击退，狂暴承伤倍率对射击、E、Q 一致生效；项目原有狙击爆头规则继续保留。跨阈值攻击若命中泥盾，仍先按该次攻击发生时的普通护盾结算。
 - **死亡**：八块身体碎片（4.5 秒清理）和一枚旋转晶体（10 秒清理）。结算仍等待散架完成，补兵及重开从普通黄晶阶段开始。
 
-场景资源：`res://prototypes/combat/enemies/procedural_sediment_titan.tscn`；脚本：`res://scripts/prototypes/procedural_sediment_titan.gd`。以上为项目默认参数，可通过独立参数面板保存不同方案；测试等级仅调整玩家武器。支持暂停、A/B 补兵、来源统计和重开清理，不进入正式图鉴或关卡刷怪。
+场景资源：`res://prototypes/enemy_prototypes/procedural_sediment_titan.tscn`；脚本：`res://scripts/prototypes/procedural_sediment_titan.gd`。以上为项目默认参数，可通过独立参数面板保存不同方案；测试等级仅调整玩家武器。支持暂停、A/B 补兵、来源统计和重开清理，不进入正式图鉴或关卡刷怪。
 
 与粘贴原稿的冲突处理：统一模型、转向、预警和伤害到项目的 -Z 正面；玩家受伤传来源位置而非击退向量；横扫按最新反馈改为左臂270°扫过；修复小臂复位（回到原始 y=-0.3）、技能打断和主节点销毁后的核心旋转。头部另有随姿态移动的碰撞体，射击悬浮晶体可以正常命中。旧弱点以红晶狂暴替换，泥盾改为普通阶段随机技能，不与狂暴承伤倍率叠加。原稿的任务核心暂为视觉展示，没有任务拾取接口。
 
@@ -173,7 +218,7 @@ prototypes/
 
 74 项独立参数包括基础体型 / 生命 / 护甲、奔跑 / 绕行 / 转向、内外圈、随机等待、飞扑施放范围 / 命中距离 / 角度 / 高度 / 伤害 / 速度 / 跳高 / 前后摇 / 最长施放 / 最短间隔、打断 / 击退 / 硬直、步态 / 晶角闪烁以及死亡散架参数。保存具名方案后手动重新生成生效；B 补兵仍用开场快照。
 
-场景：`res://prototypes/combat/enemies/procedural_fast_beast.tscn`；脚本：`res://scripts/prototypes/procedural_fast_beast.gd`；数值：`res://data/enemies/procedural_fast_beast.json`。与前两个原型一致，仅在运行时创建模型，移除原稿 `@tool` 的编辑器持续执行；脚本挂在 `CharacterBody3D` 根节点即可运行。原稿模型已朝向 -Z，无需旋转翻面。
+场景：`res://prototypes/enemy_prototypes/procedural_fast_beast.tscn`；脚本：`res://scripts/prototypes/procedural_fast_beast.gd`；数值：`res://data/enemies/procedural_fast_beast.json`。与前两个原型一致，仅在运行时创建模型，移除原稿 `@tool` 的编辑器持续执行；脚本挂在 `CharacterBody3D` 根节点即可运行。原稿模型已朝向 -Z，无需旋转翻面。
 
 接入冲突处理：用项目统一寻敌与伤害接口替换 `Player` 分组和“击退向量当来源位置”；所有状态持续计算重力，恢复与受击不再悬空；动作打断杀掉旧动画，复位全部腿和尾关节；随机等待不逐帧重抽；远距离先接近而非一直切向游走；盒形碰撞覆盖站姿背晶，测试场摆位和狙击爆头高度兼容盒形；高速飞扑检查本帧移动线段，且不隔墙或向身后造成伤害；散架缓存世界变换，避免旋转/缩放重复，碎片使用实际网格尺寸。
 
@@ -211,3 +256,23 @@ prototypes/
 检查：`res://tests/test_hornet.gd`，覆盖真实盘旋 / 高度 / 球形射击、晶针前摇 / 命中 / 遮挡 / 闪避 / 耗弹转俯冲、俯冲打断 / 单次命中 / 锁向 / 拉升、Q / 冷却 / Esc / 暂停、实际触地 / 散架 / 结算、独立面板 / 保存 / 重读 / B 快照、16 只分层错峰蜂群和重开清理。检查方案仅写入截图目录。无界面运行使用 `--fixed-fps 60`；有渲染时添加 `--capture-hornet` 保存近景、前摇、坠落、碎片、蜂群和参数页截图。
 
 启动测试场添加 `--lab-hornet` 预选 1 只晶刺蜂，`--lab-hornet-swarm` 预选 16 只；均开启玩家无敌，等待手动生成。`--lab-hornet --lab-enemy-tuning` 直接打开其参数页。
+
+
+## 三种新敌人的外形预览（2026-10-09）
+
+打开 `visual/enemy_visual_lab.tscn` 按 F6，右侧下拉选择「爆囊爬兽」「棱眼蛛」「裂甲兜虫」。参数面板支持体型、形体比例、材质与动作时长编辑，即时生效。P 切姿态，M 冻结，R 从头重播，Tab 收起面板；拖动时间条定位并冻结。Esc 释放鼠标。
+
+命名后「保存命名方案」写入 `data/enemy_presets/`；「所选设为默认」才改变以后实例化使用的方案。默认参数及范围在 `data/enemies/visual_*.json`，修改未保存时显示提示，切换角色保留草稿。已作为默认的方案要改动时请另存新名称，再设为默认。下拉选择后「载入」会替换当前草稿。
+
+这三种目前只有外形、原地步态和技能展示动作，没有战斗 AI、伤害或实际投射物。第一关七种阵容与画廊九个展示项目不同，镇墓兽和盾卫展示仍保留。
+
+三种新敌人已加强技能动作的剪影：爬兽竖背甲投掷、蜘蛛撑高前躯与独眼、兜虫后坐压角后向前展示冲刺。首个参数组「技能姿态张力」可调幅度与快慢节奏；2 / 3 切到 12 / 24 米检查远景。
+
+爆囊爬兽的爆囊固定座与承托甲现为同一抬起结构，侧甲不再独立张开；「晶囊向外伸长」只改变囊体，囊根保持固定。
+
+
+## 新怪死亡与爬兽距离测试（2026-10-13）
+
+F6 启动 `visual_lab/enemy_visual_lab.tscn`，P 或右侧姿态下拉选择死亡。K 一键实播/重播死亡；R 重播当前姿态，M 冻结，逗号/句号逐帧，底部时间轴拖动定位。三种新外形死亡播放完停在尸体，修改死亡时长、抖腿、毒液或掉眼参数后可重复观察并显式保存。
+
+爆囊爬兽右侧有「范围测试」与虚拟玩家距离；进入攻击范围先转身，进入撤退范围立即取消投囊并收甲撤离。默认 16 米攻击、5 米触发撤退、7 米结束撤退，均可调整。自爆和毒液目前只有表现。实际主场景战斗实体与伤害投射物仍待接入。

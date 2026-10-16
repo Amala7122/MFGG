@@ -1,6 +1,6 @@
 extends SceneTree
 ## 预警是一项施放承诺：输入变化不能让已经公布的攻击被 AI 撤回。
-const SpatialScene := preload("res://prototypes/combat/spatial/combat_spatial_lab.tscn")
+const SpatialScene := preload("res://prototypes/spatial_lab/combat_spatial_lab.tscn")
 const Prop := preload("res://scripts/destructible_prop.gd")
 var _lab: Node3D
 var _failed := false
@@ -32,6 +32,7 @@ func _run() -> void:
 	for skill in ["slam", "sweep"]:
 		await _committed_melee(skill, false)
 		await _committed_melee(skill, true)
+	await _slam_warning_stays_fixed()
 	await _death_and_clear()
 	paused = true
 	_lab.clear_round()
@@ -170,6 +171,40 @@ func _committed_melee(skill: String, lose_target: bool) -> void:
 		skill + "：目标丢失 / 狂暴转换不能撤回已经公布的地面攻击")
 	_check(_lab.get_stats_snapshot().received_hits == (0 if lose_target else 1), skill + "：只结算实际命中")
 	rock.free()
+	paused = true
+
+
+func _slam_warning_stays_fixed() -> void:
+	var enemy := await _spawn()
+	enemy.position = Vector3(0, 1.78, 8)
+	_lab._player.position = Vector3(0, 1.08, 12)
+	for _frame in range(3):
+		await physics_frame
+	enemy.trigger_slam_attack()
+	var warning: Transform3D = enemy._attack_area.global_transform
+	var facing: Basis = enemy.global_basis
+	var mesh: Mesh = enemy._attack_area._mesh.mesh
+	_lab._player.position.x += 4.0
+	var lock_stable := true
+	var pose_stable := true
+	var mesh_stable := true
+	var warning_stable := true
+	var facing_stable := true
+	for _frame in range(220):
+		await physics_frame
+		if enemy.current_state != enemy.State.ATK_SLAM:
+			break
+		warning_stable = warning_stable and enemy._attack_area.global_transform.is_equal_approx(warning)
+		facing_stable = facing_stable and enemy.global_basis.is_equal_approx(facing)
+		pose_stable = warning_stable and facing_stable
+		if enemy._attack_area.danger_active():
+			mesh_stable = mesh_stable and enemy._attack_area._mesh.mesh == mesh
+		lock_stable = pose_stable and mesh_stable
+	print("[泰坦直线撤离] pose=", pose_stable, " mesh=", mesh_stable,
+		" warning=", warning_stable, " facing=", facing_stable,
+		" received=", _lab.get_stats_snapshot().received_hits, " result=", enemy._brain.last_result)
+	_check(lock_stable and _lab.get_stats_snapshot().received_hits == 0,
+		"直线震地从首帧固定完整预警，横向撤离后不会转角追身或命中")
 	paused = true
 
 

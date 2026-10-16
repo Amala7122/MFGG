@@ -16,13 +16,11 @@ func _run() -> void:
 	for directory in ["res://scenes", "res://prototypes", "res://data", "res://theme"]:
 		_scan(directory)
 	_check(_loaded > 0, "找到自有资源")
-	var legacy_dependencies := ResourceLoader.get_dependencies("res://prototypes/combat_lab.tscn")
-	var valid_lab := false
-	for dependency in legacy_dependencies:
-		if _dependency_path(dependency) == "res://prototypes/combat/combat_lab.tscn":
-			valid_lab = true
-	_check(valid_lab,
-		"旧 Combat Lab 入口依赖有效实验场景")
+	# 旧入口 `res://prototypes/combat_lab.tscn` 只是指向真正实验场的转发壳，
+	# 已随目录扁平化归档到 docs/archive/；这里直接检查实体场景本身 —— 它才是真正的入口。
+	var lab_dependencies := ResourceLoader.get_dependencies("res://prototypes/combat_lab/combat_lab.tscn")
+	_check(not lab_dependencies.is_empty(),
+		"Combat Lab 实体入口能解析出依赖")
 	for _frame in range(3):
 		await process_frame
 	print("[场景依赖检查] roots=", _loaded, " dependencies=", _visited.size(), " ", "FAIL" if _failed else "PASS")

@@ -1,6 +1,6 @@
 extends RefCounted
 ## Static, versioned art resources. A source/config change safely falls back to
-## generation until tests/bake_valley_art.gd rebuilds the resources.
+## generation until tools/probes/bake_valley_assets.gd rebuilds the resources.
 const Terrain := preload("res://scripts/terrain_field.gd")
 const DIRECTORY := "res://assets/generated/valley"
 const MOUNTAIN_PATH := DIRECTORY + "/sanctum_mountains.res"
@@ -8,7 +8,7 @@ const ART_PATH := DIRECTORY + "/sanctum_art.scn"
 const MANIFEST_PATH := DIRECTORY + "/manifest.json"
 const FORMAT_VERSION := 1
 const SOURCES := ["res://scripts/valley_art.gd", "res://scripts/valley_terrain.gd",
-	"res://scripts/terrain_field.gd", "res://scripts/lowpoly_mesh.gd"]
+	"res://scripts/terrain_field.gd", "res://scripts/lowpoly_mesh.gd", "res://scripts/arena.gd"]
 static var force_generation := false
 static var _fingerprint := ""
 static var _checked := false

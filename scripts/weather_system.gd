@@ -9,7 +9,7 @@ class_name WeatherSystem
 ##
 ## 云形由 ProceduralCloudField 复用六种启动时生成的基础网格。
 ## Coverage 控制云团生长与横向连片；Density 控制厚度与吸光。
-## 高覆盖率保留立体云底，同时由天空云幕补齐远处缝隙。
+## 高覆盖率保留立体云底；天空材质不再叠加模糊云幕。
 ## 整个过程保持 unshaded / matte，不引入太阳高光、银边或真实体积云反射。
 
 const CloudField := preload("res://scripts/procedural_cloud_field.gd")
@@ -26,7 +26,7 @@ enum CloudType { CUMULUS, STRATUS }
 @export var cloud_enabled := false
 ## 当前主要决定照明性格；云的视觉形态由 Coverage 连续控制。
 @export_enum("Cumulus 多云:0", "Stratus 阴天:1") var cloud_type: int = CloudType.STRATUS
-## 云团数量与连片程度。低值是稀疏云团，高值铺开并由天空云幕补齐缝隙。
+## 云团数量与连片程度。低值是稀疏云团，高值铺开并逐步转为阴天天色。
 @export_range(0.0, 1.0, 0.01) var cloud_coverage := 1.0
 ## 云有多厚。它不决定覆盖面积；低值偏明亮薄云，高值偏厚重吸光。
 @export_range(0.0, 1.0, 0.01) var cloud_density := 0.47
@@ -59,13 +59,8 @@ enum CloudType { CUMULUS, STRATUS }
 ## 云体投射真实阴影，随太阳方向、云移动/缩放/变形自动变化。
 ## 复用现有太阳阴影图，不改接收距离/分级，不另建灯光。
 ## 目前覆盖镜头附近；远景云影需要后续单独处理。薄云仍按不透明云体遮光。
+## 使用画质/天气已有的阴影过滤；高云扩深期间不启用 PCSS，避免近景采样纹路。
 @export var cloud_shadow_enabled := true
-## 太阳的 PCSS 光源角径：高空云影随投影距离变柔，近地阴影仍保持较窄边缘。
-## 阳光强度由当前太阳能量与高度推导；强光也保留模糊下限。
-@export_range(0.1, 2.0, 0.05, "degrees") var cloud_shadow_strong_sun_angle := 0.5
-@export_range(0.1, 4.0, 0.05, "degrees") var cloud_shadow_weak_sun_angle := 1.5
-## 日光强度固定参照；太阳能量与高度的乘积达到该值时采用强日光的柔度。
-@export_range(0.05, 8.0, 0.05) var cloud_shadow_reference_energy := 1.5
 
 var _cloud_level := 0.0
 var _cloud_density_level := 0.0
@@ -159,13 +154,12 @@ func _apply_stylized_cloud_field() -> void:
 
 	# 可见云体由共享的程序低多边形云场负责。
 	_sky_dome.set("cumulus_visible", false)
+	_sky_dome.set("cirrus_visible", false)
 
 	var coverage := clampf(_cloud_level, 0.0, 1.0)
 	var density := clampf(_cloud_density_level, 0.0, 1.0)
-	# 0.55 前基本保持独立云团；0.55~0.88 逐步连片并靠拢云幕颜色。
+	# 0.55 前基本保持独立云团；0.55~0.88 逐步连片并靠拢阴天天色。
 	var overcast_blend := smoothstep(0.55, 0.88, coverage)
-	# 云幕不是从 Coverage=0 就铺一层白雾，而是在风格云开始连片时才从背后长出来。
-	var deck_cover := coverage * overcast_blend
 	var daylight := smoothstep(-0.06, 0.25, _sun.global_basis.z.normalized().y) \
 		if is_instance_valid(_sun) else 0.0
 
@@ -175,12 +169,6 @@ func _apply_stylized_cloud_field() -> void:
 	var heavy_factor := smoothstep(0.52, 1.0, density) * smoothstep(0.65, 1.0, coverage)
 	var day_deck := day_light_deck.lerp(day_storm_deck, heavy_factor)
 	var matte_deck := night_deck.lerp(day_deck, daylight)
-
-	var sky_material := _sky_dome.get("sky_material") as ShaderMaterial
-	if sky_material != null:
-		sky_material.set_shader_parameter("weather_overcast", deck_cover)
-		sky_material.set_shader_parameter("weather_cloud_density", density)
-		sky_material.set_shader_parameter("weather_horizon", matte_deck)
 
 	if not is_instance_valid(_cloud_field):
 		return
@@ -198,7 +186,7 @@ func _apply_stylized_cloud_field() -> void:
 	_cloud_field.set_shape_style(cloud_shape_style)
 	_cloud_field.set_weather(coverage, density, overcast_blend, matte_bank, matte_deck)
 	_cloud_field.set_cloud_shadows(cloud_shadow_enabled)
-	CloudShadowLighting.apply_cloud_shadow_softness(self, _sun,
+	CloudShadowLighting.apply_cloud_shadow_settings(self, _sun,
 		_sun_angular_baseline, _cloud_field.visible,
 		_sun_pancake_baseline, _cloud_field.get_cloud_height_ceiling())
 

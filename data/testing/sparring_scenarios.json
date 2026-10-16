@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "active": "sanctum_mixed",
+  "scenarios": {
+    "titan_sanctum": {"title": "圣所 · 沉积泰坦直战", "kind": "boss_direct", "arena_id": "sanctum", "loadout": "max", "enemy_level": 4.0, "count_multiplier": 1},
+    "sanctum_mixed": {"title": "圣所 · 自定义敌人组实战", "kind": "roster_encounter", "arena_id": "sanctum", "loadout": "initial", "enemy_level": 4.0, "count_multiplier": 1,
+      "selection": {"L1MeleeSoldier": 2, "L1ScoutGunner": 2, "L2BurstRanger": 1}}
+  }
+}

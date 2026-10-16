@@ -135,6 +135,12 @@ static func landing_candidates(context: Node3D, target: Node3D, radius: float) -
 		return result
 	result.append(hit)
 	var centre: Vector3 = hit.position
+	# 候选圈原先固定使用 profile.candidate_radius（默认 2.4m）。1.65 倍泰坦的
+	# 实际半径已是 2.31m，再加玩家身体后，整圈都会与玩家重叠，接近跃击就会
+	# 永久报 landing_occupied。候选圈至少要容纳双方半径和一点物理余量；小体型
+	# 仍保留 profile 给出的原半径，不改变既有战斗距离。
+	var target_radius := float(dimensions(target).radius) if target is Node3D else 0.0
+	radius = maxf(radius, float(dimensions(context).radius) + target_radius + 0.25)
 	var toward := context.global_position - centre
 	toward.y = 0.0
 	toward = toward.normalized() if toward.length() > 0.01 else Vector3.FORWARD
@@ -202,8 +208,16 @@ static func motion_clear(body: CharacterBody3D, from: Transform3D, motion: Vecto
 		query.margin = margin
 		query.collision_mask = 1
 		query.exclude = ignored
-		if not space.intersect_shape(query, 1).is_empty() or space.cast_motion(query)[0] < 0.999:
+		if not space.intersect_shape(query, 1).is_empty():
+			# 查询余量可能大于角色实际接触余量。已有贴墙接触不能封死离墙方向。
+			# 仅在真实形状未穿透时用零余量扫掠；向墙内走仍会被完整形状挡住。
+			query.margin = 0.0
+			if motion.is_zero_approx() or not space.intersect_shape(query, 1).is_empty(): return false
+		if space.cast_motion(query)[0] < 0.999:
 			return false
+		query.transform.origin += motion
+		query.margin = margin
+		if not space.intersect_shape(query, 1).is_empty(): return false
 	return true
 
 static func landing_clear(body: CharacterBody3D, point: Vector3) -> bool:
@@ -291,7 +305,10 @@ static func ground_segment(body: CharacterBody3D, from: Vector3, to: Vector3, sa
 		expected.y = float(previous_hit.position.y) - (previous_normal.x * step_horizontal.x + previous_normal.z * step_horizontal.z) / maxf(previous_normal.y, 0.01)
 		if previous_normal.y > 0.99:
 			expected.y += Ground.STEP_HEIGHT
-		var hit := floor_at(body, expected, safe_drop + 0.1, exclude)
+		# 平地为跨坎把射线起点抬高了 STEP_HEIGHT，下探也要补回同样距离。
+		# 否则 safe_drop=0.3 实际只查到旧地面以下 0.1，缓降地形也会被判无地板。
+		var search_depth := safe_drop + 0.1 + (Ground.STEP_HEIGHT if previous_normal.y > 0.99 else 0.0)
+		var hit := floor_at(body, expected, search_depth, exclude)
 		if hit.is_empty():
 			if debug: print("[T03 query] floor ", expected, " from=", from, " to=", to)
 			return false

@@ -1,0 +1,13 @@
+{
+	"corner_rounding": 0.8,
+	"lane_offset": 0.0,
+	"goal_replan_distance": 0.8,
+	"arc_strength": 0.0,
+	"arc_num_midpoints": 3,
+	"arc_mode": "smooth",
+	"arc_min_distance": 3.0,
+	"arc_resample_length": 4.0,
+	"shape_max_points": 128,
+	"arc_sparse_warp": true,
+	"shape_final_gate": true
+}

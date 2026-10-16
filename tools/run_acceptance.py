@@ -17,15 +17,35 @@ from artifact_paths import create_run
 
 CORE_TESTS = (
     "test_scene_dependencies",
+    "test_audio_file_bank",
     "test_stability_contracts",
     "test_lowpoly_mesh",
     "test_runtime_world_visibility",
     "test_player_hitscan",
     "test_player_spread",
+    "test_skill_charges",
     "test_combat_feedback",
     "test_combat_reactions",
     "test_ground_juice",
     "test_enemy_deployment",
+    "test_enemy_roster",
+    "test_sediment_titan_boss",
+    "test_sediment_titan_boss_lab",
+    "test_titan_sparring",
+    "test_sparring_diagnostics",
+    "test_combat_sparring",
+    "test_combat_sparring_handoff",
+    "test_sparring_human",
+    "test_sparring_manual_entry",
+    "test_grenade_enemy_contact",
+    "test_grenade_hit_stagger",
+    "test_grenade_reserve",
+    "test_titan_offense_rhythm",
+    "test_sparring_phase_entry",
+    "test_player_boss_ground_safety",
+    "test_heavy_response",
+    "test_shield_guard_preview",
+    "test_pickup_magnet",
     "test_procedural_clouds",
     "test_weather_runtime_clouds",
     "test_player_presentation",
@@ -33,7 +53,7 @@ CORE_TESTS = (
     "test_upgrade_effects",
     "test_cinematic_flow_lifecycle",
 )
-GRAPHICS_ONLY = {"test_cloud_shadow_rendering"}
+GRAPHICS_ONLY = {"test_cloud_shadow_rendering", "test_weather_visual_regressions"}
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 ENGINE_ERROR = re.compile(r"^\s*(?:SCRIPT ERROR|ERROR):", re.IGNORECASE)
 ENGINE_WARNING = re.compile(r"^\s*WARNING:", re.IGNORECASE)
@@ -96,6 +116,22 @@ def run_check(godot: Path, project: Path, output: Path, name: str,
     exit_code = None
     creation_flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
     startup_info = None
+    # 测试的编辑器缓存和 user:// 都归本次运行，避免写入真实用户目录。
+    environment = os.environ.copy()
+    # 引擎会消费部分启动参数；记录器不能据 OS.get_cmdline_args() 的缺项判 false。
+    engine_arguments = arguments[:arguments.index("--")] if "--" in arguments else arguments
+    fixed_fps = "unfixed"
+    for index, argument in enumerate(engine_arguments):
+        if argument == "--fixed-fps" and index + 1 < len(engine_arguments):
+            fixed_fps = engine_arguments[index + 1]
+        elif argument.startswith("--fixed-fps="):
+            fixed_fps = argument.partition("=")[2]
+    environment["RUIN_STAR_RUN_FIXED_FPS"] = fixed_fps
+    if os.name == "nt":
+        user_data = output.parent / "tmp" / "user-data"
+        user_data.mkdir(parents=True, exist_ok=True)
+        environment["APPDATA"] = str(user_data)
+        environment["LOCALAPPDATA"] = str(user_data)
     if os.name == "nt":
         startup_info = subprocess.STARTUPINFO()
         startup_info.dwFlags |= subprocess.STARTF_USESHOWWINDOW
@@ -104,7 +140,7 @@ def run_check(godot: Path, project: Path, output: Path, name: str,
         process = subprocess.Popen(
             command, cwd=project, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             encoding="utf-8", errors="replace", creationflags=creation_flags,
-            startupinfo=startup_info,
+            startupinfo=startup_info, env=environment,
         )
         try:
             stdout, stderr = process.communicate(timeout=timeout)
@@ -264,6 +300,8 @@ def main() -> int:
                         extra.append("--capture-ground")
                     if args.graphics and name == "test_combat_feedback":
                         extra.append("--capture-feedback")
+                    if args.graphics and name == "test_motion_observation_tools":
+                        extra.append("--capture-motion-tools")
                     if extra:
                         arguments += ["--"] + extra
                     result = run_check(godot, isolated, logs, name, arguments, args.timeout, args.graphics)

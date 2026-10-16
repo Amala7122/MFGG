@@ -2,6 +2,9 @@ extends RefCounted
 ## 新敌人的唯一数值来源是各自 JSON；方案文件只保存玩家调整值。
 
 const PROFILE_PATHS := {
+	"VisualBurstCrawler": "res://data/enemies/visual_burst_crawler.json",
+	"VisualPrismSpider": "res://data/enemies/visual_prism_spider.json",
+	"VisualChargeBeetle": "res://data/enemies/visual_charge_beetle.json",
 	"PrototypeMudGolem": "res://data/enemies/procedural_mud_golem.json",
 	"PrototypeSedimentTitan": "res://data/enemies/procedural_sediment_titan.json",
 	"PrototypeFastBeast": "res://data/enemies/procedural_fast_beast.json",
@@ -109,6 +112,15 @@ static func validate(id: String, values: Dictionary) -> String:
 			return "随机区间的下限不能大于上限"
 	if values.has("sweep_preferred_distance") and float(values.sweep_preferred_distance) > float(values.sweep_distance):
 		return "横扫优先施放距离不能大于攻击半径"
+	if values.has("grenade_reserve_capacity"):
+		if float(values.grenade_reserve_start) > float(values.grenade_reserve_capacity):
+			return "手雷初始枚数不能超过储备容量"
+		for key in ["grenade_reserve_capacity", "grenade_reserve_start"]:
+			if float(values[key]) != roundf(float(values[key])):
+				return "手雷枚数必须为整数"
+	for key in ["offense_front_limit", "offense_rage_limit"]:
+		if values.has(key) and float(values[key]) != roundf(float(values[key])):
+			return "招组上限必须为整数"
 	if values.has("circle_inner_distance") and float(values.circle_inner_distance) > float(values.circle_outer_distance):
 		return "绕行内圈不能大于外圈"
 	if values.has("pounce_min_distance") and float(values.pounce_min_distance) > float(values.pounce_max_distance):
@@ -120,10 +132,13 @@ static func validate(id: String, values: Dictionary) -> String:
 			return "跃击飞行时间下限不能大于上限"
 		if float(values.near_enter_distance) > float(values.near_exit_distance):
 			return "近身进入距离不能大于离开距离"
+	if values.has("retreat_range"):
+		if float(values.retreat_range) >= float(values.retreat_exit_range) or float(values.retreat_exit_range) >= float(values.attack_range):
+			return "距离需满足：撤退触发 < 撤退结束 < 攻击范围"
 	return ""
 
 
-static func save_preset(id: String, name: String, values: Dictionary) -> bool:
+static func save_preset(id: String, name: String, values: Dictionary, make_active := true) -> bool:
 	last_error = validate(id, values)
 	name = name.strip_edges()
 	if name.is_empty() or name == DEFAULT_PRESET or name.length() > 64:
@@ -132,7 +147,8 @@ static func save_preset(id: String, name: String, values: Dictionary) -> bool:
 		return false
 	var document := _document(id).duplicate(true)
 	document.presets[name] = values.duplicate(true)
-	document.active = name
+	if make_active:
+		document.active = name
 	if not _write_document(id, document):
 		return false
 	_saved[id] = document
@@ -203,3 +219,15 @@ static func _valid_schema(schema: Dictionary) -> bool:
 
 static func reload_saved() -> void:
 	_saved.clear()
+
+
+static func set_active_preset(id: String, name: String) -> bool:
+	if not preset_names(id).has(name):
+		last_error = "找不到方案：" + name
+		return false
+	var document := _document(id).duplicate(true)
+	document.active = name
+	if not _write_document(id, document):
+		return false
+	_saved[id] = document
+	return true

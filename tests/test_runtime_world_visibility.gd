@@ -12,6 +12,12 @@ func _verify_after_build() -> void:
 		await process_frame
 	var scene := current_scene
 	var failed := false
+	var flow := root.get_node("GameFlow")
+	if flow.state != flow.State.MENU or not paused or not flow._root.is_visible_in_tree():
+		failed = true
+		push_error("[正式启动测试] 主场景必须显示开始菜单并暂停游戏")
+	else:
+		print("[正式启动测试] 主场景开始菜单正常")
 	for node_name in ["Ground", "Grass", "WorldDecor", "Cover"]:
 		var node := scene.get_node_or_null(node_name) as Node3D
 		if node == null or not node.is_visible_in_tree():

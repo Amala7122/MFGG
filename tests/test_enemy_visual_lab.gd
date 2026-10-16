@@ -1,7 +1,7 @@
 extends SceneTree
 const CapturePaths := preload("res://scripts/capture_paths.gd")
 
-const LabScene := preload("res://prototypes/visual/enemy_visual_lab.tscn")
+const LabScene := preload("res://prototypes/visual_lab/enemy_visual_lab.tscn")
 var failures := 0
 
 
@@ -61,7 +61,7 @@ func _run() -> void:
 	_check(face.material_override == lab.get("_silhouette_material"), "Silhouette preview must cover generated meshes")
 	lab.call("_unhandled_input", _key(KEY_B))
 	_check(face.material_override != lab.get("_silhouette_material"), "Material preview must restore glaze")
-	for expected_name in ["ProceduralMudGolem", "ProceduralSedimentTitan", "ProceduralFastBeast", "ProceduralHornet"]:
+	for expected_name in ["ProceduralMudGolem", "ProceduralSedimentTitan", "ProceduralFastBeast", "ProceduralHornet", "ProceduralBurstCrawlerVisual", "ProceduralPrismSpiderVisual", "ProceduralChargeBeetleVisual"]:
 		lab.call("_unhandled_input", _key(KEY_RIGHT))
 		await process_frame
 		subject = lab.get_node("SubjectMount").get_child(lab.get_node("SubjectMount").get_child_count() - 1) as Node3D
@@ -113,6 +113,47 @@ func _run() -> void:
 		for frame in range(3):
 			await process_frame
 		root.get_viewport().get_texture().get_image().save_png(output_dir + "/face_detail.png")
+	if "--capture-shield-guard" in OS.get_cmdline_user_args():
+		# 盾卫插盾姿态的对照截图：收盾 / 插盾防御 / 插盾受击 / 剪影 / 起手中间帧。
+		# 中间帧靠"先跑一段真实相位机、再把预览冻住"取得 —— 这正是视觉台 M 键的用法。
+		var output_dir := CapturePaths.ensure_dir("shield_guard")
+		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(output_dir))
+		lab.call("_show_subject", _gallery_index_of(lab, "大型盾卫"))
+		for frame in range(6):
+			await process_frame
+		var model: Node3D = lab.get_node("SubjectMount").get_child(lab.get_node("SubjectMount").get_child_count() - 1)
+		(lab.get_node("Interface") as CanvasLayer).hide()
+		var rig := lab.get_node("CameraRig") as Node3D
+		rig.position.y = 1.15
+		lab.call("_set_distance", 6.5)
+		for shot in [
+			{"name": "01_rest", "pose": 0, "yaw": 0.0},
+			{"name": "02_planted", "pose": 1, "yaw": 0.35},
+			{"name": "03_planted_three_quarter", "pose": 1, "yaw": 0.9},
+			{"name": "04_block_hit", "pose": 2, "yaw": 0.35},
+		]:
+			model.call("set_preview_pose", int(shot.pose))
+			rig.rotation.y = float(shot.yaw)
+			for frame in range(8):
+				await process_frame
+			root.get_viewport().get_texture().get_image().save_png(
+				output_dir + "/" + String(shot.name) + ".png"
+			)
+		# 起手中间帧：跑真实时序，在起手相位中途冻住。
+		model.call("set_preview_pose", 3)
+		rig.rotation.y = 0.35
+		for frame in range(10):
+			await process_frame
+		model.process_mode = Node.PROCESS_MODE_DISABLED
+		for frame in range(3):
+			await process_frame
+		root.get_viewport().get_texture().get_image().save_png(output_dir + "/05_planting_midframe.png")
+		model.process_mode = Node.PROCESS_MODE_INHERIT
+		lab.call("_unhandled_input", _key(KEY_B))
+		for frame in range(4):
+			await process_frame
+		root.get_viewport().get_texture().get_image().save_png(output_dir + "/06_silhouette_planted.png")
+		lab.call("_unhandled_input", _key(KEY_B))
 	lab.queue_free()
 	await process_frame
 	print("Enemy Visual Lab: ", "PASS" if failures == 0 else "%d FAILURES" % failures)
@@ -124,6 +165,16 @@ func _key(code: Key) -> InputEventKey:
 	event.physical_keycode = code
 	event.pressed = true
 	return event
+
+
+## 按标题子串在画廊里找条目 —— 截图脚本不该依赖"它是第几个"。
+func _gallery_index_of(lab: Node, title_part: String) -> int:
+	var gallery: Array = lab.get("GALLERY")
+	for i in range(gallery.size()):
+		if String(gallery[i].get("title", "")).contains(title_part):
+			return i
+	push_error("画廊里找不到条目：" + title_part)
+	return 0
 
 
 func _check_winding(part: MeshInstance3D) -> void:

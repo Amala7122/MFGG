@@ -7,6 +7,7 @@ signal died(enemy: Node3D)
 ## juice：死亡特效与波次接口
 const EnemyDeathFXUtil := preload("res://scripts/enemy_death_fx.gd")
 const CombatFXUtil := preload("res://scripts/combat_fx.gd")
+const AudioUtil := preload("res://scripts/audio_manager.gd")
 const WaveDirectorUtil := preload("res://scripts/wave_director.gd")
 
 ## juice：死亡流程与「过量击杀」记录（决定尸体爆炸规模）。
@@ -47,6 +48,11 @@ const RETARGET_INTERVAL := 1.5
 @export var attack_distance: float = 1.85
 @export var attack_damage: float = 24.0
 @export var attack_interval: float = 0.72
+## 【观察台预览】关掉 AI 后只播姿态与动画：不移动、不锁定、不攻击、不施加重力。
+## 视觉台（enemy_visual_lab）对原型敌人一直用这个开关，正式近战此前没有，
+## 于是"想单独看盾卫插盾姿态"就只能把它放进整局里等 —— 补上它，
+## 视觉台才能在不干扰任何战斗判定的前提下摆出正式姿态。
+@export var ai_enabled := true
 
 var health: float
 var target: CharacterBody3D
@@ -60,6 +66,42 @@ var _stagger_velocity := Vector3.ZERO
 var _retarget_timer := RETARGET_INTERVAL
 ## 被击退后的硬直时长（配置 enemy.stagger_duration）。
 var _stagger_duration := 0.42
+## 远距离接近加速（配置 enemy.melee_approach_speed_scale / _boost_distance）。
+## 修的是"敌人还没走到就被打死，看起来像木桩"。
+var _approach_speed_scale := 1.0
+var _approach_boost_distance := 9.0
+## ── 重型对共鸣的反应（配置 enemy.shield_* / enemy.rage_*）──
+## 盾卫的插盾防御姿态：DOWN → PLANTING → PLANTED → LOWERING → DOWN。
+enum ShieldState { DOWN, PLANTING, PLANTED, LOWERING }
+var _shield_pivot: Node3D = null
+var _shield_rest_rotation := Vector3.ZERO
+var _shield_state: ShieldState = ShieldState.DOWN
+var _shield_state_time := 0.0
+var _shield_cooldown := 0.0
+var _shield_raise_chance := 0.35
+var _shield_raise_cooldown := 4.0
+var _shield_plant_seconds := 0.35
+var _shield_hold_seconds := 2.4
+var _shield_lower_seconds := 0.55
+var _shield_block_arc_degrees := 130.0
+var _shield_damage_reduction := 0.85
+var _shield_planted_turn_speed := 60.0
+## 插盾姿态：盾面 pitch、枢轴位移、身体下蹲量（纯表现，可调）。
+## 【为什么既有 pitch 又有位移】盾挂在肘部，只靠旋转的话盾会绕肘摆成一块斜板，
+## 落不到地上；"插盾"需要把它整体**往下、往前**挪到身前，让底边接地。
+var _shield_planted_pitch_degrees := -8.0
+var _shield_planted_offset := Vector3(0.0, -0.55, -0.30)
+var _shield_crouch := -0.10
+## 这一发共鸣是否被盾挡住。用**短时效**而不是裸 bool：resonance 是"置位→立刻结算"，
+## 但万一中间插进别的伤害（爆炸），裸 bool 会被那次伤害消费掉，表现就是
+## "手雷莫名其妙被盾挡了"。0.25 秒的窗口足够覆盖一次爆发结算，又不会误伤后续。
+const RESONANCE_BRACE_WINDOW := 0.25
+var _brace_resonance_time := 0.0
+## 重型激怒：每挨一次共鸣叠一层攻击加成，随时间缓慢消退。
+var _rage := 0.0
+var _rage_per_hit := 0.12
+var _rage_max := 0.9
+var _rage_decay := 0.04
 ## 未察觉玩家时的游荡速度比例（配置 enemy.melee_idle_wander_speed_ratio）。
 var _idle_wander_ratio := 0.35
 ## 近战伤害的全局倍率（data/game_config.json → enemy.melee_damage_scale）。
@@ -108,6 +150,14 @@ var _took_damage := false
 
 ## 被手雷 / 震地脉冲击退：短时间接管移动形成明确的"被打飞"反馈。
 ## 【重量】霸体：击退力按 (1 - knockback_resistance) 打折，巨型几乎推不动。
+func apply_grenade_stagger(seconds: float) -> void:
+	if health <= 0.0:
+		return
+	cancel_attack()
+	if _steering.spatial != null:
+		_steering.spatial.cancel_motion()
+	_stagger_time = maxf(_stagger_time, seconds)
+
 func apply_push(direction: Vector3, force: float) -> void:
 	cancel_attack()
 	if _steering.spatial != null:
@@ -142,6 +192,37 @@ func _ready() -> void:
 	_attack_distance_base = attack_distance
 	attack_damage = maxf(ConfigUtil.get_float("enemy.melee_base_damage", 24.0), 0.0)
 	_stagger_duration = maxf(ConfigUtil.get_float("enemy.stagger_duration", 0.42), 0.0)
+	# 远距离接近加速（见 _approach_doc）。1.0 = 关闭。
+	_approach_speed_scale = maxf(ConfigUtil.get_float("enemy.melee_approach_speed_scale", 1.0), 0.1)
+	_approach_boost_distance = maxf(
+		ConfigUtil.get_float("enemy.melee_approach_boost_distance", 9.0), 0.0
+	)
+	_shield_raise_chance = clampf(ConfigUtil.get_float("enemy.shield_raise_chance", 0.35), 0.0, 1.0)
+	_shield_raise_cooldown = maxf(ConfigUtil.get_float("enemy.shield_raise_cooldown", 4.0), 0.0)
+	_shield_plant_seconds = maxf(ConfigUtil.get_float("enemy.shield_plant_seconds", 0.35), 0.0)
+	_shield_hold_seconds = maxf(ConfigUtil.get_float("enemy.shield_hold_seconds", 2.4), 0.0)
+	_shield_lower_seconds = maxf(ConfigUtil.get_float("enemy.shield_lower_seconds", 0.55), 0.0)
+	_shield_block_arc_degrees = clampf(
+		ConfigUtil.get_float("enemy.shield_block_arc_degrees", 130.0), 10.0, 360.0
+	)
+	_shield_damage_reduction = clampf(
+		ConfigUtil.get_float("enemy.shield_damage_reduction", 0.85), 0.0, 1.0
+	)
+	_shield_planted_turn_speed = maxf(
+		ConfigUtil.get_float("enemy.shield_planted_turn_speed", 60.0), 0.0
+	)
+	_shield_planted_pitch_degrees = ConfigUtil.get_float("enemy.shield_planted_pitch_degrees", -8.0)
+	var planted_offset := ConfigUtil.get_float_array(
+		"enemy.shield_planted_offset", [0.0, -0.55, -0.30]
+	)
+	if planted_offset.size() >= 3:
+		_shield_planted_offset = Vector3(
+			float(planted_offset[0]), float(planted_offset[1]), float(planted_offset[2])
+		)
+	_shield_crouch = ConfigUtil.get_float("enemy.shield_crouch", -0.10)
+	_rage_per_hit = maxf(ConfigUtil.get_float("enemy.rage_per_resonance_hit", 0.12), 0.0)
+	_rage_max = maxf(ConfigUtil.get_float("enemy.rage_max", 0.9), 0.0)
+	_rage_decay = maxf(ConfigUtil.get_float("enemy.rage_decay_per_second", 0.04), 0.0)
 	_idle_wander_ratio = clampf(
 		ConfigUtil.get_float("enemy.melee_idle_wander_speed_ratio", 0.35), 0.0, 1.0
 	)
@@ -175,6 +256,10 @@ func apply_body_profile(profile_id: String) -> void:
 	EnemyProfileUtil.apply(enemy_model, profile_id)
 	_visuals.register(enemy_model)
 	_visuals.apply_tint(_armor_color)
+	# 盾卫的盾面挂在 ShieldPivot 下（见 enemy_profile.gd），举盾姿态转的就是它。
+	_shield_pivot = enemy_model.find_child("ShieldPivot", true, false) as Node3D
+	if _shield_pivot != null:
+		_shield_rest_rotation = _shield_pivot.rotation
 
 
 func configure_stats(
@@ -243,19 +328,70 @@ func _face_flat_direction(delta: float, flat_direction: Vector3) -> void:
 
 ## 贴身伤害：在攻击距离内按秒结算（用 1 秒的整块是为了跨过玩家 0.42s 的无敌帧）。
 func _physics_process(delta: float) -> void:
+	if has_meta(&"combat_recorder"):
+		set_meta(&"sparring_trace", {"engine_frame": Engine.get_physics_frames(), "branch": "locomotion"})
 	# 掉出场地就先结算 —— 底下那个已经不是"一个还在战斗的敌人"，不该继续跑 AI。
 	if _kill_if_below_world():
 		return
+	# 观察台预览：只播姿态与动画。不施加重力也不 move_and_slide，
+	# 这样它能停在视觉台给的机位上（那里没有地板，也不该被推下去）。
+	if not ai_enabled:
+		_tick_heavy_response(delta)
+		velocity = Vector3.ZERO
+		update_feedback(delta)
+		_rig.update(delta, 0.0, move_speed, true, Vector3.ZERO, false, 0.0)
+		return
 	var prior_yaw := rotation.y
 	var locomoting := _stagger_time <= 0.0
-	if _steering.tick(delta, _stagger_time <= 0.0 and _attack_elapsed < 0.0 and is_instance_valid(target) and global_position.distance_to(target.global_position) <= detection_range, target, move_speed):
+	# 【击退优先于一切】原本击退写在 `_update_behavior` 里，而它只在
+	# `_steering.tick()` 返回 false 时才被调用 —— 于是**已经贴到玩家身上**的敌人
+	# （steering 认为已到位）永远推不动：Q 震地对贴脸的怪完全无效，表现为
+	# "被推反了/推不开"（用户实测）。而贴脸恰恰是 Q 唯一的用途，
+	# 所以击退必须在 AI 与插盾姿态之前结算。
+	if _stagger_time > 0.0:
+		velocity.x = _stagger_velocity.x
+		velocity.z = _stagger_velocity.z
+		if not is_on_floor():
+			velocity.y -= gravity * delta
+		_stagger_time = maxf(_stagger_time - delta, 0.0)
+		_stagger_velocity = _stagger_velocity.move_toward(Vector3.ZERO, 34.0 * delta)
+		update_feedback(delta)
+		_rig.update(delta, 0.0, move_speed, is_on_floor(), Vector3.ZERO, false, 0.0)
+		move_and_slide()
+		return
+	# 插盾姿态期间：不移动、不攻击，只以受限转速转向（见 _tick_heavy_response）。
+	# 这是"选择防守"的代价 —— 那几秒它打不到你，而解除姿态还有一段硬直窗口。
+	if _tick_heavy_response(delta):
+		velocity.x = 0.0
+		velocity.z = 0.0
+		if not is_on_floor():
+			velocity.y -= gravity * delta
+		_face_target_while_planted(delta)
+		update_feedback(delta)
+		_rig.update(
+			delta, 0.0, move_speed, is_on_floor(), Vector3.ZERO, false,
+			wrapf(rotation.y - prior_yaw, -PI, PI) / maxf(delta, 0.001)
+		)
+		move_and_slide()
+		return
+	# 【远距离接近加速】见 game_config.json 的 _approach_doc：敌人从 14~32 米外
+	# 以基础速度走过来要 3.5~7.5 秒，而玩家在 20 米外每秒就打掉一只 ——
+	# 近战怪在到达之前就死了，看起来像木桩。远段乘一个系数，近段回归基础速度。
+	var chase_speed := move_speed
+	if is_instance_valid(target):
+		var gap := global_position.distance_to(target.global_position)
+		if gap > _approach_boost_distance:
+			chase_speed = move_speed * _approach_speed_scale
+	if _steering.tick(delta, _stagger_time <= 0.0 and _attack_elapsed < 0.0 and is_instance_valid(target) and global_position.distance_to(target.global_position) <= detection_range, target, chase_speed):
+		if has_meta(&"combat_recorder"):
+			set_meta(&"sparring_trace", {"engine_frame": Engine.get_physics_frames(), "branch": "navigation_override"})
 		attack_cooldown = maxf(attack_cooldown - delta, 0.0)
 		update_feedback(delta)
 	else:
 		_update_behavior(delta)
 	var actual_velocity := get_real_velocity()
 	_rig.update(
-		delta, Vector2(actual_velocity.x, actual_velocity.z).length(), move_speed, is_on_floor(),
+		delta, Vector2(actual_velocity.x, actual_velocity.z).length(), chase_speed, is_on_floor(),
 		global_basis.orthonormalized().inverse() * actual_velocity, locomoting,
 		wrapf(rotation.y - prior_yaw, -PI, PI) / maxf(delta, 0.001)
 	)
@@ -296,15 +432,7 @@ func _update_behavior(delta: float) -> void:
 		# 【找不到人就置空】—— 原来这里是 "if found != null 才覆盖"，
 		# 于是目标倒下之后 target 会一直留着那个尸体，敌人继续捶它。
 		target = TargetingUtil.nearest_player(self) as CharacterBody3D
-	if _stagger_time > 0.0:
-		_steering.direction_to(global_position, Vector3.ZERO, delta, false)
-		_stagger_time = maxf(_stagger_time - delta, 0.0)
-		velocity.x = _stagger_velocity.x
-		velocity.z = _stagger_velocity.z
-		_stagger_velocity = _stagger_velocity.move_toward(Vector3.ZERO, 34.0 * delta)
-		move_and_slide()
-		update_feedback(delta)
-		return
+	# 击退已在 _physics_process 里优先结算（见那段注释），这里不再重复处理。
 	if not is_instance_valid(target):
 		_steering.direction_to(global_position, Vector3.ZERO, delta, false)
 		var brake := move_speed * _brake_ratio * delta
@@ -353,18 +481,22 @@ func _update_behavior(delta: float) -> void:
 
 
 func attack() -> void:
+	# 插盾姿态期间不能攻击 —— "选择防守"必须真的有代价。
+	if _shield_busy():
+		return
 	if _attack_elapsed >= 0.0 or health <= 0.0 or _stagger_time > 0.0 or not HealthUtil.is_alive(target):
 		return
 	_attack_target = target
 	_attack_duration = maxf(attack_interval * 0.85, 0.5)
 	attack_cooldown = maxf(attack_interval, _attack_duration)
 	_attack_elapsed = 0.0
+	preload("res://scripts/combat_telemetry.gd").enemy_attack_started(self, "近战挥击")
 	velocity.x = 0.0
 	velocity.z = 0.0
 	var angle := ConfigUtil.get_float("enemy.melee_attack_angle", 110.0)
 	_attack_area.prepare(global_transform, {"kind": "sector", "radius": attack_distance + 0.35,
 		"angle": angle, "height": 2.0 * scale.y, "ground_effect": false},
-		(attack_damage + _contact_damage * attack_interval) * _damage_scale)
+		(attack_damage + _contact_damage * attack_interval) * _damage_scale * (1.0 + _rage))
 	_rig.play_attack(_attack_duration)
 
 
@@ -402,14 +534,232 @@ func cancel_attack() -> void:
 	_rig.cancel_attack()
 
 
+## ── 盾卫：插盾防御姿态 ───────────────────────────────────────────────
+##
+## 不是"抬一下手挡一下"，而是一套**有起手、有持续、有解除**的相位：
+##
+##   DOWN ──插盾(plant_seconds)──▶ PLANTED ──保持(hold_seconds)──▶ LOWERING ──解除(lower_seconds)──▶ DOWN
+##
+## 期间的性质（每条都是玩家能读出来的规则）：
+##   · **PLANTED 期间不移动、不攻击** —— 它是"选择防守"，代价是这几秒打不到你；
+##   · **正面扇区（block_arc_degrees）内的子弹被削减**，扇区外用 `take_damage_at`
+##     的命中点算夹角，所以**绕到侧后就打得动**；
+##   · **可以转向**，但转速只有 `planted_turn_speed`（度/秒）—— 慢走甩不掉，
+##     疾跑弧线能甩掉，于是"插盾"逼你动，而不是逼你站着；
+##   · **解除需要时间**：`LOWERING` 期间不格挡也不攻击，这就是反击窗口；
+##   · **爆炸不吃正面格挡**：手雷/震地走 `take_damage`（无方向），绕不过盾面却
+##     照样从脚底炸 —— 手雷因此成为打盾卫的正解（用户设计意图）。
+##   · **共鸣例外**：共鸣是"能迎上去挡的能量波"，插盾期间由 `_brace_resonance`
+##     显式减伤；这是"共鸣打不动重型"的实现方式。
+func _enter_shield_stance() -> void:
+	if _shield_pivot == null:
+		return
+	if _shield_state != ShieldState.DOWN:
+		# 已经在姿态里：只把保持时间续上，不打断起手/解除。
+		if _shield_state == ShieldState.PLANTED:
+			_shield_state_time = _shield_hold_seconds
+		return
+	_shield_state = ShieldState.PLANTING
+	_shield_state_time = _shield_plant_seconds
+	_shield_cooldown = _shield_raise_cooldown
+	AudioUtil.play_at("hit_stone", global_position, -8.0, 0.7)
+
+
+## 盾牌是否正挡在正面扇区内。`hit_position` 是命中点，用来算"从哪个方向打来"。
+func _blocks_from(hit_position: Vector3) -> bool:
+	if _shield_state != ShieldState.PLANTED:
+		return false
+	var to_hit := hit_position - global_position
+	to_hit.y = 0.0
+	if to_hit.is_zero_approx():
+		return true
+	var facing := -global_transform.basis.z
+	facing.y = 0.0
+	if facing.is_zero_approx():
+		return true
+	var half_arc := deg_to_rad(_shield_block_arc_degrees * 0.5)
+	return facing.normalized().angle_to(to_hit.normalized()) <= half_arc
+
+
+## 共鸣来袭（伤害结算【之前】）。盾卫必定插盾。
+##
+## 【为什么要"反射式"立刻到位】通知机制本身是有的（`resonance._apply_burst_damage`
+## 在结算伤害前调这里），但姿态是由相位机按 `delta` 插值的，插到"插盾"的样子要
+## 0.35 秒 —— 而爆发的视觉是同一帧。两者一错位，玩家看到的就是"先被炸、盾才抬起来"，
+## 读起来像"被打了一下才有反应"（用户实测反馈）。格挡既然这一发就生效，
+## 姿态也必须同一帧到位，它们才是同一件事。
+func on_resonance_incoming(_center: Vector3) -> void:
+	_enter_shield_stance()
+	if _shield_pivot == null or _shield_state == ShieldState.DOWN:
+		return
+	# 共鸣是能迎上去挡的能量波：这一发按格挡减伤处理（爆炸不走这条路）。
+	_brace_resonance_time = RESONANCE_BRACE_WINDOW
+	# 反射式：跳过插盾起手，直接立在防御相位并瞬间吸到位。
+	_shield_state = ShieldState.PLANTED
+	_shield_state_time = maxf(_shield_state_time, _shield_hold_seconds)
+	_apply_shield_pose(1.0)
+
+
+## 被共鸣命中（伤害结算之后）。重型会激怒：挨得越多，物理攻击越强。
+func on_resonance_hit(_amount: float) -> void:
+	if not _is_heavy():
+		return
+	_rage = minf(_rage + _rage_per_hit, _rage_max)
+
+
+## 与 resonance.gd 的 is_large 保持一致：体型 ≥1.25 或称号含重型词。
+func _is_heavy() -> bool:
+	return scale.x >= 1.25 \
+		or enemy_title.contains("巨型") \
+		or enemy_title.contains("重装") \
+		or enemy_title.contains("大型") \
+		or enemy_title.contains("破坏者")
+
+
+## 姿态度数是否"忙"（起手/防御/解除都算）：忙的时候不移动、不攻击。
+func _shield_busy() -> bool:
+	return _shield_state != ShieldState.DOWN
+
+
+func _spawn_shield_block_fx(hit_position: Vector3) -> void:
+	if not is_inside_tree():
+		return
+	var scene := get_tree().current_scene
+	if scene == null:
+		return
+	var point := hit_position if not hit_position.is_zero_approx() \
+		else (_shield_pivot.global_position if _shield_pivot != null else global_position)
+	CombatFXUtil.spawn_impact(scene, point, global_transform.basis.z, Color(0.72, 0.86, 1.0, 1.0), 1.3)
+	AudioUtil.play_at("hit_metal", point, -4.0, randf_range(0.94, 1.06))
+
+
+## 姿态机 + 插盾姿态 + 激怒消退。返回 true 表示这一帧由姿态接管（不移动、不攻击）。
+func _tick_heavy_response(delta: float) -> bool:
+	if _shield_cooldown > 0.0:
+		_shield_cooldown = maxf(_shield_cooldown - delta, 0.0)
+	if _brace_resonance_time > 0.0:
+		_brace_resonance_time = maxf(_brace_resonance_time - delta, 0.0)
+	if _rage > 0.0:
+		_rage = maxf(_rage - _rage_decay * delta, 0.0)
+	if _shield_pivot != null:
+		_advance_shield_state(delta)
+	return _shield_busy()
+
+
+func _advance_shield_state(delta: float) -> void:
+	match _shield_state:
+		ShieldState.PLANTING:
+			_shield_state_time = maxf(_shield_state_time - delta, 0.0)
+			if _shield_state_time <= 0.0:
+				_shield_state = ShieldState.PLANTED
+				_shield_state_time = _shield_hold_seconds
+		ShieldState.PLANTED:
+			_shield_state_time = maxf(_shield_state_time - delta, 0.0)
+			if _shield_state_time <= 0.0:
+				_shield_state = ShieldState.LOWERING
+				_shield_state_time = _shield_lower_seconds
+		ShieldState.LOWERING:
+			_shield_state_time = maxf(_shield_state_time - delta, 0.0)
+			if _shield_state_time <= 0.0:
+				_shield_state = ShieldState.DOWN
+		_:
+			pass
+	# 姿态插值：插盾时盾面转成"立在身前的墙"并整体下移前推，解除时回到剖面构建姿态。
+	_apply_shield_pose(clampf(delta * 7.0, 0.0, 1.0))
+
+
+## 把盾面/下蹲插值到当前相位对应的姿态。weight = 1.0 即瞬间到位。
+##
+## 单独抽出来是为了**观察台**：视觉台按 M 冻结后物理不再跑，
+## 若姿态只由物理帧插值驱动，切了姿态也看不到变化（"P 没反应"）。
+## 冻结状态下直接按 weight=1.0 吸过去，才是"选姿态 → 立刻看到"。
+func _apply_shield_pose(weight: float) -> void:
+	if _shield_pivot == null:
+		return
+	var planted := _shield_state == ShieldState.PLANTED
+	var planted_pitch := deg_to_rad(_shield_planted_pitch_degrees)
+	var target_rot := _shield_rest_rotation + (Vector3(planted_pitch, 0.0, 0.0) if planted else Vector3.ZERO)
+	_shield_pivot.rotation = _shield_pivot.rotation.lerp(target_rot, weight)
+	var target_offset := _shield_planted_offset if planted else Vector3.ZERO
+	_shield_pivot.position = _shield_pivot.position.lerp(target_offset, weight)
+	if enemy_model != null:
+		var crouch := _shield_crouch if planted else 0.0
+		enemy_model.position.y = lerpf(enemy_model.position.y, crouch, weight)
+
+
+## 姿态期间只允许转向（用户要求：防御时可以转向），转速受限，
+## 于是"慢走甩不掉、疾跑弧线能甩掉" —— 插盾逼玩家动起来。
+##
+## 【朝向约定】本模型 **-Z 为正面**，所以朝向角是 `atan2(-x, -z)`
+## （与 `_face_flat_direction` 同一套约定）。这里曾经写成 `atan2(x, z)`，
+## 方向正好差 180°，表现就是"盾卫不朝玩家、自己原地转圈" —— 因为它一直在
+## 追一个背对的目标角，越追越偏。改朝向相关的代码前先确认这一条。
+func _face_target_while_planted(delta: float) -> void:
+	# 插盾期间不跑 _update_behavior，所以这里要自己刷新目标，
+	# 否则会一直朝着插盾那一刻记下的旧方位。
+	_retarget_timer -= delta
+	if _retarget_timer <= 0.0 or not is_instance_valid(target):
+		_retarget_timer = RETARGET_INTERVAL
+		target = TargetingUtil.nearest_player(self) as CharacterBody3D
+	if not is_instance_valid(target):
+		return
+	var to_target := target.global_position - global_position
+	to_target.y = 0.0
+	if to_target.is_zero_approx():
+		return
+	var desired := atan2(-to_target.x, -to_target.z)
+	var diff := wrapf(desired - rotation.y, -PI, PI)
+	var step := deg_to_rad(_shield_planted_turn_speed) * delta
+	rotation.y += clampf(diff, -step, step)
+
+
+## 无方向的伤害入口：爆炸（手雷 / 震地脉冲）与共鸣走这里。
+##
+## **爆炸不吃正面格挡** —— 手雷从脚底炸上来，插在地上的盾挡不住；这正是
+## 用户要的"手雷因此有点用"。共鸣是唯一例外：它由 `on_resonance_incoming`
+## 预先置位 `_brace_resonance`（盾能迎上去挡的能量波）。
 func take_damage(amount: float) -> void:
 	if health <= 0.0 or is_queued_for_deletion():
 		return
+	if _brace_resonance_time > 0.0:
+		amount *= (1.0 - _shield_damage_reduction)
+		_spawn_shield_block_fx(Vector3.ZERO)
+	_brace_resonance_time = 0.0
+	_apply_damage(amount)
+
+
+## 有方向的伤害入口（子弹）：命中点在正面扇区内才算被盾挡住。
+##
+## 有了它，绕侧后就能打得动盾卫；而"插盾时可以转向"限制了这条路的宽度 ——
+## 慢走甩不掉，疾跑弧线能甩掉。
+func take_damage_at(amount: float, position: Vector3, headshot: bool = false) -> void:
+	if health <= 0.0 or is_queued_for_deletion():
+		return
+	if _shield_pivot != null and _blocks_from(position):
+		amount *= (1.0 - _shield_damage_reduction)
+		_spawn_shield_block_fx(position)
+		_apply_damage(amount)
+		return
+	# 打不动盾卫的时候它会插盾（概率 + 冷却限频）。
+	if _shield_pivot != null and _shield_state == ShieldState.DOWN \
+			and _shield_cooldown <= 0.0 and randf() < _shield_raise_chance:
+		_enter_shield_stance()
+	_apply_damage(amount)
+	# headshot 的加成在 Ballistics 里已经算进 amount，这里只为接口兼容保留参数。
+	if headshot:
+		hit_flash_time = 0.14
+
+
+func _apply_damage(amount: float) -> void:
 	var before := health
 	_took_damage = true
 	# 【重量】护甲：对所有伤害来源减伤（含手雷 / 脉冲的爆炸结算）。
 	health -= amount * (1.0 - _armor)
 	preload("res://scripts/combat_telemetry.gd").enemy_damaged(self, before)
+	# 【实验场】敌人不死：伤害照常结算、受击表现照常播，只是不进入死亡。
+	# 机制验证要在"挨打之后"才看得到反应（插盾 / 格挡 / 激怒），一打就死就没得看。
+	if bool(get_meta(&"experiment_invincible", false)):
+		health = maxf(health, 1.0)
 	if health <= 0.0:
 		_last_overkill = absf(health)
 		die()
@@ -510,13 +860,34 @@ func update_health_label() -> void:
 
 
 ## juice：被震地脉冲破招——陷入硬直并后仰（B 的近战怪没有蓄力技能，故不取消技能）。
+##
+## 【方向】"后仰"必须是**背向目标退开**。这里曾经写 `-global_transform.basis.z * 7.5`，
+## 而本模型 -Z 是**正面**，`-basis.z` 恰好指向它面朝的方向 —— 也就是**朝着玩家**：
+## 于是"破招后仰"变成了"被拉进怀里"，震地脉冲看起来像在把敌人吸过来（用户实测）。
+## 另外 basis 带节点缩放（盾卫 scale 1.4），必须先归一化，否则推力随体型漂移。
 func parry() -> void:
-	_stagger_time = _stagger_duration * 1.5
-	_stagger_velocity = -global_transform.basis.z * 7.5
+	# 脉冲的 apply_push 先跑（它给的是正确的外推方向与力）：已经有推力就保留，
+	# 破招只负责"硬直更长 + 受击表现"，不该用自己的短推力把它覆盖掉。
+	_stagger_time = maxf(_stagger_duration * 1.5, _stagger_time)
+	if _stagger_velocity.length() < 0.01:
+		_stagger_velocity = _recoil_direction() * 7.5
 	hit_flash_time = 0.15
 	_visuals.set_flash(true)
 	if _rig:
 		_rig.flinch()
+
+
+## 破招后仰的方向：背向目标（拿不到目标就退回模型背面）。
+func _recoil_direction() -> Vector3:
+	var back := Vector3.ZERO
+	if is_instance_valid(target):
+		back = global_position - target.global_position
+	if back.is_zero_approx():
+		back = global_transform.basis.z
+	back.y = 0.0
+	if back.is_zero_approx():
+		back = Vector3.BACK
+	return back.normalized()
 
 
 ## juice：大体型敌人（更大的尸体爆炸与更长的演出）。

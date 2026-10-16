@@ -89,11 +89,12 @@
     "reload_duration": 1.35,
     "spread": {
       "_doc": "散布半角（度）。腰射 = base_degrees + 连射 bloom + 移动速度比例 × movement_degrees，移动项独立相加，不放大 bloom。movement_degrees 对应基准跑速，疾跑最多按 1.6 倍计算。右键为零散布狙击。准星按实际相机投影显示水平 / 垂直散布边界。",
-      "base_degrees": 0.55,
+      "_feel_fix_doc": "【试玩修正 2026-10-08】base 0.55→0.25、movement 1.0→0.35、max_bloom 6.5→4.0。反馈原话是『弹道散射虽然准确但是心理感受很不好，跟天女散花一样』—— 机制上它确实命中，但**持续扫射时的散布视觉读起来像散弹枪**，于是玩家把『近距离高速倾泻』当成最优解，一把冲锋枪玩成了霰弹枪。持续移动扫射的合成散布从约 4.0° 收到约 2.7°（20 米处 1.41 米 → 1.02 米半径）。**bloom_per_shot 刻意不动**：它在 test_player_spread 里是『新旧散布模型对比』的参照项（旧模型把这个值乘 4.06 倍），改小会让那个回归断言失去意义。还想更紧就先动 max_bloom_degrees。",
+      "base_degrees": 0.25,
       "bloom_per_shot": 0.85,
       "bloom_decay": 5.5,
-      "max_bloom_degrees": 6.5,
-      "movement_degrees": 1.0
+      "max_bloom_degrees": 4.0,
+      "movement_degrees": 0.35
     ,
       "ads_multiplier": 0.35,
       "movement_penalty": 1.8
@@ -213,16 +214,45 @@
 
     "_melee_feel_doc": "近战基础手感。attack_distance 是进入挥砍的距离；stagger_duration 是被手雷/脉冲击退后的硬直；idle_wander_speed_ratio 是未察觉玩家时的低速游荡比例（保留它是为了防止再次出现『远处刷出的敌人站着不动』）。",
     "melee_attack_distance": 1.85,
-    "stagger_duration": 0.42,
+    "_stagger_pressure_doc": "【试玩修正 2026-10-08：0.42 → 0.28】被手雷 / 震地脉冲击退后的硬直。**排查结论：普通子弹不会造成硬直**（`apply_push` 只被范围伤害调用，`take_damage` 只触发视觉 flinch），所以『近战怪被打就是木桩』不是这里造成的 —— 真正原因是下面那条投放距离。缩短它是顺带的压力修正：控制技的收益不该长到把敌人锁在原地。",
+    "stagger_duration": 0.28,
+    "_approach_doc": "【试玩修正 2026-10-08 新增】近战敌人的远距离接近加速：与玩家距离大于 melee_approach_boost_distance 时，移动速度乘以 melee_approach_speed_scale。它修的是本次试玩查出的真问题 —— 敌人从 14~32 米外以约 4 m/s 走过来要 3.5~7.5 秒，而玩家在 20 米外每秒就打掉一只，于是近战怪**永远到不了玩家面前**，看起来像木桩。1.8 让接近段跑到约 7.6 m/s（仍低于玩家冲刺 8.5），所以『高速拉开距离』依旧有效，但必须真的去拉。设为 1.0 即关闭。",
+    "melee_approach_speed_scale": 1.8,
+    "melee_approach_boost_distance": 9.0,
+    "_heavy_response_doc": "【重型对共鸣的反应 2026-10-08】让『共鸣打不动重型』变成看得见的设计，而不是像漏网。① **盾卫插盾防御姿态**（相位：DOWN →插盾 plant_seconds→ PLANTED →保持 hold_seconds→ LOWERING →解除 lower_seconds→ DOWN）：**检测到共鸣必定插盾**；平时被子弹打按 shield_raise_chance 概率插盾（shield_raise_cooldown 限频）。PLANTED 期间**不移动、不攻击**，只以 shield_planted_turn_speed 转向，所以它既是防御也是几秒钟的沉默；**正面 shield_block_arc_degrees 扇区内的子弹按 shield_damage_reduction 削减**，绕到侧后就打得动；**LOWERING 解除期间既不格挡也不攻击 —— 那是玩家的反击窗口**。② **爆炸不吃正面格挡**：手雷 / 震地脉冲走无方向的 take_damage，插在地上的盾挡不住从脚底上来的爆炸，所以**手雷是打盾卫的正解**；共鸣是唯一例外（能迎上去挡的能量波，由 on_resonance_incoming 预置位）。③ **重型激怒**：体型 ≥1.25 或称号含巨型/重装/大型/破坏者的敌人，每挨一次共鸣叠一层攻击加成（rage_per_resonance_hit），上限 rage_max，平时按 rage_decay_per_second 消退 —— 共鸣对重型不是没用，而是用错了会把它打得更凶。",
+    "shield_raise_chance": 0.35,
+    "shield_raise_cooldown": 4.0,
+    "shield_plant_seconds": 0.35,
+    "shield_hold_seconds": 2.4,
+    "shield_lower_seconds": 0.55,
+    "shield_block_arc_degrees": 130.0,
+    "shield_damage_reduction": 0.85,
+    "shield_planted_turn_speed": 60.0,
+    "_shield_pose_doc": "插盾姿态的纯表现参数。盾面挂在 enemy_profile.gd 建的 ShieldPivot（在肘部）下：`pitch` 是枢轴俯仰角，`offset` 是枢轴位移 [x,y,z]（模型局部空间，y 向下为负、z 向前为负），`crouch` 是身体下蹲量。**只调 pitch 是不够的** —— 盾绕肘旋转会变成一块斜板、底边落不到地上；必须配合负 y 把它降到地面、负 z 推到身前，才读得出『把盾插进地里做墙』。",
+    "shield_planted_pitch_degrees": -8.0,
+    "shield_planted_offset": [0.0, -0.55, -0.30],
+    "shield_crouch": -0.10,
+    "rage_per_resonance_hit": 0.12,
+    "rage_max": 0.9,
+    "rage_decay_per_second": 0.04,
     "melee_idle_wander_speed_ratio": 0.35,
     "_ranged_feel_doc": "远程基础手感。charge_time 是齐射前的蓄力（玩家的躲避窗口）；global_fire_cooldown_ms 是全体远程兵共用的开火节流（决定弹幕整体密度）；fire_range_ratio 表示『比察觉距离更近才开火』。",
     "ranged_charge_time": 0.65,
-    "ranged_global_fire_cooldown_ms": 900,
+    "_global_fire_pressure_doc": "【压力试验 2026-10-08】900 → 400。这是 static var 上的全局闸门（ranged_enemy.gd:56/464/484）：**全场所有远程敌人加起来每 900 毫秒只能打出一发**，所以加 10 个远程兵，弹幕频率一点不变，全体远程总输出恒为 8.9 DPS（L1）。400 把弹幕上限抬到 2.5 发/秒，『更多远程敌人』才第一次等于『更密弹幕』。这个闸门当初是为了避免十几发弹幕同时糊脸，所以降它是拿可读性换压迫感：若觉得满天弹看不清预警，回到 600 而不是 900。",
+    "ranged_global_fire_cooldown_ms": 400,
     "ranged_fire_range_ratio": 0.9,
     "_nav_doc": "导航重算间隔（秒）。越小追踪越准、开销越大。",
     "nav_repath_interval": 0.22,
     "_bullet_doc": "敌弹生命周期（秒），决定弹幕在场的压迫时长。",
     "bullet_lifetime": 6.0,
+    "_bullet_whiz_doc": "【近失弹呼啸】敌方弹丸这一帧的位移段与玩家头部（+head_height）的最近距离小于 radius 时，播一次 bullet_whiz 破空声。这是『擦身而过』爽感的唯一来源：旧 ruin-star 线的 enemy_bullet.gd 里有这段判定，移植到本工程时整段丢了，于是 bullet_whiz 在合成银行里写着、全项目零调用方。cooldown_ms 是跨子弹的全局冷却 —— 十几发弹幕同时擦身时只响一次，否则会叠成噪声。radius 调到 0 即关闭。",
+    "_bullet_whiz_enabled_doc": "【只给狙击手 2026-10-08】普通敌方子弹的近失呼啸总开关，**默认关闭**。用户试玩反馈：『所有的敌人子弹都近失弹呼啸了，怪不得。其实只保留狙击的就够了。』—— 一次交火里几十发子弹都在擦身，这个声音就不再是信息，而只是噪声；只有狙击重弹那一下的破空才是『重物从耳边过去』的事件。关闭后 `bullet_whiz_*` 那几项仍然有效，重启此开关即可恢复普通弹幕的呼啸（用于对照试听）。",
+    "bullet_whiz_enabled": false,
+    "bullet_whiz_radius": 2.4,
+    "bullet_whiz_head_height": 1.35,
+    "bullet_whiz_cooldown_ms": 140,
+    "_bullet_whiz_volume_doc": "破空声增益（dB）。**必须按音效库接入之后的混音重新配平**：`shot`/`sniper` 已换成真实采样，而 `bullet_whiz` 仍是合成音色，沿用旧的 -6 dB 会被枪声盖住（用户反馈『近失弹声效不如以前的版本』的直接原因）。",
+    "bullet_whiz_volume_db": 4.0,
     "_patterns_doc": "五种弹幕的成形参数。发数 × 张角决定躲避难度，速度决定反应时间，lane_offsets 里刻意留出的中间缺口是给玩家的生路。",
     "patterns": {
       "fan": {"count": 3, "spread_degrees": 18.0, "speed": 7.0},
@@ -236,7 +266,7 @@
     "ranged_distance_per_scale": 3.0,
 
     "_titles_doc": "刷出来的敌人头顶称号，下标与体型档 / 弹幕图案一致。",
-    "ranged_pattern_titles": ["无尽散射兵", "无尽点射兵", "无尽旋流兵", "无尽弹墙兵", "无尽迫击炮"],
+    "ranged_pattern_titles": ["无尽散射兵", "无尽点射兵", "无尽旋流兵", "无尽弹墙兵", "无尽迫击炮", "无尽狙击手"],
     "melee_titles": ["无尽猎手", "无尽战士", "无尽重卫", "无尽巨兽"],
 
     "_fall_kill_doc": "掉出场地即判定死亡：低于脚下程序化地面 fall_kill_depth 米就地结算（melee_enemy / ranged_enemy 的 _kill_if_below_world）。玩家掉出去是被送回最近落脚点（player.fall_rescue_depth），敌人反过来 —— 它在谁也看不见的底下，拉回来等于凭空多一个兵。这一条不是可有可无的收尾：波次推进器靠 tree_exited 减存活数，掉下去的敌人永不退场，于是把「最后一个敌人」永久挂在名单里，表现就是剩 1 卡住、只能等看门狗强推。",
@@ -247,7 +277,7 @@
     "_doc": "运行时烘焙的导航网格参数。agent_radius 会被吸附成 cell_size 的整数倍、agent_height 与 agent_max_climb 会被吸附成 cell_height 的整数倍 —— 所以直接写对齐后的值（见 navigation_region.gd 注释）。",
     "agent_radius": 1.2,
     "agent_height": 2.0,
-    "agent_max_climb": 0.5,
+    "agent_max_climb": 0.25,
     "agent_max_slope": 45.0,
     "cell_size": 0.3,
     "cell_height": 0.25,
@@ -305,7 +335,8 @@
   "spawn": {
     "_doc": "动态刷怪节拍。",
     "stage_seconds": 45.0,
-    "extra_enemies_per_level": 7,
+    "_extra_per_level_doc": "【试玩修正 2026-10-08：0 → 8】0 的本意是把『变强』从『打更久』里解耦，方向没错，但它同时把总量锁死在 68 只 —— 试玩结果就是『敌人投放数少了很多、完全没压力』。历史值 7 让人不满，是因为当时承伤上限（hit_invulnerability 0.42）与远程全局节流（900ms）都没打开，敌人变多只等于『打更久』；现在两道阀门已开，敌人变多才会真的等于变难。8 是略高于历史值的起点。**注意**：它仍与掉落构成正反馈（捡得多→等级高→敌人多），如果再次出现『越打越轻松』，优先收这个键，而不是回头再关承伤上限。",
+    "extra_enemies_per_level": 8,
     "extra_enemies_per_survival_stage": 4,
     "ranged_ratio": 0.44,
     "_interval_doc": "刷怪间隔 = 下限与 (基准 - (威胁等级-offset)×每级) 取大。",
@@ -325,7 +356,11 @@
     "_dormant_doc": "waves 模式下 survival_director 与 15 个固定刷怪点都会休眠（只读配置、不生成敌人），出怪完全交给 wave_director。",
     "_anchors_doc": "波次按 2～4 人小队在玩家周围动态选点。竞技场 spawn_anchors 仅作安全兜底；每个落点都重新检查玩家距离、身体空间与通路。",
     "_max_alive_doc": "同时存活上限。波次是一波里陆续放人，而不是一次性倒出来：既保留原来『持续压力』的节奏，也避免一次生成几十个节点造成尖峰。",
-    "max_alive": 14,
+    "max_alive": 18,
+    "_density_doc": "【密度维持】场上存活低于 target_alive 时，用 refill_interval 代替正常的小队间隔补人。它修的是『杀得快反而没事干』：出怪节拍原本固定（队内 0.25 / 队间 0.85 秒），玩家 DPS 涨十几倍也不会让这一波更快结束，表现就是清掉眼前几只之后对着空场等下一只 —— 变强只剩下等待，没有回报。本条只保证『场上一直有得打』，不改本波总预算（规模仍由 arenas.<id>.wave 决定）。调参顺序：先动 target_alive（场上目标人数，越大越挤），再动 refill_interval（补人间隔，越小越急）。",
+    "_target_alive_pressure_doc": "【压力试验 2026-10-08】6 → 10。压力应该加在『场上密度』而不是『每波总量』：总量 ÷ 击杀率 = 这一波的时长，所以抬总量只会让波次变长（玩家体感是『变强了反而打更久』），抬密度则是『更挤、且更快打完』。密度还天然与武器等级无关，所以难度曲线可读。前提是承伤上限已经打开（见 player.hit_invulnerability）且敌人跟得上（见 enemy_roster.max_speed_growth）—— 否则加密度只是多几堵肉墙。上限受 max_alive 约束。",
+    "target_alive": 14,
+    "refill_interval": 0.25,
     "_prepare_doc": "第一波开始前的准备时间（秒），给玩家环顾四周的余地。",
     "prepare_seconds": 4.0,
     "_spawn_interval_doc": "两个小队之间的投放间隔（秒）；小队内成员使用 squad_member_interval。",
@@ -382,9 +417,13 @@
     "_ranged_health_doc": "远程血量【刻意不走 health_growth】—— 它由 health_tier 的『狙击几发打死』决定，否则档位契约会随等级漂移。这条契约能成立，是因为狙击伤害与远程血量共用 weapon.sniper_growth_per_level 同一个系数；反过来说，想改远程血量的成长速度就必须同时改那个系数（等于同时改狙击威力），两者是焊死的。",
     "_growth_balance_doc": "health_growth_per_level 0.22→0.35，这是配合普攻曲线压缩的对侧改动。玩家纸面 DPS 从 L1→L12 的 21.7 倍压到 6.8 倍后，敌人血量若还按 0.22 涨，后期会从『无脑碾压』直接翻成『越来越轻松』—— 因为玩家的成长本来是它的 7.3 倍。0.35 把 L1→L12 的血量倍率从 2.98 倍抬到 3.85 倍，与 6.83 倍的 DPS 相乘后，净杀伤效率提升从 7.3 倍收敛到 1.8 倍。",
     "health_growth_per_level": 0.35,
-    "damage_growth_per_level": 0.14,
+    "_health_compound_doc": "【满武器压力试验 2026-10-08 新增】近战血量的复利成长因子（1.0 = 关闭，恢复纯线性）。为什么要它：`health_growth_per_level` 是线性的，而玩家输出随等级近似指数（L13 约 19 倍），两者相除会让 TTK 从 L1 的约 1 秒塌到 L13 的约 0.4 秒 —— 敌人**在跑到玩家面前之前就死了**（投放距离 14~32 米、接近要 2~4 秒），于是『95 只怪也只有一点压力』，加数量只是把队列拉长。1.08 把 TTK 拉回约 1.0~1.5 秒并基本恒定（按项目自带数值模型：L1 约 1.75s、L4 1.10s、L7 1.02s、L10 1.08s、L13 1.03s、L20 1.46s；不开则是 L1 1.75s → L13 约 0.42s）。开机偏肉就用 1.06，后期偏软就用 1.10。只作用于近战；远程仍走 health_tier 档位表，避免破坏『狙击几发打死』的契约。感觉过肉就往下调（1.05），过轻往上调（1.10）。",
+    "health_growth_compound": 1.08,
+    "_damage_growth_pressure_doc": "【压力试验 2026-10-08】0.14 → 0.05。原因：受击无敌帧是全局的，承伤上限恒为 1/0.42 次/秒 —— 想靠『更多敌人』制造压力，必须先打开这个上限（见 player.hit_invulnerability）。但一开上限，后期单次伤害若还按 0.14 涨到 ×3.8，5 次/秒就是 213 DPS，玩家 0.8 秒必死、且死得没有余地。压住单次伤害的成长，压力才会来自『数量与频率』而不是『后期必死』。副作用：后期近战单击从 ~43 降到 ~22，玩家更耐打；这正是把容错换给『被围住』这个场景。",
+    "damage_growth_per_level": 0.05,
     "speed_growth_per_level": 0.05,
-    "max_speed_growth": 1.25,
+    "_speed_cap_pressure_doc": "【压力试验 2026-10-08】1.25 → 1.40。原值让最快敌人停在 6.2×1.25 = 7.75 m/s，永远追不上玩家冲刺 8.5 —— 加多少敌人都只是被拉开，压力归零。1.40 让最快条目到 8.68 m/s（L8 达到上限），略高于冲刺：退着打不再是万能解，但绝大多数敌人仍然追不上，『高速移动』的爽感保留。**刻意不改 player.sprint_multiplier** —— 降低玩家移速会把整体爽感直接降一档，压力应该由敌人来追，而不是由玩家变慢。",
+    "max_speed_growth": 1.40,
     "_speed_cap_note": "max_speed_growth = 1.25 才是【实际生效】的那个。enemy 段里另有一个 speed_growth_max = 1.12，但那张表只有 survival_director 会读、波次模式下整体休眠。以本段为准：最快的是猎杀幼体 6.2×1.25 = 7.75，仍低于玩家冲刺 8.5。",
     "_anchor_doc": "锚点站位保护：生成点与玩家的最小距离，避免贴着玩家脸上刷出来。",
     "anchor_min_player_distance": 14.0,
@@ -409,6 +448,7 @@
       {"id": "L2HeavyWarrior", "gait_preset": "heavy", "title": "重装战士", "kind": "melee", "min_weapon_level": 2, "weight": 1.0, "scale": 1.35, "health": 210.0, "health_tier": -1, "move_speed": 2.8, "damage": 24.0, "armor_color": [0.2, 0.22, 0.25]},
       {"id": "L3SpiralCaster", "gait_preset": "ranged", "gait": {"arm_swing": 0.03, "move_lean_degrees": -1.0}, "title": "旋流术士", "kind": "ranged", "min_weapon_level": 3, "weight": 1.0, "scale": 1.05, "health": -1.0, "health_tier": 2, "move_speed": 3.3, "damage": 10.0, "ranged_pattern": 2, "movement_style": 1, "preferred_distance": 18.0, "armor_color": [0.42, 0.08, 0.66], "bullet_color": [0.76, 0.05, 1.0]},
       {"id": "L3WallGunner", "gait_preset": "ranged", "gait": {"run_cadence": 6.0, "accel_ratio": 3.0, "turn_speed": 240.0}, "title": "弹墙炮手", "kind": "ranged", "min_weapon_level": 3, "weight": 1.0, "scale": 1.15, "health": -1.0, "health_tier": 2, "move_speed": 2.8, "damage": 11.0, "ranged_pattern": 3, "movement_style": 0, "preferred_distance": 20.0, "armor_color": [0.04, 0.45, 0.42], "bullet_color": [1.0, 0.04, 0.55]},
+      {"id": "L3Sniper", "gait_preset": "ranged", "gait": {"walk_cadence": 5.0, "run_cadence": 6.4, "arm_swing": 0.02, "turn_lag": 0.02, "accel_ratio": 3.6}, "title": "遗迹狙击手", "kind": "ranged", "min_weapon_level": 3, "weight": 1.0, "scale": 1.08, "health": -1.0, "health_tier": 2, "move_speed": 2.6, "damage": 18.0, "ranged_pattern": 5, "movement_style": 0, "preferred_distance": 26.0, "armor_color": [0.22, 0.05, 0.34], "bullet_color": [1.0, 0.18, 0.62]},
       {"id": "L3Berserker", "gait_preset": "normal", "gait": {"run_cadence": 9.4, "run_swing": 0.78, "move_lean_degrees": -14.0, "idle_lean_degrees": -3.0, "arm_swing": 0.65, "hip_sway": 0.085, "weight_shift": 0.04}, "title": "狂战士", "kind": "melee", "min_weapon_level": 3, "weight": 1.0, "scale": 1.15, "health": 150.0, "health_tier": -1, "move_speed": 4.7, "damage": 20.0, "profile": "berserker", "armor_color": [0.7, 0.04, 0.04]},
       {"id": "L3ShieldGuard", "gait_preset": "heavy", "gait": {"arm_swing": 0.10, "move_lean_degrees": -4.0}, "title": "大型盾卫", "kind": "melee", "min_weapon_level": 3, "weight": 1.0, "scale": 1.4, "health": 260.0, "health_tier": -1, "move_speed": 2.5, "damage": 26.0, "profile": "shield", "armor_color": [0.12, 0.18, 0.32]},
       {"id": "L3Runner", "gait_preset": "light", "gait": {"run_cadence": 14.0, "move_lean_degrees": -20.0}, "title": "疾行刺客", "kind": "melee", "min_weapon_level": 3, "weight": 1.0, "scale": 0.68, "health": 55.0, "health_tier": -1, "move_speed": 6.0, "damage": 11.0, "profile": "assassin", "armor_color": [0.12, 0.5, 0.2]},
@@ -444,7 +484,8 @@
       "sniper": 26.0
     },
     "_invuln_doc": "受击后的无敌帧（秒），给玩家一个『被打中后至少能拉开距离』的窗口。",
-    "hit_invulnerability": 0.42,
+    "_invuln_pressure_doc": "【压力试验 2026-10-08】0.42 → 0.20。原值让承伤上限恒为 1/0.42 = 2.38 次/秒，**与敌人数完全无关** —— 1 只和 14 只围殴对玩家是同一件事，所以『增加敌人』在那之前不可能制造压力。0.20 把上限抬到 5 次/秒，数量第一次变成威胁。代价是可读性：同时挨打的频率翻倍，配合 enemy_roster.damage_growth_per_level 降到 0.05 才不至于变成必死。若实际感觉『被糊脸、看不懂』，先回到 0.28，而不是 0.42。",
+    "hit_invulnerability": 0.20,
 
     "_shield_doc": "《命运2》式护盾：伤害先扣护盾，溢出部分才进生命；停火 shield_regen_delay 秒后按 shield_regen_rate 逐点回满。目的是消灭『被近战从背后捅死』这类毫无反应机会的死亡 —— 一次背刺会先打在护盾上，拉开距离就能恢复。设 shield_max = 0 可整体关闭。",
     "shield_max": 70.0,
@@ -474,6 +515,9 @@
       "invulnerability": 0.34
     },
     "grenade": {
+      "_stagger_doc": "接触存活敌人立即爆炸；未碰敌保留引信。stagger_seconds 普通敌人最短硬直秒（0.05–2），boss_stagger_seconds 正式Boss短硬直秒（0.05–0.8）。保存并重新运行后生效，每枚手雷生成时快照；仅手雷使用。Boss空中延后至安全落地，不重置已公布攻击。",
+      "stagger_seconds": 0.6,
+      "boss_stagger_seconds": 0.25,
       "_doc": "手雷（E）：throw_speed 是抛出初速，fuse 是引信秒数，radius/damage/push 是爆炸结算。手雷【需要视线】—— 被掩体挡住就打不到。",
       "cooldown": 6.0,
       "throw_speed": 17.0,
@@ -484,10 +528,15 @@
     },
     "skill": {
       "_doc": "震地脉冲（Q）：以玩家为中心向外扩散，【穿墙生效】（不需要视线），定位是「贴身被围住时把敌人推开」的自救技。想调 Q 键威力就改 damage。",
-      "cooldown": 9.0,
+      "_push_fix_doc": "【试玩修正 2026-10-08】push 15→30、damage 55→120。用户反馈『震地没有很明显的击退效果，杀伤不够效果也不够，很鸡肋』。算过：击退位移 ≈ push×硬直时长 − ½×34×硬直²，而硬直在上一轮从 0.42 缩到 0.28 秒，于是 15 的推力只剩约 2.9 米，且推完立刻恢复追击。30 的推力给出约 7.1 米缺口 —— 这才是『被围住能撕开一条路』。伤害同步提到 120（原先 55 只值 0.39 秒平A）。**注意**：硬直时长 `enemy.stagger_duration` 会同时放大/缩小所有击退（手雷、共鸣也是），调它要一起看。",
+      "_charges_doc": "【点数制 2026-10-08】Q 从「固定 9 秒冷却」改成 **点数 + 冷却** 双闸门：charges_start 是起手点数（试玩取满点 3），每用一次扣 1 点并进入 cooldown；点数按 charge_recharge_seconds 逐个回充。cooldown 只负责【两次使用之间的最小间隔】—— 用户明确要求「防止直接 3」，所以点数再多也不能连着瞬发。长期平均频率由回充速度决定：3 点 + 16 秒/点、冷却 3 秒 ⇒ 前 6 秒可连放三次应急（第 0/3/6 秒），之后约每 16 秒回一点；总量与改动前「每 9 秒固定一次」接近，但额度被前移到了危急时刻。调参顺序：先动 charge_recharge_seconds（额度松紧），再动 cooldown（连放间隔，不建议低于 2 秒）。",
+      "cooldown": 3.0,
+      "charges_max": 3,
+      "charges_start": 3,
+      "charge_recharge_seconds": 16.0,
       "radius": 9.0,
-      "damage": 55.0,
-      "push": 15.0,
+      "damage": 120.0,
+      "push": 30.0,
       "_expand_doc": "扩散环从生成到消失的时长（秒），纯表现，不影响伤害结算。",
       "expand_duration": 0.5
     }
@@ -524,8 +573,14 @@
   },
 
   "pickup": {
-    "_doc": "掉落物本体（不是掉落概率，那个在 drops 段）。只留存活时长 —— 浮动与自转属 juice，等观感定型后再说。",
-    "lifetime": 30.0
+    "_doc": "掉落物本体（不是掉落概率，那个在 drops 段）。",
+    "_lifetime_doc": "掉落物存活时长（秒）。",
+    "lifetime": 30.0,
+    "_magnet_doc": "【拾取磁力】进入 magnet_range 米后掉落物飞向玩家并自动结算。为什么必须有：武器等级完全由『走过去捡到几个模块』决定，而掉落物落在敌人死亡处 —— 敌人多半死在远处，玩家又未必敢离开掩体，于是理论曲线（按拾取率 50/75/100% 推算）和实机手感直接脱钩：捡得到就滚雪球，捡不到就一直卡着。磁力把『拾取』从走位负担变成自动结算，只保留『要不要前压到尸体附近』这个策略决定。调参：范围给大了会失去前压动机，给小了等于没加。magnet_speed 是贴近前的巡航速度，越近越快（最高 2.2 倍）。",
+    "magnet_range": 11.0,
+    "magnet_speed": 12.0,
+    "_follow_doc": "【默认关】贴身但用不上（满血 / 备弹满 / 模块满级）时，掉落物是否继续跟随玩家等待时机。关闭 = 就地放下，玩家想用再走回来踩；打开 = 贴在身上，一掉血立刻被吃掉。打开会产生一个已知的古怪表现：满血时捡到的血包会变成挂件跟着你跑 —— 那是『随身补给』的设计，留作开关而不是默认行为。",
+    "follow_until_usable": false
   },
 
   "drops": {
@@ -721,7 +776,9 @@
         "mask_rects": [
           [-27.0, 29.0, -49.0, 28.0, 22.0],
           [-8.5, 8.5, -82.0, 82.0, 20.0],
-          [18.0, 56.0, -7.0, 11.0, 18.0]
+          [18.0, 56.0, -7.0, 11.0, 18.0],
+          [-40.5, -27.5, -5.0, 9.0, 10.0],
+          [26.0, 36.0, 8.0, 18.0, 12.0]
         ],
         "mask_circles": [[3.0, -42.0, 13.0, 12.0]],
         "_landscape_doc": "远景分四层：贴地低丘遮住山根、近山脚连接地形、中层山脊构成轮廓、最远尖峰接近天空色。angle_offset 让不同地图的主视方向不一样。纪念碑本身由 map.props 拥有。",
@@ -744,21 +801,34 @@
             "wood": [0.30, 0.17, 0.075],
             "rock": [0.33, 0.34, 0.31]
           },
-          "_roads_doc": "山谷主路承担唯一的远近引导，东侧短支路连接营火；不再使用十字竞技场骨架。",
+          "_roads_doc": "土路止于收口石铺入口，门后绕蓝祭坛两侧通向后门。东侧红祭坛退到路旁，由短石路连接。",
           "roads": [
             {"pos": [0.0, 31.0], "yaw": 0.0, "size": [12.0, 104.0], "edge_width": 1.15, "lift": 0.020, "curve_start": 3.0, "curve_end": -4.5},
-            {"pos": [3.0, -47.0], "yaw": 0.0, "size": [10.5, 54.0], "edge_width": 0.95, "lift": 0.020},
+            {"pos": [3.0, -64.0], "yaw": 0.0, "size": [10.5, 20.0], "edge_width": 0.95, "lift": 0.020},
             {"pos": [30.0, 2.0], "yaw": 90.0, "size": [7.5, 46.0], "edge_width": 0.75, "lift": 0.018, "curve_start": -1.0, "curve_end": 2.5},
-            {"pos": [-17.0, 2.0], "yaw": 90.0, "size": [4.0, 34.0], "edge_width": 0.6, "lift": 0.019},
-            {"pos": [3.0, -25.0], "yaw": 0.0, "size": [24.0, 20.0], "material": "court", "lift": 0.012}
+            {"pos": [-17.0, 2.0], "yaw": 90.0, "size": [4.0, 34.0], "edge_width": 0.6, "lift": 0.019}
           ],
+          "_paving_doc": "from/to=[x,z]；widths=[起点宽,终点宽]，单位米。与正式地形共用高度，入口由宽到窄收向门洞，两侧连接柱廊；祭坛绕行道宽3米。",
+          "paving": [
+            {"name": "EntranceApron", "from": [3.0, -20.0], "to": [3.0, -35.5], "widths": [14.0, 6.5]},
+            {"name": "GalleryLinkWest", "from": [-10.0, -25.0], "to": [-2.8, -25.0], "widths": [3.0, 3.0]},
+            {"name": "GalleryLinkEast", "from": [8.8, -25.0], "to": [16.0, -25.0], "widths": [3.0, 3.0]},
+            {"name": "GateThreshold", "from": [3.0, -35.5], "to": [3.0, -36.5], "widths": [6.5, 6.5]},
+            {"name": "AltarWalkFront", "from": [-7.0, -38.0], "to": [13.0, -38.0], "widths": [3.0, 3.0]},
+            {"name": "AltarWalkWest", "from": [-5.5, -39.5], "to": [-5.5, -51.5], "widths": [3.0, 3.0]},
+            {"name": "AltarWalkEast", "from": [11.5, -39.5], "to": [11.5, -51.5], "widths": [3.0, 3.0]},
+            {"name": "AltarWalkRear", "from": [-7.0, -53.0], "to": [13.0, -53.0], "widths": [3.0, 3.0]},
+            {"name": "RedAltarLink", "from": [31.0, 4.5], "to": [31.0, 8.9], "widths": [3.0, 3.0]}
+          ],
+          "_decor_clear_doc": "新增建筑外缘 [x0,x1,z0,z1]；控制装饰避让与基础微地形清理，宏观压平由 mask_rects 控制。树冠、岩块各自外加水平半径，避免根不在墙里而树冠仍穿墙。",
+          "decor_clear_rects": [[-40.5, -27.5, -5.0, 9.0], [26.0, 36.0, 8.0, 18.0]],
           "_props_doc": "山谷遗迹原型：一座中等尺度目标门、两组低墙和断柱、一处营火。体量按组出现，主路两侧保留大片安静草地。",
           "props": [
-            {"shape": "box", "pos": [3.0, -42.0], "size": [12.0, 0.55, 11.0], "material": "stone_dark", "solid": true, "bevel": 0.35},
-            {"shape": "box", "pos": [3.0, -42.0], "size": [8.0, 0.5, 7.0], "material": "stone", "solid": true, "y": 0.80, "bevel": 0.28},
-            {"shape": "box", "pos": [3.0, -45.1], "size": [7.2, 0.16, 0.38], "material": "stone_light", "y": 1.08},
-            {"shape": "box", "pos": [3.0, -38.9], "size": [7.2, 0.16, 0.38], "material": "stone_light", "y": 1.08},
-            {"shape": "diamond", "pos": [3.0, -42.0], "radius": 1.15, "height": 3.2, "material": "stone", "y": 2.55, "emissive": [0.03, 0.75, 1.0], "emissive_energy": 4.2},
+            {"shape": "box", "pos": [3.0, -45.0], "size": [12.0, 0.55, 11.0], "material": "stone_dark", "solid": true, "bevel": 0.35},
+            {"shape": "box", "pos": [3.0, -45.0], "size": [8.0, 0.5, 7.0], "material": "stone", "solid": true, "y": 0.80, "bevel": 0.28},
+            {"shape": "box", "pos": [3.0, -48.1], "size": [7.2, 0.16, 0.38], "material": "stone_light", "y": 1.08},
+            {"shape": "box", "pos": [3.0, -41.9], "size": [7.2, 0.16, 0.38], "material": "stone_light", "y": 1.08},
+            {"shape": "diamond", "pos": [3.0, -45.0], "radius": 1.15, "height": 3.2, "material": "stone", "y": 2.55, "emissive": [0.03, 0.75, 1.0], "emissive_energy": 4.2},
 
             {"shape": "box", "pos": [-2.0, -35.5], "size": [2.2, 8.0, 2.5], "material": "stone", "solid": true, "bevel": 0.24},
             {"shape": "box", "pos": [8.0, -35.5], "size": [2.2, 7.4, 2.5], "material": "stone", "solid": true, "bevel": 0.24},
@@ -784,10 +854,10 @@
             {"shape": "box", "pos": [-39.0, 8.0], "size": [1.5, 4.0, 7.0], "material": "stone", "solid": true, "yaw": 12.0, "bevel": 0.2},
             {"shape": "box", "pos": [-29.0, 7.0], "size": [6.5, 0.75, 2.2], "material": "stone_light", "rotation": [0.0, -28.0, 6.0], "y": 0.48, "bevel": 0.16},
 
-            {"shape": "box", "pos": [31.0, 4.0], "size": [8.5, 0.5, 8.5], "material": "stone_dark", "solid": true, "bevel": 0.28},
-            {"shape": "box", "pos": [31.0, 4.0], "size": [5.5, 0.45, 5.5], "material": "stone", "solid": true, "y": 0.72, "bevel": 0.22},
-            {"shape": "cylinder", "pos": [31.0, 4.0], "radius": 0.18, "radius_top": 0.14, "height": 1.45, "material": "wood", "solid": true},
-            {"shape": "sphere", "pos": [31.0, 4.0], "radius": 0.52, "height": 0.95, "material": "wood", "y": 1.78, "emissive": [1.0, 0.34, 0.055], "emissive_energy": 4.4},
+            {"shape": "box", "pos": [31.0, 13.0], "size": [8.5, 0.5, 8.5], "material": "stone_dark", "solid": true, "bevel": 0.28},
+            {"shape": "box", "pos": [31.0, 13.0], "size": [5.5, 0.45, 5.5], "material": "stone", "solid": true, "y": 0.72, "bevel": 0.22},
+            {"shape": "cylinder", "pos": [31.0, 13.0], "radius": 0.18, "radius_top": 0.14, "height": 1.45, "material": "wood", "solid": true},
+            {"shape": "sphere", "pos": [31.0, 13.0], "radius": 0.52, "height": 0.95, "material": "wood", "y": 1.78, "emissive": [1.0, 0.34, 0.055], "emissive_energy": 4.4},
 
             {"shape": "box", "pos": [-13.0, 17.0], "size": [7.0, 0.75, 1.5], "material": "stone", "rotation": [0.0, 24.0, -7.0], "y": 0.48, "bevel": 0.16},
             {"shape": "box", "pos": [15.0, 20.0], "size": [5.5, 0.8, 1.7], "material": "stone_dark", "rotation": [0.0, -20.0, 5.0], "y": 0.50, "bevel": 0.16},
@@ -795,9 +865,9 @@
             {"shape": "cylinder", "pos": [20.0, 15.0], "radius": 0.9, "radius_top": 0.78, "height": 2.8, "material": "stone", "solid": true}
           ],
           "lights": [
-            {"pos": [3.0, -42.0], "height": 3.4, "color": [0.08, 0.68, 1.0], "energy": 4.4, "range": 15.0},
+            {"pos": [3.0, -45.0], "height": 3.4, "color": [0.08, 0.68, 1.0], "energy": 4.4, "range": 15.0},
             {"pos": [-34.0, 2.0], "height": 2.5, "color": [1.0, 0.78, 0.06], "energy": 3.0, "range": 9.0},
-            {"pos": [31.0, 4.0], "height": 2.0, "color": [1.0, 0.34, 0.06], "energy": 3.5, "range": 10.0}
+            {"pos": [31.0, 13.0], "height": 2.0, "color": [1.0, 0.34, 0.06], "energy": 3.5, "range": 10.0}
           ],
           "grove": [
             {"center": [-34.0, 26.0], "count": 14, "inner_radius": 8.0, "radius": 30.0, "seed": 8123, "scale_min": 1.25, "scale_max": 2.15, "pine_ratio": 0.22},
@@ -836,7 +906,7 @@
           "base_enemies": 11,
           "growth_per_wave": 4,
           "intermission": 6.0,
-          "boss_id": "warden"
+          "boss_id": "sediment_titan"
         }
       },
 
@@ -1200,6 +1270,17 @@
         "barrage_spread_degrees": 26.0
       }
     },
+    "sediment_titan": {
+      "label": "沉积泰坦",
+      "preset": "圣所关底 Boss",
+      "scale": 1.65,
+      "body_radius": 1.4,
+      "body_height": 3.4,
+      "flat_spawn": true,
+      "flat_spawn_height_delta": 0.25,
+      "min_player_distance": 26.0,
+      "max_player_distance": 34.0
+    },
     "warden": {
       "label": "遗迹守望者",
       "health": 2600.0,
@@ -1245,6 +1326,13 @@
   "audio": {
     "_doc": "音色参数表。数组含义由 _bank_format 给出，改完立刻能听出差别。",
     "_bank_format": "[时长秒, 起始频率Hz, 结束频率Hz, 衰减指数, 噪声占比0~1, 增益]",
+    "file_bank_enabled": true,
+    "_file_bank_doc": "文件音源层：只把下面列出的键换成真实音频文件，没列出的键一律用上面的合成音色。整体开关是 file_bank_enabled。一次只加一条、单独试听，确认后再加下一条 —— 2026-10-08 一次接了 17 条，结果分不清哪个是哪个，只剩 shot / sniper 通过试听。",
+    "_file_bank_format": "值可写路径字符串，或 {path, loop, volume_db} 对象。loop 只对音效库里名字带 Loop 的文件需要（它们导入后不循环）；volume_db 用来逐个配平响度，文件音源一般比合成音色响，先用它压。",
+    "file_bank": {
+      "shot": "res://addons/Sound FX Starter Pack Vol. 1/Hollywood/Titan Handgun.wav",
+      "sniper": "res://addons/Sound FX Starter Pack Vol. 1/Sci-Fi/Pulse Sniper.wav"
+    },
     "bank": {
       "shot": [0.13, 460.0, 95.0, 4.5, 0.55, 0.85],
       "sniper": [0.34, 210.0, 52.0, 3.0, 0.5, 1.0],
@@ -1317,7 +1405,11 @@
     ]
   },
   "resonance": {
-    "_doc": "遗迹共鸣能量系统参数。受击、闪避、击杀积蓄能量，满载后长按 R 触发毁灭爆发。",
+    "_fx_opacity_doc": "【爆发特效的透明度系数 2026-10-09】统一缩放光柱 / 半球 / 双环的 alpha 与自发光（原值 alpha 0.65~0.95、自发光 8~14）。用户实测：『一放技能，什么都看不清』—— 看不清敌人的反应，改动就等于看不见。1.0 = 原样；还嫌糊就再降。",
+    "fx_opacity": 0.45,
+    "_instant_kill_doc": "【重型该硬】爆发对非 Boss 的即死保底只作用于**轻型**敌人（体型 <1.25）。用户明确要求：共鸣打不动重型是应该的，否则『重型』这个分类没有意义。过载爆发（200%）仍能秒掉重型 —— 那是『攒满再用』的回报。这个开关保持 false 即为设计行为；调成 true 只是给『想让共鸣无条件清场』留的退路。重型的真正代价不在这里，而在 enemy.heavy_response 的激怒叠层。",
+    "instant_kill_large": false,
+    "_doc": "遗迹共鸣能量系统参数。受击、闪避、击杀积蓄能量，满载后按 C 触发共鸣爆发；R 为武器换弹。",
     "max_energy": 100.0,
     "overflow_cap": 200.0,
     "charge_on_hit": 10.0,

@@ -1,0 +1,428 @@
+{
+  "version": 1,
+  "id": "VisualPrismSpider",
+  "title": "棱眼蛛 · 外形预览",
+  "groups": [
+    {
+      "title": "死亡表现（无伤害，可重播）",
+      "fields": [
+        {
+          "key": "death_prepare",
+          "label": "死亡预备时长",
+          "value": 0.5,
+          "min": 0.1,
+          "max": 2,
+          "step": 0.05,
+          "unit": "秒"
+        },
+        {
+          "key": "death_action",
+          "label": "爆裂 / 翻身时长",
+          "value": 0.8,
+          "min": 0.2,
+          "max": 3,
+          "step": 0.05,
+          "unit": "秒"
+        },
+        {
+          "key": "death_twitch_time",
+          "label": "抖腿时长",
+          "value": 1.2,
+          "min": 0.2,
+          "max": 4,
+          "step": 0.05,
+          "unit": "秒"
+        },
+        {
+          "key": "death_hold",
+          "label": "尸体定格时长",
+          "value": 0.8,
+          "min": 0,
+          "max": 5,
+          "step": 0.05,
+          "unit": "秒"
+        },
+        {
+          "key": "death_leg_fold",
+          "label": "死亡蜷腿程度",
+          "value": 0.7,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "unit": "比例"
+        },
+        {
+          "key": "death_leg_twitch",
+          "label": "抖腿幅度",
+          "value": 0.16,
+          "min": 0,
+          "max": 0.4,
+          "step": 0.01,
+          "unit": "米"
+        },
+        {
+          "key": "death_twitch_rate",
+          "label": "抖腿频率",
+          "value": 7,
+          "min": 1,
+          "max": 14,
+          "step": 0.5,
+          "unit": "次/秒"
+        },
+        {
+          "key": "death_wobble",
+          "label": "挣扎摇摆角度",
+          "value": 22,
+          "min": 0,
+          "max": 40,
+          "step": 1,
+          "unit": "度"
+        },
+        {
+          "key": "death_eye_drop",
+          "label": "晶眼脱落时长",
+          "value": 0.7,
+          "min": 0.2,
+          "max": 2,
+          "step": 0.05,
+          "unit": "秒"
+        },
+        {
+          "key": "death_eye_distance",
+          "label": "晶眼滚落距离",
+          "value": 1.6,
+          "min": 0.4,
+          "max": 3,
+          "step": 0.05,
+          "unit": "米"
+        },
+        {
+          "key": "death_eye_bounce",
+          "label": "晶眼弹跳高度",
+          "value": 0.3,
+          "min": 0,
+          "max": 0.8,
+          "step": 0.05,
+          "unit": "米"
+        }
+      ]
+    },
+    {
+      "title": "技能姿态张力（即时生效）",
+      "fields": [
+        {
+          "key": "aim_lift",
+          "label": "架设抬身高度",
+          "value": 0.75,
+          "min": 0,
+          "max": 1.15,
+          "step": 0.05,
+          "unit": "米"
+        },
+        {
+          "key": "aim_pitch",
+          "label": "前躯昂起角度",
+          "value": 22,
+          "min": 0,
+          "max": 32,
+          "step": 1,
+          "unit": "度"
+        },
+        {
+          "key": "eye_lift",
+          "label": "晶眼额外举升",
+          "value": 0.18,
+          "min": 0,
+          "max": 0.4,
+          "step": 0.05,
+          "unit": "米"
+        },
+        {
+          "key": "aim_setback",
+          "label": "架设后坐",
+          "value": 0.15,
+          "min": 0,
+          "max": 0.35,
+          "step": 0.05,
+          "unit": "米"
+        },
+        {
+          "key": "knee_lift",
+          "label": "撑腿关节抬高",
+          "value": 0.75,
+          "min": 0,
+          "max": 1.2,
+          "step": 0.05,
+          "unit": "米"
+        },
+        {
+          "key": "brace_spread",
+          "label": "撑脚外扩",
+          "value": 0.28,
+          "min": 0,
+          "max": 0.55,
+          "step": 0.05,
+          "unit": "米"
+        },
+        {
+          "key": "front_reach",
+          "label": "前足前伸",
+          "value": 0.42,
+          "min": 0,
+          "max": 0.65,
+          "step": 0.05,
+          "unit": "米"
+        },
+        {
+          "key": "recoil_distance",
+          "label": "发射后坐幅度",
+          "value": 0.38,
+          "min": 0,
+          "max": 0.65,
+          "step": 0.05,
+          "unit": "米"
+        },
+        {
+          "key": "recoil_pitch",
+          "label": "发射扬头角度",
+          "value": 12,
+          "min": 0,
+          "max": 22,
+          "step": 1,
+          "unit": "度"
+        },
+        {
+          "key": "windup_rise_ratio",
+          "label": "蓄力到顶时间占比",
+          "value": 0.62,
+          "min": 0.25,
+          "max": 0.95,
+          "step": 0.01,
+          "unit": "比例"
+        },
+        {
+          "key": "release_snap_ratio",
+          "label": "爆发到顶时间占比",
+          "value": 0.18,
+          "min": 0.08,
+          "max": 0.6,
+          "step": 0.01,
+          "unit": "比例"
+        }
+      ]
+    },
+    {
+      "title": "体型与动作（编辑即时生效）",
+      "fields": [
+        {
+          "key": "body_size",
+          "label": "整体体型",
+          "value": 1,
+          "min": 0.25,
+          "max": 3,
+          "step": 0.05,
+          "unit": "倍"
+        },
+        {
+          "key": "breath_rate",
+          "label": "呼吸频率",
+          "value": 0.55,
+          "min": 0.1,
+          "max": 2,
+          "step": 0.05,
+          "unit": "次/秒"
+        },
+        {
+          "key": "breath_amount",
+          "label": "呼吸起伏",
+          "value": 0.025,
+          "min": 0,
+          "max": 0.1,
+          "step": 0.005,
+          "unit": "米"
+        },
+        {
+          "key": "gait_rate",
+          "label": "步态频率",
+          "value": 1.5,
+          "min": 0.2,
+          "max": 4,
+          "step": 0.1,
+          "unit": "周期/秒"
+        },
+        {
+          "key": "stride",
+          "label": "迈步距离",
+          "value": 0.2,
+          "min": 0,
+          "max": 0.5,
+          "step": 0.01,
+          "unit": "米"
+        },
+        {
+          "key": "foot_lift",
+          "label": "抬脚高度",
+          "value": 0.12,
+          "min": 0,
+          "max": 0.3,
+          "step": 0.01,
+          "unit": "米"
+        },
+        {
+          "key": "windup",
+          "label": "蓄力时间",
+          "value": 1.2,
+          "min": 0.2,
+          "max": 5,
+          "step": 0.1,
+          "unit": "秒"
+        },
+        {
+          "key": "release",
+          "label": "释放时间",
+          "value": 0.35,
+          "min": 0.1,
+          "max": 2,
+          "step": 0.05,
+          "unit": "秒"
+        },
+        {
+          "key": "recovery",
+          "label": "恢复时间",
+          "value": 1.2,
+          "min": 0.2,
+          "max": 5,
+          "step": 0.1,
+          "unit": "秒"
+        }
+      ]
+    },
+    {
+      "title": "物种外形",
+      "fields": [
+        {
+          "key": "body_height",
+          "label": "躯干离地",
+          "value": 0.92,
+          "min": 0.65,
+          "max": 1.3,
+          "step": 0.05,
+          "unit": "米"
+        },
+        {
+          "key": "abdomen_size",
+          "label": "腹部大小",
+          "value": 1,
+          "min": 0.6,
+          "max": 1.4,
+          "step": 0.05,
+          "unit": "倍"
+        },
+        {
+          "key": "leg_span",
+          "label": "单侧足展",
+          "value": 1.85,
+          "min": 1.4,
+          "max": 2.7,
+          "step": 0.05,
+          "unit": "米"
+        },
+        {
+          "key": "leg_thickness",
+          "label": "腿根半径",
+          "value": 0.105,
+          "min": 0.06,
+          "max": 0.18,
+          "step": 0.005,
+          "unit": "米"
+        },
+        {
+          "key": "eye_size",
+          "label": "主晶眼大小",
+          "value": 1,
+          "min": 0.7,
+          "max": 1.2,
+          "step": 0.05,
+          "unit": "倍"
+        },
+        {
+          "key": "shutter_open",
+          "label": "护眼甲展开",
+          "value": 0.6,
+          "min": 0,
+          "max": 1.2,
+          "step": 0.05,
+          "unit": "弧度"
+        }
+      ]
+    },
+    {
+      "title": "材质",
+      "fields": [
+        {
+          "key": "rock_r",
+          "label": "岩甲红",
+          "value": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "unit": "0–1"
+        },
+        {
+          "key": "rock_g",
+          "label": "岩甲绿",
+          "value": 0.23,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "unit": "0–1"
+        },
+        {
+          "key": "rock_b",
+          "label": "岩甲蓝",
+          "value": 0.25,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "unit": "0–1"
+        },
+        {
+          "key": "crystal_r",
+          "label": "晶体红",
+          "value": 0.08,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "unit": "0–1"
+        },
+        {
+          "key": "crystal_g",
+          "label": "晶体绿",
+          "value": 0.85,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "unit": "0–1"
+        },
+        {
+          "key": "crystal_b",
+          "label": "晶体蓝",
+          "value": 0.76,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "unit": "0–1"
+        },
+        {
+          "key": "glow",
+          "label": "晶体发光强度",
+          "value": 1.2,
+          "min": 0,
+          "max": 4,
+          "step": 0.1,
+          "unit": "倍"
+        }
+      ]
+    }
+  ]
+}

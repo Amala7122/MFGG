@@ -24,6 +24,13 @@ ARCHIVE_DOCS = {
 SKIP = {".git", ".godot", ".codebuddy", ".godot-mcp", "addons", "assets",
         "build", "export_templates", "__pycache__"}
 
+# Engine binaries and oversized files must not sit inside the project. Ignore
+# rules do not substitute for directory discipline, and one file above GitHub's
+# per-file limit is enough to make the push fail.
+BINARY_SUFFIXES = {".exe", ".dll", ".so", ".dylib", ".msi", ".pdb"}
+LARGE_FILE_BYTES = 50 * 1024 * 1024
+GITHUB_FILE_LIMIT_MB = 100
+
 
 def digest(file: Path) -> str:
     value = hashlib.sha256()
@@ -213,6 +220,68 @@ def finalize(file: Path) -> None:
     print("已登记整理后的源码与归档校验值；恢复预览会保护之后的新修改。")
 
 
+def project_files(root: Path):
+    """Yield files under root without descending into SKIP directories."""
+    stack = [root]
+    while stack:
+        try:
+            entries = list(stack.pop().iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            try:
+                if entry.is_dir():
+                    if entry.name not in SKIP:
+                        stack.append(entry)
+                elif entry.is_file():
+                    yield entry
+            except OSError:
+                continue
+
+
+def git_ignores(project: Path, relative: Path) -> bool:
+    """Report whether .gitignore excludes a project-relative path.
+
+    Unknown states (no git, not a repository) count as not ignored, so the
+    check stays conservative instead of silently passing.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(project), "check-ignore", "-q", "--", str(relative)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        return False
+    return result.returncode == 0
+
+
+def heavy_file_findings(project: Path) -> tuple[list[str], list[str]]:
+    """Return (problems, notes) for executables and oversized files in the project.
+
+    A file excluded by .gitignore cannot reach the repository, so it is only a
+    note; anything else would be committed and can break the push.
+    """
+    problems: list[str] = []
+    notes: list[str] = []
+    for file in project_files(project):
+        try:
+            size = file.stat().st_size
+        except OSError:
+            continue
+        binary = file.suffix.lower() in BINARY_SUFFIXES
+        if not binary and size < LARGE_FILE_BYTES:
+            continue
+        kind = "可执行文件" if binary else "超大文件"
+        size_mb = size / (1024 * 1024)
+        relative = file.relative_to(project)
+        if git_ignores(project, relative):
+            notes.append(f"提示：项目内保留了已忽略的{kind}：{relative}（{size_mb:.1f} MB）；忽略规则不能替代目录规范")
+        else:
+            problems.append(
+                f"项目内未忽略的{kind}：{relative}（{size_mb:.1f} MB）；它会被提交，"
+                f"超过 {GITHUB_FILE_LIMIT_MB} MB 时 push 会被 GitHub 拒绝")
+    return problems, notes
+
+
 def check(project: Path, workspace: Path) -> list[str]:
     problems = []
     allowed = {"README.md", "AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "GEMINI.md",
@@ -228,6 +297,12 @@ def check(project: Path, workspace: Path) -> list[str]:
     for name in ("visual_captures", "performance_logs", "captures"):
         if any(file.is_file() for file in (project / name).rglob("*")):
             problems.append(f"仍在使用旧产物目录：{project / name}")
+    heavy_problems, heavy_notes = heavy_file_findings(project)
+    problems.extend(heavy_problems)
+    # Notes stay advisory and go straight to stdout, so the returned list keeps
+    # meaning "failures" for run_acceptance.py and run_probe.py.
+    if heavy_notes:
+        print("\n".join(heavy_notes))
     for directory in ("scripts", "tests", "tools"):
         for file in (project / directory).rglob("*"):
             if file.suffix not in {".gd", ".py"} or file == Path(__file__).resolve():

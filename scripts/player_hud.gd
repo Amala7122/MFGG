@@ -34,6 +34,9 @@ const WaveBannerScript := preload("res://scripts/wave_banner.gd")
 const ReadoutPlateScript := preload("res://scripts/readout_plate.gd")
 
 const DAMAGE_FLASH_TIME := 0.18
+## 护盾全吸收时的能量闪光：更短、更"硬"，和红色的身体受击分开。
+const SHIELD_HIT_FLASH_TIME := 0.12
+const COLOR_SHIELD_HIT_FLASH := Color(0.20, 0.72, 1.0, 0.30)
 const SHIELD_BREAK_FLASH_TIME := 0.28
 
 var _aim_ui: CanvasLayer
@@ -44,6 +47,8 @@ var _theme: Theme
 var _legacy_health_bar: ProgressBar
 var _legacy_health_label: Label
 var _damage_overlay: ColorRect
+## DamageOverlay 的原色（红）。护盾闪光用完必须还原，否则下一次身体受击会沿用青色。
+var _damage_overlay_color := Color(0.55, 0.02, 0.02, 0.30)
 var _shield_break_overlay: ColorRect
 var _speed_lines: SpeedLinesOverlayScript
 var _resonance_bar: ResonanceBarScript
@@ -67,6 +72,11 @@ var _has_sky_time := false
 var _fps_label: Label
 var _low_health: LowHealthOverlayScript
 var _kill_plate: ReadoutPlateScript
+## 击杀总数。上一版这里还叠了一层"连杀 xN"，但那条路在射击游戏里走不通：
+## 动作游戏的击杀以位移为前提（不动就打不到），所以"连杀"天然等于"我正在推进"；
+## 射击游戏站着不动照样能击杀，于是 xN 只是一个在跳的数字，没有任何操作含义。
+## 现在只留总数 —— 它的作用是让玩家看见"这一局比上一局强"，那件事成立。
+var _kill_count := 0
 var _survival_plate: ReadoutPlateScript
 var _notifications: NotificationStackScript
 ## 死亡过渡的最终压暗层。挂在 AimUI 最后，因此会把战斗 HUD 一并压下去，
@@ -165,6 +175,10 @@ func setup(aim_ui: CanvasLayer, camera: Camera3D = null, player: Node3D = null) 
 	if _legacy_health_label:
 		_legacy_health_label.visible = false
 	_damage_overlay = _aim_ui.get_node_or_null("DamageOverlay")
+	# 记下场景里那层红光的原色：护盾全吸收时要把同一层临时改成能量青色。
+	# 共用一层而不是新加一层，是因为"两件事永远不会同时发生"（见 flash_shield_hit）。
+	if _damage_overlay:
+		_damage_overlay_color = _damage_overlay.color
 	_weapon_label = _aim_ui.get_node_or_null("WeaponLevelLabel")
 	# 击杀与生存读数由读数板接管（见 _build_extra_readouts）。
 	_legacy_kill_label = _aim_ui.get_node_or_null("KillLabel") as Label
@@ -306,6 +320,10 @@ func _place_right_column() -> void:
 		_game_time_plate.offset_bottom = next_top + GAME_TIME_PLATE_HEIGHT
 		if _game_time_plate.visible:
 			next_top += GAME_TIME_PLATE_HEIGHT + LAYOUT_GAP
+	if _kill_plate != null:
+		_kill_plate.offset_top = next_top
+		_kill_plate.offset_bottom = next_top + KILL_PLATE_HEIGHT
+		next_top += KILL_PLATE_HEIGHT + LAYOUT_GAP
 	if _fps_label != null:
 		_fps_label.offset_top = next_top
 		_fps_label.offset_bottom = next_top + FPS_PLATE_HEIGHT
@@ -456,7 +474,20 @@ func _build_extra_readouts() -> void:
 	_game_time_plate.offset_right = -MinimapScript.MARGIN
 	_game_time_plate.visible = false
 	_aim_ui.add_child(_game_time_plate)
-	# 战斗画面仅保留行动所需的信息；战绩仍由 GameFlow 记录并在结算展示。
+	# 【击杀读数回来了】战斗界面只留行动所需的信息这条原则不变，但"击杀"是
+	# 战绩唯一的即时凭证：数字在涨，玩家才知道自己这一局比上一局强。
+	_kill_plate = ReadoutPlateScript.new()
+	_kill_plate.name = "KillPlate"
+	_kill_plate.configure(UiThemeUtil.COLOR_ACCENT, UiThemeUtil.PLATE_FOREST)
+	_kill_plate.minimal = true
+	# 每次跳数闪一下。这块板是全屏里唯一"偶尔变一次"的读数，
+	# 正是 ReadoutPlate.pulse_on_change 当初为击杀数准备的用法。
+	_kill_plate.pulse_on_change = true
+	_kill_plate.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_kill_plate.offset_left = -MinimapScript.PANEL_SIZE - MinimapScript.MARGIN
+	_kill_plate.offset_right = -MinimapScript.MARGIN
+	_aim_ui.add_child(_kill_plate)
+	_kill_plate.set_readout("击杀", "0")
 
 func _build_notifications() -> void:
 	_notifications = NotificationStackScript.new()
@@ -719,8 +750,11 @@ func set_sniper_ammo(current: int, capacity: int, reload_remaining: float) -> vo
 
 
 func set_kills(count: int) -> void:
-	if _kill_plate:
-		_kill_plate.set_readout("击杀", "%d" % count)
+	_kill_count = count
+	if _kill_plate == null:
+		return
+	# 跳数闪光由 ReadoutPlate.pulse_on_change 自己处理（它本来就是为击杀数写的）。
+	_kill_plate.set_readout("击杀", "%d" % _kill_count)
 
 
 ## 生存与最佳拆成"主数值 + 附属说明"而不是拼成一句话：
@@ -753,9 +787,13 @@ func set_weapon_labels(primary: String, sniper: String) -> void:
 
 
 ## 传入两个技能的剩余冷却秒数（<= 0 表示就绪）。
-func set_abilities(grenade_remaining: float, skill_remaining: float) -> void:
+func set_abilities(
+	grenade_remaining: float, skill_remaining: float,
+	skill_charges: int = -1, skill_charges_max: int = 0,
+	grenade_stock: Dictionary = {}
+) -> void:
 	if _ability_bar:
-		_ability_bar.set_cooldowns(grenade_remaining, skill_remaining)
+		_ability_bar.set_cooldowns(grenade_remaining, skill_remaining, skill_charges, skill_charges_max, grenade_stock)
 
 
 ## EventBus.hit_confirmed 的接收端。headshot 只用于将来区分标记样式，
@@ -773,6 +811,17 @@ func flash_hit_marker(kill: bool = false, headshot: bool = false) -> void:
 
 func flash_damage() -> void:
 	_damage_flash_time = DAMAGE_FLASH_TIME
+	if _damage_overlay:
+		_damage_overlay.color = _damage_overlay_color
+
+
+## 【打中能量盾】护盾全吸收的那一下走这里：同一层叠加闪光，但换成能量青、
+## 时间更短、更"硬"。和红色的身体受击分开，玩家才能感觉到护盾真的在挡东西
+## —— 否则它只是一段看不见、不掉的血量。
+func flash_shield_hit() -> void:
+	_damage_flash_time = SHIELD_HIT_FLASH_TIME
+	if _damage_overlay:
+		_damage_overlay.color = COLOR_SHIELD_HIT_FLASH
 
 
 # ---------------------------------------------------------------- 工具

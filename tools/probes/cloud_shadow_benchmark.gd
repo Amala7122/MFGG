@@ -10,7 +10,7 @@ const SAMPLE_FRAMES := 600
 
 
 func _initialize() -> void:
-	change_scene_to_file("res://prototypes/environment/weather_lab.tscn")
+	change_scene_to_file("res://prototypes/weather_lab/weather_lab.tscn")
 	call_deferred("_run")
 
 
@@ -61,12 +61,12 @@ func _run() -> void:
 		weather.call("_apply_stylized_cloud_field")
 		field.call("_update_transforms")
 		for trial in range(6):
-			var mode: String = ["off", "hard", "soft"][trial % 3]
+			var mode: String = ["off", "filtered", "pcss_reference"][trial % 3]
 			var enabled := mode != "off"
 			weather.cloud_shadow_enabled = enabled
 			weather.call("_apply_stylized_cloud_field")
-			if mode == "hard":
-				sun.light_angular_distance = 0.0
+			if mode == "pcss_reference":
+				sun.light_angular_distance = 0.5
 			for _frame in range(WARMUP_FRAMES):
 				await RenderingServer.frame_post_draw
 			var gpu: Array[float] = []
@@ -155,7 +155,7 @@ func _capture_moving_shadow(weather: Node, field: Node3D, sun: DirectionalLight3
 	var energy := sun.light_energy
 	for shot in ["isolated_edge_hard", "isolated_depth_20", "isolated_edge_strong", "isolated_edge_weak", "isolated_motion_12_seconds"]:
 		sun.light_energy = energy * 0.20 if shot == "isolated_edge_weak" else energy
-		CloudLighting.apply_cloud_shadow_softness(weather, sun, 0.0, true, 20.0, field.call("get_cloud_height_ceiling"))
+		CloudLighting.apply_cloud_shadow_settings(weather, sun, 0.0, true, 20.0, field.call("get_cloud_height_ceiling"))
 		if shot == "isolated_edge_hard":
 			sun.light_angular_distance = 0.0
 		if shot == "isolated_depth_20":

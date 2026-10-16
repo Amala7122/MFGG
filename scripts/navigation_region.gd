@@ -14,6 +14,7 @@ extends NavigationRegion3D
 ## 可行走地形与实体掩体本来就有等价碰撞体，直接用它们更准确也更便宜。
 
 const ConfigUtil := preload("res://scripts/game_config.gd")
+const GroundMovement := preload("res://scripts/ground_movement.gd")
 
 const GROUP := "nav_source"
 ## 延迟若干帧再烘焙，等 Ground / Cover / Forest 把网格都建出来。
@@ -35,6 +36,8 @@ func _ready() -> void:
 	bake_delay_frames = maxi(ConfigUtil.get_int("navigation.bake_delay_frames", 2), 0)
 	for _frame in range(bake_delay_frames):
 		await get_tree().process_frame
+		if not is_inside_tree():
+			return
 	# 同步烘焙（不用后台线程）。
 	#
 	# 原本用 bake_navigation_mesh(true) 是为了避免卡顿，但实测这条线程路径在
@@ -56,12 +59,14 @@ func _build_mesh() -> void:
 	#   半径 1.2  / 0.3  = 4 格，覆盖最大普通敌人 0.52 × 1.75 ≈ 0.91 米
 	#   的碰撞半径，并给转角留出约 0.29 米余量。
 	#   高度 1.8  / 0.25 = 7.2  → 向上取整 8 格 = 2.0
-	#   攀爬 0.55 / 0.25 = 2.2  → 向下取整 2 格 = 0.5
+	#   攀爬 0.25 / 0.25 = 1 格；实际完整身体跨坎上限是 0.3，不能烘出 0.5 米台阶。
 	#
 	# NavigationAgent3D.radius 仅用于局部避让，不会改变寻路通道宽度。
 	mesh.agent_radius = maxf(ConfigUtil.get_float("navigation.agent_radius", 1.2), 0.05)
 	mesh.agent_height = maxf(ConfigUtil.get_float("navigation.agent_height", 2.0), 0.05)
-	mesh.agent_max_climb = maxf(ConfigUtil.get_float("navigation.agent_max_climb", 0.5), 0.0)
+	var climb_limit := minf(maxf(ConfigUtil.get_float("navigation.agent_max_climb", 0.25), 0.0), GroundMovement.STEP_HEIGHT)
+	var vertical_cell := maxf(ConfigUtil.get_float("navigation.cell_height", 0.25), 0.05)
+	mesh.agent_max_climb = floorf(climb_limit / vertical_cell) * vertical_cell
 	# 45° 与 Godot 的默认可走坡度一致，因此"导航说能走"就等于"物理说能走"。
 	mesh.agent_max_slope = clampf(
 		ConfigUtil.get_float("navigation.agent_max_slope", 45.0), 1.0, 89.0

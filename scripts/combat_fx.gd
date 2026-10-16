@@ -92,7 +92,10 @@ static func apply_radial_damage(
 	radius: float,
 	damage: float,
 	push_force: float = 0.0,
-	require_line_of_sight: bool = true
+	require_line_of_sight: bool = true,
+	direct_target: Node3D = null,
+	stagger_seconds: float = 0.0,
+	boss_stagger_seconds: float = 0.0
 ) -> int:
 	if not is_instance_valid(source) or not source.is_inside_tree():
 		return 0
@@ -103,11 +106,12 @@ static func apply_radial_damage(
 		var enemy := node as Node3D
 		if not is_instance_valid(enemy):
 			continue
+		var direct := is_instance_valid(direct_target) and enemy == direct_target
 		var offset := enemy.global_position - center
 		var distance := offset.length()
-		if distance > radius:
+		if distance > radius and not direct:
 			continue
-		if require_line_of_sight and world:
+		if require_line_of_sight and world and not direct:
 			var query := PhysicsRayQueryParameters3D.create(
 				center, enemy.global_position + Vector3.UP * 0.4, 1
 			)
@@ -117,12 +121,17 @@ static func apply_radial_damage(
 		if enemy.has_method("take_damage"):
 			Telemetry.hurt_enemy(enemy, damage * falloff, source.get_meta(Telemetry.CONTEXT, {}))
 			hits += 1
+		if not HealthUtil.is_alive(enemy):
+			continue
 		if push_force > 0.0 and enemy.has_method("apply_push"):
 			var direction := offset
 			direction.y = 0.0
 			if direction.is_zero_approx():
 				direction = Vector3.FORWARD
 			enemy.call("apply_push", direction.normalized(), push_force * falloff)
+		var stagger := boss_stagger_seconds if enemy.is_in_group("boss") else stagger_seconds
+		if stagger > 0.0 and enemy.has_method("apply_grenade_stagger"):
+			enemy.call("apply_grenade_stagger", stagger)
 	return hits
 
 

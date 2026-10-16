@@ -1,6 +1,6 @@
 extends SceneTree
 
-const SpatialScene := preload("res://prototypes/combat/spatial/combat_spatial_lab.tscn")
+const SpatialScene := preload("res://prototypes/spatial_lab/combat_spatial_lab.tscn")
 const GroundMovement := preload("res://scripts/ground_movement.gd")
 var _failed := false
 var _lab: Node3D

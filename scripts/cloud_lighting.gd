@@ -1,5 +1,9 @@
 extends RefCounted
-## 编辑器预览与运行时天气共用的远景云调色，避免预览夜晚仍是白云。
+## 编辑器预览与运行时天气共用的云调色与真实投影设置。
+
+# Sky3D 的散射计算会相乘两组 source_color，不能用近黑色重复压暗。
+const OVERCAST_DAY_TINT := Color(0.78, 0.83, 0.89, 1.0)
+const OVERCAST_HORIZON_TINT := Color(0.78, 0.80, 0.83, 1.0)
 
 
 static func tint_for_sun(sun: DirectionalLight3D, storm: float = 0.0) -> Color:
@@ -12,18 +16,7 @@ static func tint_for_sun(sun: DirectionalLight3D, storm: float = 0.0) -> Color:
 	return cloud_tint.lerp(storm_tint, clampf(storm, 0.0, 1.0))
 
 
-## 阳光强弱是美术映射；PCSS 根据实际投影距离扩大半影，使高云比近地物体更柔。
-## 强光也保留非零光源角径。能量使用固定参照，不能每帧用自身归一化。
-static func cloud_shadow_angle(sun_direction: Vector3, energy: float,
-		strong_angle: float, weak_angle: float, reference_energy: float) -> float:
-	var minimum := maxf(strong_angle, 0.1)
-	var maximum := maxf(weak_angle, minimum)
-	var strength := clampf(maxf(energy, 0.0) * clampf(sun_direction.y, 0.0, 1.0)
-		/ maxf(reference_energy, 0.05), 0.0, 1.0)
-	return lerpf(maximum, minimum, smoothstep(0.0, 1.0, strength))
-
-
-static func apply_cloud_shadow_softness(weather: Node, sun: DirectionalLight3D,
+static func apply_cloud_shadow_settings(weather: Node, sun: DirectionalLight3D,
 		baseline_angle: float, cloud_visible: bool,
 		baseline_depth: float = 20.0, cloud_ceiling: float = 650.0) -> void:
 	if not is_instance_valid(sun):
@@ -33,11 +26,9 @@ static func apply_cloud_shadow_softness(weather: Node, sun: DirectionalLight3D,
 		sun.light_angular_distance = baseline_angle
 		sun.directional_shadow_pancake_size = baseline_depth
 		return
-	sun.light_angular_distance = maxf(baseline_angle, cloud_shadow_angle(
-		sun.global_basis.z.normalized(), sun.light_energy,
-		float(weather.get("cloud_shadow_strong_sun_angle")),
-		float(weather.get("cloud_shadow_weak_sun_angle")),
-		float(weather.get("cloud_shadow_reference_energy"))))
+	# 高云需要大投影深度；此时 PCSS 的距离相关采样会让近景表面出现密集纹路。
+	# 使用现有画质/天气的 shadow_blur 过滤，保留物体与云的真实投影。
+	sun.light_angular_distance = 0.0
 	# 默认 pancake 只保留近景深度；高云会被压在同一深度边界，导致点状黑带。
 	# 扩展的是沿阳光的深度，接收阴影的镜头距离仍保持原画质设置。
 	var depth := clampf(cloud_ceiling / maxf(sun.global_basis.z.normalized().y, 0.15)

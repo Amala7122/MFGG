@@ -123,6 +123,35 @@ func create_pebbles() -> void:
 
 ## 中型岩块负责前景构图与尺度感。视觉仍由一个 MultiMesh 批量绘制，
 ## 但每块岩石都有简化碰撞盒，并登记为导航障碍，避免玩家和敌人穿过去。
+## 树簇和岩块共用确定性落点，避让不依赖编辑器 / 运行时节点创建先后。
+static func boulder_layout(params: Dictionary, fallback_radius: float = 56.0) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	var count := maxi(int(params.get("boulder_count", 0)), 0)
+	var radius := maxf(float(params.get("decor_radius", fallback_radius)), 1.0)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 36871 + String(params.get("_id", "")).hash()
+	var attempts := 0
+	while result.size() < count and attempts < count * 128:
+		attempts += 1
+		var angle := rng.randf_range(0.0, TAU)
+		var distance := sqrt(rng.randf_range(0.18, 1.0)) * radius * 0.94
+		var x := cos(angle) * distance
+		var z := sin(angle) * distance
+		if ArenaUtil.is_decor_reserved(params, x, z, 2.7):
+			continue
+		var size := rng.randf_range(0.72, 1.85)
+		var stretch_x := rng.randf_range(0.9, 1.45)
+		var stretch_z := rng.randf_range(0.78, 1.28)
+		var yaw := rng.randf_range(0.0, TAU)
+		var scale_value := Vector3(size * stretch_x, size * rng.randf_range(0.48, 0.72), size * stretch_z)
+		result.append({"at": Vector2(x, z), "size": size, "yaw": yaw, "scale": scale_value,
+			"collision_size": Vector3(size * stretch_x * 1.65, size * 0.95, size * stretch_z * 1.65),
+			"radius": Vector2(scale_value.x, scale_value.z).length() * 1.18})
+	if result.size() != count:
+		push_error("岩块可用落点不足：%d / %d" % [result.size(), count])
+	return result
+
+
 func create_boulders() -> void:
 	if _boulder_count <= 0:
 		return
@@ -140,32 +169,21 @@ func create_boulders() -> void:
 	var holder := StaticBody3D.new()
 	holder.name = "FieldBoulders"
 	holder.add_to_group("nav_source")
-	var rng := _rng
-	rng.seed = 36871 + String(_arena.get("_id", "")).hash()
 	var placed := 0
-	while placed < _boulder_count:
-		var angle := rng.randf_range(0.0, TAU)
-		var distance := sqrt(rng.randf_range(0.18, 1.0)) * _area_radius * 0.94
-		var x := cos(angle) * distance
-		var z := sin(angle) * distance
-		if is_reserved_area(x, z):
-			continue
-		var size := rng.randf_range(0.72, 1.85)
-		var stretch_x := rng.randf_range(0.9, 1.45)
-		var stretch_z := rng.randf_range(0.78, 1.28)
-		var yaw := rng.randf_range(0.0, TAU)
+	for rock in boulder_layout(_arena, _area_radius):
+		var at: Vector2 = rock.at
+		var x := at.x
+		var z := at.y
+		var size: float = rock.size
+		var yaw: float = rock.yaw
 		var surface := TerrainFieldUtil.height_at(x, z)
-		var rock_basis := Basis(Vector3.UP, yaw).scaled(Vector3(
-			size * stretch_x, size * rng.randf_range(0.48, 0.72), size * stretch_z
-		))
+		var rock_basis := Basis(Vector3.UP, yaw).scaled(rock.scale)
 		multimesh.set_instance_transform(
 			placed,
 			Transform3D(rock_basis, Vector3(x, surface + size * 0.55, z))
 		)
 		var collision_shape := BoxShape3D.new()
-		collision_shape.size = Vector3(
-			size * stretch_x * 1.65, size * 0.95, size * stretch_z * 1.65
-		)
+		collision_shape.size = rock.collision_size
 		var collision := CollisionShape3D.new()
 		collision.name = "BoulderCollision_%02d" % placed
 		collision.shape = collision_shape
@@ -242,4 +260,4 @@ func _mount(parent: Node, instance: MultiMeshInstance3D, node_name: String) -> v
 ## 保留区（湖 / 主路 / 遗迹 …）由竞技场定义 —— 原先这里写死了三处矩形，
 ## 换竞技场后会与实际地形脱钩，草就会长到水面上。
 func is_reserved_area(x: float, z: float) -> bool:
-	return ArenaUtil.is_masked_out(_arena, x, z)
+	return ArenaUtil.is_decor_reserved(_arena, x, z, 0.5)

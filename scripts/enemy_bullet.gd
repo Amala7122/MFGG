@@ -10,8 +10,27 @@ extends Node3D
 ##   3. 生命周期结束时交还对象池，而不是 queue_free()。
 
 const PoolUtil := preload("res://scripts/object_pool.gd")
+const AudioUtil := preload("res://scripts/audio_manager.gd")
+const TargetingUtil := preload("res://scripts/targeting.gd")
+const ConfigUtil := preload("res://scripts/game_config.gd")
 
 const POOL_KEY := "enemy_bullet"
+
+## 近失弹呼啸参数（配置 enemy.bullet_whiz_*）。首次使用时读一次。
+static var _whiz_configured := false
+static var _whiz_radius := 2.4
+static var _whiz_head_height := 1.35
+static var _whiz_cooldown_ms := 140
+## 破空声的增益（dB）。音效库接入后 `shot`/`sniper` 换成了真实采样，
+## 而 `bullet_whiz` 仍是合成音色 —— 两者响度不再同一量级，旧的 -6 dB 会被枪声盖住。
+## 现在由配置给一个与文件音源配平过的值。
+static var _whiz_volume_db := -2.0
+## 【只给狙击手】普通弹幕的近失呼啸总开关，默认关。
+## 一次交火几十发子弹都在擦身时，这个声音就不再是信息而是噪声 ——
+## 玩家只听得出"狙击重弹擦过去了"这一种，才有意义。
+static var _whiz_enabled := false
+## 跨子弹的全局冷却时间戳：密集弹幕同时擦身时只响一次，避免叠成一片噪声。
+static var _next_whiz_msec := 0
 
 @export var speed: float = 9.0
 @export var damage: float = 14.0
@@ -22,6 +41,8 @@ var direction: Vector3 = Vector3.FORWARD
 var shooter: CollisionObject3D
 var fired_by_player: bool
 var pulse_time: float
+## 这一发是否已经响过破空声（每发最多一次）。
+var _whizzed: bool
 
 var _core_material: StandardMaterial3D
 var _aura_material: StandardMaterial3D
@@ -46,6 +67,8 @@ func setup(
 	# 池化复用必须把全部随时间累积的状态归零，否则上一发的相位会带过来。
 	pulse_time = 0.0
 	lifetime = 6.0
+	_whizzed = false
+	_load_whiz_config()
 	($Aura as MeshInstance3D).scale = Vector3.ONE
 	apply_color(new_color)
 	look_at(global_position + direction, Vector3.UP, true)
@@ -83,6 +106,8 @@ func _physics_process(delta: float) -> void:
 		direction = direction.rotated(Vector3.UP, turn_rate * delta).normalized()
 		look_at(global_position + direction, Vector3.UP, true)
 	var next_position := global_position + direction * speed * delta
+	# 先做近失判定，再走射线：擦身而过的那一发即使随后命中掩体，也该留下呼啸。
+	_step_whiz(next_position)
 	var query := PhysicsRayQueryParameters3D.create(global_position, next_position)
 	# Enemy barrage hits only world geometry (layer 1) and the player (layer 2).
 	query.collision_mask = 5 if fired_by_player else 3
@@ -113,9 +138,55 @@ func _physics_process(delta: float) -> void:
 		_retire()
 
 
+## 【近失弹呼啸】弹丸这一帧的位移段擦过玩家头部附近时，播一次破空声。
+##
+## 这条判定在旧的 ruin-star 线里是有的（`godot-ruin-star/scripts/enemy_bullet.gd`），
+## 移植到本工程时整段丢了 —— 于是 `bullet_whiz` 这个音色在合成银行里写着、
+## 全项目却没有任何调用方，"擦身而过"的爽感直接消失。这里按旧线补回，
+## 并把半径 / 头部高度 / 冷却做成配置（`enemy.bullet_whiz_*`）。
+##
+## 每发最多响一次；另有一个跨子弹的全局冷却，避免十几发弹幕同时擦身时叠成噪声。
+func _step_whiz(next_position: Vector3) -> void:
+	# 【只给狙击手】默认关闭：普通弹幕量太大，几十发都在擦身时这个声音就不再是信息。
+	if _whizzed or fired_by_player or not _whiz_enabled or _whiz_radius <= 0.0:
+		return
+	var player := TargetingUtil.nearest_player(self)
+	if player == null:
+		return
+	var head := player.global_position + Vector3.UP * _whiz_head_height
+	var segment := next_position - global_position
+	var length_sq := segment.length_squared()
+	if length_sq <= 0.0001:
+		return
+	var t := clampf((head - global_position).dot(segment) / length_sq, 0.0, 1.0)
+	var closest := global_position + segment * t
+	if closest.distance_to(head) > _whiz_radius:
+		return
+	var now := Time.get_ticks_msec()
+	if now < _next_whiz_msec:
+		return
+	_whizzed = true
+	_next_whiz_msec = now + _whiz_cooldown_ms
+	# 走【优先声道】：轮转池在密集交火里每帧都在被命中音覆盖，
+	# 走池子的 0.16 秒破空声会被下一个音效当场截断 —— 那才是"听不到"的真因。
+	AudioUtil.play_at_priority("bullet_whiz", closest, _whiz_volume_db, randf_range(0.92, 1.15))
+
+
+func _load_whiz_config() -> void:
+	if _whiz_configured:
+		return
+	_whiz_configured = true
+	_whiz_radius = maxf(ConfigUtil.get_float("enemy.bullet_whiz_radius", _whiz_radius), 0.0)
+	_whiz_head_height = maxf(ConfigUtil.get_float("enemy.bullet_whiz_head_height", _whiz_head_height), 0.0)
+	_whiz_cooldown_ms = maxi(
+		int(ConfigUtil.get_float("enemy.bullet_whiz_cooldown_ms", float(_whiz_cooldown_ms))), 0
+	)
+	_whiz_volume_db = ConfigUtil.get_float("enemy.bullet_whiz_volume_db", _whiz_volume_db)
+	_whiz_enabled = ConfigUtil.get_bool("enemy.bullet_whiz_enabled", false)
+
+
 ## 交还对象池。调用方无需持有引用，也不需要再做任何清理。
-func _retire() -> void:
-	# 池化回收前退出破招检索组，避免组里残留已回收的弹丸
+func _retire() -> void:	# 池化回收前退出破招检索组，避免组里残留已回收的弹丸
 	if is_in_group("enemy_projectiles"):
 		remove_from_group("enemy_projectiles")
 	PoolUtil.release(POOL_KEY, self)

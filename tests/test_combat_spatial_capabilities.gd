@@ -1,6 +1,6 @@
 extends SceneTree
 ## 真正移动身体验证可赋予能力、返程预留及墙顶接战；没有测试瞬移执行器。
-const Actor := preload("res://prototypes/combat/spatial/traversal_actor.gd")
+const Actor := preload("res://prototypes/spatial_lab/traversal_actor.gd")
 const Profile := preload("res://scripts/combat_spatial_profile.gd")
 const Capability := preload("res://scripts/traversal_capability.gd")
 const Query := preload("res://scripts/spatial_query.gd")
@@ -259,7 +259,7 @@ func _climb() -> void:
 func _boss_breach() -> void:
 	stage.free()
 	stage = null
-	var lab := preload("res://prototypes/combat/spatial/combat_spatial_lab.tscn").instantiate()
+	var lab := preload("res://prototypes/spatial_lab/combat_spatial_lab.tscn").instantiate()
 	root.add_child(lab)
 	current_scene = lab
 	for i in range(8): await process_frame
@@ -297,7 +297,8 @@ func _boss_breach() -> void:
 	var windup_intact := false
 	for i in range(650):
 		await physics_frame
-		if controller.last_action == "break" and enemy.current_state == enemy.State.ATK_SLAM and enemy._attack_area.phase == enemy._attack_area.Phase.PREPARE:
+		if controller.last_action == "break" and enemy.current_state == enemy.State.ATK_SLAM \
+			and enemy._attack_area.phase == enemy._attack_area.Phase.LOCKED:
 			windup_intact = windup_intact or not obstacle.is_broken
 		if obstacle.is_broken and lab.get_stats_snapshot().received_hits > 0:
 			break
@@ -340,7 +341,7 @@ func _check(condition: bool, message: String) -> void:
 
 func _demo_scene() -> void:
 	stage.free()
-	var scene := preload("res://prototypes/combat/spatial/capability_lab.tscn").instantiate()
+	var scene := preload("res://prototypes/spatial_lab/capability_lab.tscn").instantiate()
 	root.add_child(scene)
 	current_scene = scene
 	for i in range(8): await process_frame

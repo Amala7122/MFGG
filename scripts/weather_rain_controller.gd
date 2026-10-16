@@ -601,9 +601,7 @@ func _update_environment(delta: float = 0.0) -> void:
 	var atmospheric_share := 1.0 - smoothstep(0.12, 0.50, fog_strength)
 	_sky_dome.set("fog_visible", atmospheric_share > 0.02)
 
-	# 两套云结构：
-	# Cumulus 使用 Sky3D 原生积云，云块之间是真正蓝天。
-	# Stratus 使用低频连续云底，Coverage 接近 1 时保证无蓝天空洞。
+	# 父类单独使用时保留 Sky3D 原生积云；统一天气入口随后会关闭它。
 	var cumulus_active := is_cumulus and cloud_cover > 0.001
 	if cumulus_active:
 		_sky_dome.set("cumulus_visible", true)
@@ -616,23 +614,17 @@ func _update_environment(delta: float = 0.0) -> void:
 	else:
 		_sky_dome.set("cumulus_visible", bool(_base_sky.cumulus_visible) if cloud_cover <= 0.001 else false)
 
-	var sky_material := _sky_dome.get("sky_material") as ShaderMaterial
-	if sky_material != null:
-		sky_material.set_shader_parameter("weather_overcast", stratus_cover)
-		sky_material.set_shader_parameter("weather_cloud_density", cloud_density)
-		sky_material.set_shader_parameter("weather_horizon", horizon)
-
 	_sky_dome.set("fog_density", float(_base_sky.fog_density) * atmospheric_share)
 	_sky_dome.set("fog_start", lerpf(float(_base_sky.fog_start), 18.0, fog_strength))
 	_sky_dome.set("fog_end", lerpf(float(_base_sky.fog_end), downpour_fog_end, fog_strength))
 	_sky_dome.set("atm_day_tint", (_base_sky.atm_day_tint as Color).lerp(
-		Color(0.27, 0.325, 0.39, 1.0), storm
+		CloudLighting.OVERCAST_DAY_TINT, storm
 	))
 	_sky_dome.set("atm_night_tint", (_base_sky.atm_night_tint as Color).lerp(
 		Color(0.050, 0.065, 0.085, 1.0), storm * 0.72
 	))
 	_sky_dome.set("atm_horizon_light_tint", (_base_sky.atm_horizon_light_tint as Color).lerp(
-		Color(0.28, 0.31, 0.35, 1.0), storm
+		CloudLighting.OVERCAST_HORIZON_TINT, storm
 	))
 	_sky_dome.set("atm_sun_intensity", lerpf(float(_base_sky.atm_sun_intensity), 8.0, storm))
 	_sky_dome.set("atm_darkness", lerpf(float(_base_sky.atm_darkness), 0.72, storm))

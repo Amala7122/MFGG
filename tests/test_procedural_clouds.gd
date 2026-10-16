@@ -4,7 +4,6 @@ extends SceneTree
 const Field := preload("res://scripts/procedural_cloud_field.gd")
 const Library := preload("res://scripts/cloud_mesh_library.gd")
 const Preview := preload("res://scripts/weather_editor_preview.gd")
-const CloudLighting := preload("res://scripts/cloud_lighting.gd")
 var _failed := false
 
 
@@ -13,12 +12,6 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	var bright_angle := CloudLighting.cloud_shadow_angle(Vector3.UP, 1.5, 0.5, 1.5, 1.5)
-	var weak_angle := CloudLighting.cloud_shadow_angle(Vector3.UP, 0.3, 0.5, 1.5, 1.5)
-	var low_sun_angle := CloudLighting.cloud_shadow_angle(Vector3(0.8, 0.2, 0.56).normalized(), 1.5, 0.5, 1.5, 1.5)
-	_check(bright_angle > 0.0 and weak_angle > bright_angle, "强日光仍有半影，弱日光的半影更宽")
-	_check(low_sun_angle > bright_angle, "低角度日光更柔")
-	_check(is_equal_approx(CloudLighting.cloud_shadow_angle(Vector3.UP, 10.0, 0.0, 0.0, 1.5), 0.1), "错误的柔度参数也不能产生零半影")
 	var first := Field.new()
 	var second := Field.new()
 	root.add_child(first)
@@ -127,7 +120,7 @@ func _run() -> void:
 		_check(Library.get_meshes()[index].get_instance_id() == ids[index], "天气与运动不重建网格")
 	first.free()
 	second.free()
-	change_scene_to_file("res://prototypes/environment/weather_lab.tscn")
+	change_scene_to_file("res://prototypes/weather_lab/weather_lab.tscn")
 	for _frame in range(8):
 		await process_frame
 	var scene := current_scene
@@ -153,7 +146,7 @@ func _run() -> void:
 	var sky := scene.get_node("WeatherEnvironment/Sky3D") as WorldEnvironment
 	var dome := sky.get_node("SkyDome")
 	var sun := sky.get_node("SunLight") as DirectionalLight3D
-	_check(sun.light_angular_distance > 0.0, "运行时真实云影启用距离相关的 PCSS 柔化")
+	_check(is_zero_approx(sun.light_angular_distance), "高云扩深期间使用固定过滤，避免 PCSS 近景纹路")
 	var baseline_angle := sun.light_angular_distance
 	var baseline_depth := sun.directional_shadow_pancake_size
 	_check(baseline_depth >= field.get_cloud_height_ceiling() / sun.global_basis.z.y,
@@ -183,11 +176,10 @@ func _run() -> void:
 	_check((field.get_child(0) as MultiMeshInstance3D).cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, "编辑器适配器同步云影开关")
 	_check(is_equal_approx(sun.light_angular_distance, baseline_angle), "编辑器关闭云影恢复预览前的角径")
 	weather.cloud_shadow_enabled = true
-	weather.cloud_shadow_weak_sun_angle = 2.0
 	preview._apply(host, weather, sky, dome, sun)
-	_check(sun.light_angular_distance > 0.0, "编辑器适配器启用同一半影规则")
-	_check(is_equal_approx(sun.light_angular_distance, CloudLighting.cloud_shadow_angle(
-		sun.global_basis.z.normalized(), sun.light_energy, 0.5, 2.0, 1.5)), "编辑器柔度依当前阳光强度推导")
+	_check(is_zero_approx(sun.light_angular_distance), "编辑器与运行时共用固定阴影过滤")
+	_check(sun.directional_shadow_pancake_size >= field.get_cloud_height_ceiling() / sun.global_basis.z.y,
+		"编辑器仍保留高云所需的投影深度")
 	gallery.get_parent().call("_build")
 	_check((scene.get_node("CloudModelGallery/__CloudModels/Cloud01/Model") as MeshInstance3D).mesh == rounded[0], "地面陈列跟随天气风格切换")
 	preview._restore(sky, dome, sun)

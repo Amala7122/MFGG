@@ -20,6 +20,7 @@ const CinematicActionCamScript := preload("res://scripts/cinematic_action_cam.gd
 const TerrainFieldUtil := preload("res://scripts/terrain_field.gd")
 const WeaponEffects := preload("res://scripts/weapon_effect_manager.gd")
 const BurningZoneScript := preload("res://scripts/resonance_burning_zone.gd")
+const DefaultResonanceType: ResonanceType = preload("res://data/resonance/area_clear.tres")
 
 var _player: CharacterBody3D
 var _hud: Node
@@ -35,7 +36,11 @@ var _burst_damage_per_energy: float = 2.6
 var _burst_radius: float = 15.0
 var _burst_push: float = 22.0
 var _burst_hold_required: float = 0.7
+## 爆发是否对"大型"敌人也即死（配置 resonance.instant_kill_large，默认关）。
+## 【默认关是有意的】重型该硬 —— 否则"重型"这个分类没有意义。
+var instant_kill_large := false
 var _hold_timer: float = 0.0
+var resonance_type: ResonanceType = DefaultResonanceType
 
 var _charge_on_hit: float = 9.0
 var _charge_on_dodge: float = 18.0
@@ -59,6 +64,15 @@ func setup(player: CharacterBody3D, hud: Node) -> void:
 	EventBusUtil.emit_resonance_changed(_energy, _max_energy, _overflow_cap)
 
 
+func set_resonance_type(profile: ResonanceType) -> void:
+	if profile != null:
+		resonance_type = profile
+
+
+func get_resonance_type_id() -> StringName:
+	return resonance_type.id if resonance_type != null else &"area_clear"
+
+
 func _read_config() -> void:
 	_max_energy = maxf(ConfigUtil.get_float("resonance.max_energy", 100.0), 20.0)
 	_overflow_cap = maxf(ConfigUtil.get_float("resonance.overflow_cap", 150.0), _max_energy)
@@ -73,6 +87,8 @@ func _read_config() -> void:
 	_burst_damage_per_energy = maxf(ConfigUtil.get_float("resonance.burst_damage_per_energy", 2.6), 0.5)
 	_burst_push = maxf(ConfigUtil.get_float("resonance.burst_push", 22.0), 5.0)
 	_burst_hold_required = maxf(ConfigUtil.get_float("resonance.burst_hold_seconds", 0.7), 0.2)
+	# 【一键清场】非 Boss 一律即死（见 _apply_burst_damage）。关掉即回到"只清轻装"。
+	instant_kill_large = ConfigUtil.get_bool("resonance.instant_kill_large", false)
 
 
 func _apply_perks() -> void:
@@ -246,7 +262,8 @@ func perform_burst() -> void:
 
 		# 2. 震撼多层音效
 		AudioUtil.play("shockwave", 5.0, 0.55)
-		AudioUtil.play("explode", 4.0, 0.70)
+		# 键名应为 explosion；曾写成 explode，而音色库里没有这个键，调用一直是空操作（I-033）。
+		AudioUtil.play("explosion", 4.0, 0.70)
 		AudioUtil.play("pickup", 3.0, 0.45)
 
 		# 3. 专属宏大视觉特效：通天光柱 + 毁灭半球 + 双重地表环 + 爆裂晶片 + 强光
@@ -342,24 +359,39 @@ func _apply_burst_damage(center: Vector3, radius: float, base_damage: float, pus
 		var dist_factor := clampf(1.0 - (dist / radius) * 0.20, 0.80, 1.0)
 		var target_dmg := base_damage * dist_factor
 
-		var is_boss: bool = enemy.has_method("take_damage_at") or enemy.is_in_group("boss") or enemy.name == "Boss" or enemy.get("is_boss") == true
+		# 【不要用 has_method("take_damage_at") 判 Boss】—— 那曾是个偷懒的启发式，
+		# 而盾卫现在也实现了 take_damage_at（为了算正面格挡扇区），一旦沿用，
+		# 全体近战都会被当成 Boss、连即死保底都不再生效。Boss 有专属分组。
+		var is_boss: bool = enemy.is_in_group("boss") or enemy.name == "Boss" or enemy.get("is_boss") == true
 		var is_large: bool = enemy.scale.x >= 1.25 or (enemy.get("enemy_title") != null and (String(enemy.get("enemy_title")).contains("巨型") or String(enemy.get("enemy_title")).contains("重装") or String(enemy.get("enemy_title")).contains("大型") or String(enemy.get("enemy_title")).contains("破坏者")))
 
 		var enemy_hp := HealthUtil.health_or(enemy, 0.0)
+		# 防御反应必须先于伤害缩放：范围清场型对 Boss 为 0 伤害，但 Boss
+		# 仍然会看见共鸣并立刻开泥盾。未来单体型只需换 profile。
+		if enemy.has_method("on_resonance_incoming"):
+			enemy.call("on_resonance_incoming", center)
+		if is_boss:
+			target_dmg *= resonance_type.boss_damage_scale
 
-		# 小核弹气势契约：
-		# 小型敌人直接击飞死亡！大型敌人高额伤害+重力击退！
+		# 【重型该硬】即死保底只对轻型生效 —— 否则"重型"这个分类没有意义。
+		# 用户明确要求：共鸣打不动重型是**应该的**；代价是重型会因此被激怒（见下）。
+		# 过载爆发（200%）仍能秒掉重型，这是"攒满再用"的回报。
+		# `instant_kill_large` 是给"想让共鸣无条件清场"留的开关，默认关。
 		if not is_boss:
-			if not is_large:
+			if not is_large and resonance_type.instant_kill_light:
 				target_dmg = maxf(target_dmg, enemy_hp + 600.0)
-			else:
-				if is_overload_burst:
-					target_dmg = maxf(target_dmg, enemy_hp + 600.0)
+			elif instant_kill_large or (is_overload_burst and resonance_type.overload_kills_large):
+				target_dmg = maxf(target_dmg, enemy_hp + 600.0)
 
-		if enemy.has_method("take_damage"):
+		if target_dmg > 0.0 and enemy.has_method("take_damage"):
 			preload("res://scripts/combat_telemetry.gd").hurt_enemy(enemy, target_dmg,
 				{"source": "resonance", "source_kind": "player", "shot": 0})
 			hits += 1
+
+		# 【共鸣的代价】挨了共鸣的重型会变强（攻击力叠层）。放在伤害之后，
+		# 因为"挨得越多越强"统计的是已经吃进去的那一下。
+		if target_dmg > 0.0 and enemy.has_method("on_resonance_hit"):
+			enemy.call("on_resonance_hit", target_dmg)
 
 		# 击退击飞效果：
 		var dir := offset
@@ -369,7 +401,11 @@ func _apply_burst_damage(center: Vector3, radius: float, base_damage: float, pus
 		dir = dir.normalized()
 
 		if enemy.has_method("apply_push"):
-			if not is_large and not is_boss:
+			if is_boss:
+				if resonance_type.boss_push_scale > 0.0:
+					enemy.call("apply_push", dir + Vector3.UP * 0.3,
+						push_force * resonance_type.boss_push_scale * dist_factor)
+			elif not is_large:
 				# 小型敌人：高高击飞抛向半空，展现小核弹冲击波气势
 				enemy.call("apply_push", dir + Vector3.UP * 1.6, push_force * 2.2 * dist_factor)
 			else:
@@ -405,12 +441,16 @@ func _apply_slow_to_enemies(pos: Vector3, radius: float, duration: float) -> voi
 		if node is CharacterBody3D and HealthUtil.is_alive(node):
 			var dist := pos.distance_to(node.global_position)
 			if dist <= radius:
+				var is_boss: bool = node.is_in_group("boss") or node.name == "Boss" or node.get("is_boss") == true
+				var duration_scale := resonance_type.boss_slow_scale if is_boss else 1.0
+				if duration_scale <= 0.0:
+					continue
 				if node.has_method("apply_slow"):
-					node.call("apply_slow", 0.4, duration)
+					node.call("apply_slow", 0.4, duration * duration_scale)
 				elif node.get("move_speed") != null:
-					_apply_stat_slow(node, "move_speed", duration)
+					_apply_stat_slow(node, "move_speed", duration * duration_scale)
 				elif node.get("speed") != null:
-					_apply_stat_slow(node, "speed", duration)
+					_apply_stat_slow(node, "speed", duration * duration_scale)
 
 
 func _apply_stat_slow(enemy: CharacterBody3D, property: String, duration: float) -> void:
@@ -445,4 +485,5 @@ func _spawn_burning_aftermath(pos: Vector3, radius: float) -> void:
 	burning_zone.name = "ResonanceBurningZone"
 	scene.add_child(burning_zone)
 	burning_zone.global_position = pos
-	burning_zone.setup(radius, ConfigUtil.get_float("resonance.burn_damage_per_second", 40.0))
+	burning_zone.setup(radius, ConfigUtil.get_float("resonance.burn_damage_per_second", 40.0),
+		resonance_type.boss_damage_scale)

@@ -1,0 +1,12 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/pyrolux_fx/nodes_3d/pyrolux_explosion_3d.gd" id="1"]
+
+[node name="Grenade" type="Node3D"]
+script = ExtResource("1")
+radius = 1.1
+fireball = 26
+smoke = 22
+sparks = 50
+debris = 18
+smoke_time = 3.5

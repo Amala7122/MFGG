@@ -1,0 +1,18 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/pyrolux_fx/nodes_3d/pyrolux_fire_3d.gd" id="1"]
+
+[node name="Torch" type="Node3D"]
+script = ExtResource("1")
+shape = 0
+flame_height = 0.55
+flame_width = 0.26
+tongues = 4
+puffs = 14
+embers = 8
+ember_height = 1.4
+smoke = 5
+smoke_height = 1.6
+smoke_opacity = 0.3
+light_energy = 1.6
+light_range = 6.0

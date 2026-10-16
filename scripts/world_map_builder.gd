@@ -26,6 +26,7 @@ const LowPolyMeshUtil := preload("res://scripts/lowpoly_mesh.gd")
 const TREE_SCENE := preload("res://scenes/stylized_tree.tscn")
 const PINE_SCENE := preload("res://scenes/stylized_pine.tscn")
 const ValleyArt := preload("res://scripts/valley_art.gd")
+const Decor := preload("res://scripts/world_decor.gd")
 
 ## legacy 节点名：hyrule_field.tscn 里那几组写死的地面内容。
 const LEGACY_NODES := ["Roads", "Lake", "AncientRuins", "EnemyCamp", "Forest"]
@@ -75,6 +76,7 @@ func _ready() -> void:
 			% ArenaUtil.resolve_id())
 		return
 	_build_roads()
+	_build_paving()
 	_build_water()
 	_build_props()
 	_build_lights()
@@ -165,6 +167,41 @@ func _build_roads() -> void:
 			node.rotation.y = yaw
 			add_child(node)
 		road_index += 1
+
+
+## 石铺入口按端点及两端宽度收口；薄铺装随地形，不额外制造台阶碰撞。
+func _build_paving() -> void:
+	for entry in _list("paving"):
+		var spec := entry as Dictionary
+		var start := _point(spec, "from", Vector2.ZERO)
+		var finish := _point(spec, "to", Vector2.ZERO)
+		var length := start.distance_to(finish)
+		if length < 0.01:
+			continue
+		var widths := _vector2(spec, "widths", Vector2(3, 3))
+		var forward := (finish - start) / length
+		var across := Vector2(-forward.y, forward.x)
+		var rows := maxi(ceili(length / 1.8), 1)
+		var columns := maxi(ceili(maxf(widths.x, widths.y) / 1.8), 1)
+		var builder := LowPolyMeshUtil.begin()
+		for row in rows:
+			var u0 := (float(row) + 0.007) / rows
+			var u1 := (float(row + 1) - 0.007) / rows
+			for column in columns:
+				var v0 := (float(column) + 0.007) / columns - 0.5
+				var v1 := (float(column + 1) - 0.007) / columns - 0.5
+				var corners: Array[Vector3] = []
+				for uv in [Vector2(u0, v0), Vector2(u0, v1), Vector2(u1, v1), Vector2(u1, v0)]:
+					var p: Vector2 = start.lerp(finish, uv.x) + across * uv.y * lerpf(widths.x, widths.y, uv.x)
+					corners.append(Vector3(p.x, _ground(p.x, p.y) + 0.065, p.y))
+				var tone := 0.95 + 0.05 * sin(row * 5.7 + column * 2.1)
+				LowPolyMeshUtil.push_quad(builder, corners[0], corners[1], corners[2], corners[3], Color(tone, tone, tone))
+		var node := MeshInstance3D.new()
+		node.name = String(spec.get("name", "StonePaving"))
+		node.mesh = LowPolyMeshUtil.commit(builder)
+		node.material_override = _materials["stone_light"]
+		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(node)
 
 
 ## 路宽按入口、路口和门前空间变化；轮廓与颜色均属于贴地网格。
@@ -465,6 +502,7 @@ func _build_grove() -> void:
 	holder.add_to_group("nav_source")
 	add_child(holder)
 	var rng := RandomNumberGenerator.new()
+	var boulders := Decor.boulder_layout(_arena)
 	for entry in groves:
 		var spec := entry as Dictionary
 		var center := _point(spec, "center", Vector2.ZERO)
@@ -478,9 +516,17 @@ func _build_grove() -> void:
 			var distance := rng.randf_range(inner, radius)
 			var x := center.x + cos(angle) * distance
 			var z := center.y + sin(angle) * distance
-			# 湖面 / 主路 / 遗迹 / 营地是保留区，树不能长在上面。
-			# 判据复用 arena 的遮罩，于是"哪块地不能放东西"只有一处定义。
-			if ArenaUtil.is_masked_out(_arena, x, z):
+			# 新增建筑的禁植范围独立于地形；把最大树冠半径也留出来。
+			var crown_radius := float(spec.get("scale_max", 1.3)) * 1.6
+			if ArenaUtil.is_decor_reserved(_arena, x, z, crown_radius):
+				continue
+			var on_rock := false
+			for rock in boulders:
+				var rock_at: Vector2 = rock.at
+				if Vector2(x, z).distance_to(rock_at) < float(rock.radius) + crown_radius * 0.25 + 0.3:
+					on_rock = true
+					break
+			if on_rock:
 				continue
 			var pine_ratio := clampf(float(spec.get("pine_ratio", 0.0)), 0.0, 1.0)
 			var tree_scene: PackedScene = TREE_SCENE

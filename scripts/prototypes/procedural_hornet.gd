@@ -57,6 +57,7 @@ var _flight_jitter_target := Vector3.ZERO
 var _flight_jitter_timer := 0.0
 var _flight_wobble_phase := 0.0
 var _wing_phase_offset := 0.0
+var _grenade_stagger_hold := 0.0
 
 
 func _ready() -> void:
@@ -197,10 +198,11 @@ func _physics_process(delta: float) -> void:
 		State.HIT_STAGGER:
 			response = _p("stagger_drag")
 			var progress := minf(state_timer / _p("stagger_in"), 1.0)
-			if state_timer > _p("stagger_in") + _p("stagger_hold"):
-				progress = 1.0 - clampf((state_timer - _p("stagger_in") - _p("stagger_hold")) / _p("stagger_out"), 0.0, 1.0)
+			var hold := maxf(_p("stagger_hold"), _grenade_stagger_hold)
+			if state_timer > _p("stagger_in") + hold:
+				progress = 1.0 - clampf((state_timer - _p("stagger_in") - hold) / _p("stagger_out"), 0.0, 1.0)
 			thorax_node.rotation_degrees.x = _p("stagger_angle") * progress
-			if state_timer >= _p("stagger_in") + _p("stagger_hold") + _p("stagger_out"):
+			if state_timer >= _p("stagger_in") + hold + _p("stagger_out"):
 				_enter_hover()
 	if current_state == State.SWOOP_DIVE:
 		velocity = _dive_direction * _p("dive_speed")
@@ -400,12 +402,16 @@ func take_damage(amount: float, hit_dir := Vector3.ZERO) -> void:
 		trigger_hit_stagger(direction * _p("damage_recoil_speed"))
 
 
-func trigger_hit_stagger(recoil: Vector3) -> void:
+func apply_grenade_stagger(seconds: float) -> void:
+	trigger_hit_stagger(velocity, seconds)
+
+func trigger_hit_stagger(recoil: Vector3, minimum_seconds: float = 0.0) -> void:
 	if current_state == State.DEAD or not _reactions.allow_normal_stagger():
 		return
 	_crowd.release_attack()
 	_enter_hover()
 	_set_state(State.HIT_STAGGER)
+	_grenade_stagger_hold = maxf(minimum_seconds - _p("stagger_in") - _p("stagger_out"), 0.0)
 	velocity = recoil + Vector3.UP * _p("stagger_up_speed")
 
 
@@ -475,6 +481,7 @@ func trigger_death_fall() -> void:
 	wings.clear()
 	var body := DeathBody.new()
 	body.tuning = _tuning.duplicate(true)
+	body.legs.assign(legs)
 	body.mass = _p("death_body_mass")
 	body.collision_layer = 0
 	body.collision_mask = 1

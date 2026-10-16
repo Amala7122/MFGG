@@ -8,7 +8,7 @@
 | `evade_knockback.tres` | 撤离危险范围 | 扣血、击退、恢复原 AI | 晶兽 |
 | `evade_knockdown.tres` | 撤离危险范围 | 扣血、坠地；飞行角色存活后重新起飞 | 蜂 |
 
-在 Godot 打开 `prototypes/combat/enemies/` 中的敌人场景，选根节点，修改 **Combat Reaction Profile** 即可更换赋予。可把现有资源赋给其他兼容敌人，也可以新建 `CombatReactionProfile` 资源自由组合。编辑共享资源会影响所有使用它的实例；要单独调整，先复制资源或在检查器中选择“设为唯一”。
+在 Godot 打开 `prototypes/enemy_prototypes/` 中的敌人场景，选根节点，修改 **Combat Reaction Profile** 即可更换赋予。可把现有资源赋给其他兼容敌人，也可以新建 `CombatReactionProfile` 资源自由组合。编辑共享资源会影响所有使用它的实例；要单独调整，先复制资源或在检查器中选择“设为唯一”。
 
 **Warning Response** 和 **Impact Response** 独立：例如可以配置“主动躲避但命中后不位移”，或“不躲避但被命中后击退”。硬吃仍受正常护甲 / 生命结算，生命归零照常死亡，不是免伤。
 

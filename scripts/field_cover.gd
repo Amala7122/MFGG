@@ -16,6 +16,9 @@ extends Node3D
 
 const TerrainFieldUtil := preload("res://scripts/terrain_field.gd")
 const ArenaUtil := preload("res://scripts/arena.gd")
+const Destructible := preload("res://scripts/destructible_component.gd")
+const StoneDestruction := preload("res://data/destruction/stone.tres")
+const WoodDestruction := preload("res://data/destruction/wood.tres")
 ## 只用于多环岩石；建筑与墙体明确禁止再走自定义倒角。
 const LowPolyMeshUtil := preload("res://scripts/lowpoly_mesh.gd")
 
@@ -125,6 +128,7 @@ func _build_piece(piece: Array) -> void:
 	var collision := CollisionShape3D.new()
 	collision.shape = shape
 	body.add_child(collision)
+	_make_destructible(body, kind)
 
 	add_child(body)
 
@@ -152,8 +156,19 @@ func _build_boulder(piece: Array) -> void:
 	var collision := CollisionShape3D.new()
 	collision.shape = shape
 	body.add_child(collision)
+	_make_destructible(body, 0)
 
 	add_child(body)
+
+
+func _make_destructible(body: StaticBody3D, kind: int) -> void:
+	# 正式战场原先没有任何 destructible_props，导致泰坦虽已绑定破障能力，
+	# 规划器在主场景永远找不到可破坏目标。掩体本身现在复用能力演示场的公共
+	# 破坏组件；地图地标仍由 WorldDecor 持有，不会被一并清空。
+	var component := Destructible.new()
+	component.name = "Destructible"
+	component.profile = (WoodDestruction if kind == 1 else StoneDestruction).duplicate()
+	body.add_child(component)
 
 
 func _make_material(color: Color, roughness: float) -> StandardMaterial3D:

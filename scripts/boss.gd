@@ -90,6 +90,7 @@ var _action_cooldown := 2.0
 var _contact_timer := 0.0
 var _strike_done := false
 var _dead := false
+var _grenade_pause := preload("res://scripts/grenade_action_pause.gd").new()
 
 var _target: Node3D
 var _body_root: Node3D
@@ -232,6 +233,9 @@ func _apply_damage(amount: float, weak: bool) -> void:
 	if weak:
 		_material.emission = Color(0.9, 0.5, 0.05, 1.0)
 	_publish_health()
+	# 【实验场】敌人不死：伤害照常结算、受击表现照常播，只是不进入死亡。
+	if bool(get_meta(&"experiment_invincible", false)):
+		_health = maxf(_health, 1.0)
 	if _health <= 0.0:
 		_die()
 
@@ -298,6 +302,10 @@ func is_dead() -> bool:
 func _physics_process(delta: float) -> void:
 	if _dead:
 		return
+	if _grenade_pause.step(delta, true):
+		velocity = Vector3.ZERO
+		_snap_to_terrain()
+		return
 	if not is_instance_valid(_target):
 		_target = TargetingUtil.nearest_player(self) as Node3D
 		if not is_instance_valid(_target):
@@ -338,6 +346,13 @@ func _physics_process(delta: float) -> void:
 	_resolve_contact_damage()
 	_snap_to_terrain()
 
+
+func apply_grenade_stagger(seconds: float) -> void:
+	if not _dead:
+		_grenade_pause.request(seconds, false)
+
+func grenade_stagger_active() -> bool:
+	return not _dead and _grenade_pause.remaining > 0.0
 
 func _tick_flash(delta: float) -> void:
 	if _flash <= 0.0:
@@ -463,6 +478,7 @@ func _spawn_slam_warning(delay: float) -> void:
 		_warning.queue_free()
 	_warning = GROUND_WARNING_SCENE.instantiate()
 	scene.add_child(_warning)
+	_warning.call("bind_attacker", self)
 	_warning.global_position = global_position
 	_warning.call(
 		"setup",

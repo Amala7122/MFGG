@@ -244,7 +244,7 @@ func _build() -> void:
 		var z := rng.randf_range(-_radius, _radius)
 		if x * x + z * z > _radius * _radius:
 			continue
-		if ArenaUtil.is_masked_out(_arena, x, z):
+		if ArenaUtil.is_decor_reserved(_arena, x, z, 0.4):
 			continue
 		# 噪声 [-1, 1] → 密度 [bare_ratio, 1]。中间调压掉是必要的：
 		# 不做 smoothstep 的话噪声平均值会让整片地都停在"中等密度"，等于白做。
@@ -270,7 +270,7 @@ func _build() -> void:
 			var cz := z + offset.y
 			if cx * cx + cz * cz > _radius * _radius:
 				continue
-			if ArenaUtil.is_masked_out(_arena, cx, cz):
+			if ArenaUtil.is_decor_reserved(_arena, cx, cz, 0.4):
 				continue
 			var key := Vector2i(
 				int(floor((cx + _radius) / side)), int(floor((cz + _radius) / side))

@@ -70,8 +70,9 @@ func select_single(entry: Dictionary, anchors: Array) -> Dictionary:
 	var players := Targeting.living_players(_owner)
 	if players.is_empty():
 		return {}
-	var minimum := maxf(Config.get_float("enemy_roster.anchor_min_player_distance", 14.0), 1.0)
-	var maximum := maxf(Config.get_float("enemy_roster.anchor_max_player_distance", 32.0), minimum + 4.0)
+	var bounds := _distance_bounds(entry)
+	var minimum: float = bounds.x
+	var maximum: float = bounds.y
 	_last_angle = fposmod(_last_angle + _random.randf_range(1.15, 2.7), TAU)
 	var visible_fallback: Dictionary = {}
 	var attempts := maxi(Config.get_int("spawn.attempts", 24), 1)
@@ -107,8 +108,9 @@ func validate(candidate: Vector3, entry: Dictionary) -> Dictionary:
 	var bound := float(_arena.get("extent", 60.0)) * 0.82 - radius
 	if absf(candidate.x) > bound or absf(candidate.z) > bound or Arena.is_masked_out(_arena, candidate.x, candidate.z):
 		return {}
-	var minimum := maxf(Config.get_float("enemy_roster.anchor_min_player_distance", 14.0), 1.0)
-	var maximum := maxf(Config.get_float("enemy_roster.anchor_max_player_distance", 32.0), minimum + 4.0)
+	var bounds := _distance_bounds(entry)
+	var minimum: float = bounds.x
+	var maximum: float = bounds.y
 	var players := Targeting.living_players(_owner)
 	var nearest: Node3D
 	var nearest_distance := INF
@@ -128,6 +130,14 @@ func validate(candidate: Vector3, entry: Dictionary) -> Dictionary:
 	if surface.is_empty() or surface.normal.y < cos(deg_to_rad(45.0)):
 		return {}
 	var point: Vector3 = surface.position
+	var world := _owner.get_viewport().find_world_3d()
+	# 大平底 Boss 不能只检查中心点：中心看似平坦、脚印边缘已经跨入陡坡时，
+	# 公共导航仍会判可达，但真实圆柱身体走两三米就进入 no_landing。正式 Boss
+	# 可按配置要求整片脚印近似水平；普通小兵不增加这组投放查询。
+	if bool(entry.get("flat_footprint", false)) and not _flat_footprint(
+		point, radius, float(entry.get("flat_height_delta", 0.3))
+	):
+		return {}
 	var capsule := CapsuleShape3D.new()
 	capsule.radius = radius
 	capsule.height = height
@@ -135,12 +145,34 @@ func validate(candidate: Vector3, entry: Dictionary) -> Dictionary:
 	query.shape = capsule
 	query.transform = Transform3D(Basis.IDENTITY, point + Vector3.UP * (height * 0.5 + 0.10))
 	query.collision_mask = 5
-	var world := _owner.get_viewport().find_world_3d()
 	if not world.direct_space_state.intersect_shape(query, 1).is_empty():
 		return {}
 	if not _reachable(point, nearest, world):
 		return {}
 	return {"position": point}
+
+
+func _distance_bounds(entry: Dictionary) -> Vector2:
+	var default_minimum := Config.get_float("enemy_roster.anchor_min_player_distance", 14.0)
+	var default_maximum := Config.get_float("enemy_roster.anchor_max_player_distance", 32.0)
+	var minimum := maxf(float(entry.get("min_player_distance", default_minimum)), 1.0)
+	var maximum := maxf(float(entry.get("max_player_distance", default_maximum)), minimum + 4.0)
+	return Vector2(minimum, maximum)
+
+
+func _flat_footprint(point: Vector3, radius: float, height_delta: float) -> bool:
+	var lowest := point.y
+	var highest := point.y
+	for index in range(8):
+		var angle := TAU * float(index) / 8.0
+		var sample := point + Vector3(cos(angle), 0.0, sin(angle)) * radius
+		sample.y = point.y + 3.0
+		var surface := FX.sample_ground(_owner, sample, 6.0)
+		if surface.is_empty() or (surface.normal as Vector3).y < cos(deg_to_rad(20.0)):
+			return false
+		lowest = minf(lowest, float(surface.position.y))
+		highest = maxf(highest, float(surface.position.y))
+	return highest - lowest <= maxf(height_delta, 0.05)
 
 
 func _reachable(point: Vector3, player: Node3D, world: World3D) -> bool:

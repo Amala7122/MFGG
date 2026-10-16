@@ -128,6 +128,14 @@ var _fall_kill_depth := 18.0
 
 ## 被手雷 / 震地脉冲击退：短时间接管移动形成明确的"被打飞"反馈。
 ## 【重量】霸体：击退力按 (1 - knockback_resistance) 打折。
+func apply_grenade_stagger(seconds: float) -> void:
+	if health <= 0.0:
+		return
+	cancel_attack_charge()
+	if _steering.spatial != null:
+		_steering.spatial.cancel_motion()
+	_stagger_time = maxf(_stagger_time, seconds)
+
 func apply_push(direction: Vector3, force: float) -> void:
 	if _steering.spatial != null:
 		_steering.spatial.cancel_motion()
@@ -295,12 +303,16 @@ func _face_flat_direction(delta: float, flat_direction: Vector3) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if has_meta(&"combat_recorder"):
+		set_meta(&"sparring_trace", {"engine_frame": Engine.get_physics_frames(), "branch": "locomotion"})
 	# 同 melee_enemy：掉出场地先结算，不再跑 AI。
 	if _kill_if_below_world():
 		return
 	var prior_yaw := rotation.y
 	var locomoting := _stagger_time <= 0.0
 	if _steering.tick(delta, _stagger_time <= 0.0 and not attack_queued and burst_remaining <= 0 and is_instance_valid(target) and global_position.distance_to(target.global_position) <= detection_range, target, move_speed):
+		if has_meta(&"combat_recorder"):
+			set_meta(&"sparring_trace", {"engine_frame": Engine.get_physics_frames(), "branch": "navigation_override"})
 		fire_cooldown = maxf(fire_cooldown - delta, 0.0)
 		update_feedback(delta)
 	else:
@@ -535,6 +547,7 @@ func cancel_attack_charge() -> void:
 
 
 func fire_pattern() -> void:
+	preload("res://scripts/combat_telemetry.gd").enemy_attack_started(self, "远程弹幕:%s" % pattern_type)
 	var aim_direction := get_aim_direction()
 	# 五种弹幕共用的唯一分发入口，所以在这里响一次就够，不必逐个模式加。
 	AudioUtil.play_at("enemy_shot", muzzle.global_position, -7.0)
@@ -709,6 +722,10 @@ func take_damage(amount: float) -> void:
 	# 【重量】护甲：对所有伤害来源减伤（含手雷 / 脉冲的爆炸结算）。
 	health -= amount * (1.0 - _armor)
 	preload("res://scripts/combat_telemetry.gd").enemy_damaged(self, before)
+	# 【实验场】敌人不死：伤害照常结算、受击表现照常播，只是不进入死亡。
+	# 机制验证要在"挨打之后"才看得到反应（破招后仰 / 蓄力被打断），一打就死就没得看。
+	if bool(get_meta(&"experiment_invincible", false)):
+		health = maxf(health, 1.0)
 	if health <= 0.0:
 		_last_overkill = absf(health)
 		die()
@@ -808,12 +825,31 @@ func update_health_label() -> void:
 
 
 ## juice：被震地脉冲破招——打断蓄力并陷入硬直（供 shockwave 破招链路调用）。
+##
+## 【方向】与近战同一处坑：`-global_transform.basis.z` 指向的是**它面朝的方向**
+## （本模型 -Z 为正面），也就是**朝着玩家** —— 写在这里的"后仰"实际是把敌人
+## 往玩家怀里拉；且 basis 带缩放，必须先归一化。
 func parry() -> void:
 	cancel_attack_charge()
-	_stagger_time = _stagger_duration * 1.5
-	_stagger_velocity = -global_transform.basis.z * 7.5
+	# 脉冲的 apply_push 先跑：已有推力就保留，破招不覆盖它。
+	_stagger_time = maxf(_stagger_duration * 1.5, _stagger_time)
+	if _stagger_velocity.length() < 0.01:
+		_stagger_velocity = _recoil_direction() * 7.5
 	hit_flash_time = 0.15
 	_visuals.set_flash(true)
+
+
+## 破招后仰的方向：背向目标（拿不到目标就退回模型背面）。
+func _recoil_direction() -> Vector3:
+	var back := Vector3.ZERO
+	if is_instance_valid(target):
+		back = global_position - target.global_position
+	if back.is_zero_approx():
+		back = global_transform.basis.z
+	back.y = 0.0
+	if back.is_zero_approx():
+		back = Vector3.BACK
+	return back.normalized()
 	if _rig:
 		_rig.flinch()
 

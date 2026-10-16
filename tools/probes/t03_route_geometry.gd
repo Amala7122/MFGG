@@ -1,5 +1,5 @@
 extends SceneTree
-const Scene := preload("res://prototypes/combat/spatial/combat_spatial_lab.tscn")
+const Scene := preload("res://prototypes/spatial_lab/combat_spatial_lab.tscn")
 const Query := preload("res://scripts/spatial_query.gd")
 func _initialize() -> void:
 	call_deferred("run")

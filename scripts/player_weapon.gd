@@ -796,6 +796,23 @@ func add_ammo(primary: int, sniper: int) -> int:
 	return taken_primary + taken_spare + taken_sniper
 
 
+## 把两套武器的弹匣与备用弹夹都补到配置上限。
+## 正式玩法不自动调用；Boss 直战等可复现实验入口用它建立固定的满弹药条件。
+func refill_all_ammo() -> void:
+	_ammo = _magazine_ammo_max
+	_sniper_ammo = _sniper_magazine_ammo_max
+	if _reserve_enabled:
+		_reserve = _primary_reserve_max
+		_sniper_reserve = _sniper_reserve_max
+	else:
+		_reserve = 0
+		_sniper_reserve = 0
+	_reload_timer = 0.0
+	_sniper_reload_timer = 0.0
+	ammo_changed.emit(_ammo, get_capacity())
+	sniper_ammo_changed.emit(_sniper_ammo, get_sniper_capacity(), 0.0)
+
+
 func get_sniper_ammo() -> int:
 	return _sniper_ammo
 

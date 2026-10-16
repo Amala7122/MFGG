@@ -114,6 +114,21 @@ static func is_masked_out(params: Dictionary, x: float, z: float) -> bool:
 	return false
 
 
+## 装饰避让独立于地形压平；padding 为树冠或岩石的水平半径，单位米。
+static func is_decor_reserved(params: Dictionary, x: float, z: float, padding: float = 0.0) -> bool:
+	if is_masked_out(params, x, z):
+		return true
+	return is_building_area(params, x, z, padding)
+
+
+static func is_building_area(params: Dictionary, x: float, z: float, padding: float = 0.0) -> bool:
+	var map: Dictionary = params.get("map", {})
+	for rect in map.get("decor_clear_rects", []):
+		if _inside_rect(rect, x, z, -maxf(padding, 0.0)):
+			return true
+	return false
+
+
 ## 到最近遮罩边界的距离（负数表示在遮罩内）。山丘间距校验用它。
 static func distance_to_mask_edge(params: Dictionary, x: float, z: float) -> float:
 	var best := INF

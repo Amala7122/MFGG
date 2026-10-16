@@ -4,6 +4,8 @@ const GroundMovement := preload("res://scripts/ground_movement.gd")
 const SpatialController := preload("res://scripts/combat_spatial_controller.gd")
 const SpatialProfile := preload("res://scripts/combat_spatial_profile.gd")
 const DefaultSpatialProfile := preload("res://data/combat_spatial/ground.tres")
+const PathStyle := preload("res://scripts/navigation_path.gd")
+const ProjCache := preload("res://scripts/nav_projection_cache.gd")
 var spatial: RefCounted
 ## 敌人寻路辅助：包装一个 NavigationAgent3D，给出"朝目标该往哪走"的水平方向。
 ##
@@ -109,6 +111,15 @@ var _last_goal := Vector3.ZERO
 ## 一次脱困固定横移方向；不能每帧跟着重算的路径旋转，否则会左右互顶。
 var _last_direction := Vector3.FORWARD
 var _unstick_heading := Vector3.ZERO
+var _issued_goal := Vector3.ZERO
+var _has_issued_goal := false
+var _map_revision := -1
+var _force_repath := false
+var path_requests := 0
+
+func repath() -> void:
+	_force_repath = true
+	_timer = 0.0
 
 
 func setup(body: Node3D, radius: float, height: float) -> void:
@@ -181,36 +192,46 @@ func direction_to(
 
 	# ── 导航路径 ──
 	var nav_map := _agent.get_navigation_map()
-	var map_ready := NavigationServer3D.map_get_iteration_id(nav_map) > 0
-	if map_ready:
-		# 地图已同步但还没有可走面时，closest_point 会返回原点；不能把它当目标。
-		map_ready = NavigationServer3D.map_get_closest_point_owner(nav_map, position).is_valid()
+	# 已同步且至少有一个导航面才可查询；存在性按地图版本共享，与角色位置无关。
+	var map_ready := ProjCache.owner_valid(nav_map, position)
 	if map_ready:
 		# 烘焙网格有栅格高度误差，胶囊在坡上也有离地间隙。按脚下网格的高度
 		# 对齐起点，并保留实际水平位置；体型缩放和坡面都不会妨碍路径点推进。
+		#
+		# 【不要改成向下射线】2026-10-12 实测过：射线取的是真实碰撞面高度，而路径点落在
+		# 导航网格上；体素烘焙在平地就可能高出两个垂直栅格（≈0.5 米），起点与路径点错开
+		# 这个距离后第一个路径点永远够不到 —— 掉队回收 56 → 279、窗口零速 0 → 15.9%、
+		# `blocked_or_sliding` 563 次，帧耗时反而 35.03 → 39.75 ms。这个高度必须是导航面高度。
 		var feet := _body.to_global(Vector3(0.0, -_body_height * 0.5, 0.0))
-		var surface := NavigationServer3D.map_get_closest_point(nav_map, feet)
+		var surface := ProjCache.closest(nav_map, feet)
 		_nav_origin.global_position = Vector3(position.x, surface.y, position.z)
 	# 换路期间把目标换成中间点：这是"走另一条线路"的全部实现。
 	_timer -= delta
 	var nav_goal := _detour_point if _state == State.REROUTING else goal
 	if not map_ready:
 		_timer = 0.0
-	elif _timer <= 0.0:
+	elif _timer <= 0.0 and (not _has_issued_goal or _force_repath or _map_revision != NavigationServer3D.map_get_iteration_id(nav_map) or nav_goal.distance_to(_issued_goal) > float(PathStyle.settings().get("goal_replan_distance", 0.8))):
 		_timer = REPATH_INTERVAL
 		# 目标同样取导航表面高度，不能用敌人的高度去覆盖远处坡面的高度。
 		var surface_goal := nav_goal
 		if map_ready:
-			surface_goal = NavigationServer3D.map_get_closest_point(nav_map, nav_goal)
+			surface_goal = ProjCache.closest(nav_map, nav_goal)
 		_agent.target_position = surface_goal
+		_issued_goal = nav_goal
+		_has_issued_goal = true
+		_map_revision = NavigationServer3D.map_get_iteration_id(nav_map)
+		_force_repath = false
+		path_requests += 1
 	var desired := fallback
 	if map_ready:
-		var next := _agent.get_next_path_position()
 		# 部分路径的终点也算 finished；不能在此退回直线继续顶不可达平台。
 		if _agent.is_navigation_finished():
 			_state = State.NORMAL
 			_window_origin = position
 			_window_time = 0.0
+			return Vector3.ZERO
+		var next := _agent.get_next_path_position()
+		if _agent.is_navigation_finished():
 			return Vector3.ZERO
 		var flat := Vector3(next.x - position.x, 0.0, next.z - position.z)
 		if flat.length_squared() >= MIN_DIRECTION_SQR:
@@ -233,11 +254,36 @@ func has_path() -> bool:
 
 ## 同层且能直达时保留绕行/群体风格；高低差或路径拐角优先沿导航走。
 func ground_velocity(goal: Vector3, desired: Vector3, delta: float) -> Vector3:
-	return spatial.adjust_ground_motion(goal, desired, delta) if spatial != null else raw_ground_velocity(goal, desired, delta)
+	var result: Vector3 = spatial.adjust_ground_motion(goal, desired, delta) if spatial != null else raw_ground_velocity(goal, desired, delta)
+	if _body.has_meta(&"combat_recorder"):
+		_body.set_meta(&"sparring_motion", {"engine_frame": Engine.get_physics_frames(), "source": "ground_gate",
+			"requested": [desired.x, desired.y, desired.z], "allowed": [result.x, result.y, result.z]})
+	return result
 
 
 func tick(delta: float, can_act: bool, target: Node3D, speed: float) -> bool:
 	return spatial != null and spatial.tick(delta, can_act, target, speed)
+
+
+func get_sparring_diagnostic() -> Dictionary:
+	var result := {"nav_state": int(_state), "unstick_tries": _stuck_tries, "path_requests": path_requests}
+	if spatial != null:
+		result.merge({"status": spatial.status, "failure": spatial.last_failure, "action": spatial.last_action,
+			"job_pending": spatial._job != null, "planning_suspended": spatial._planning_suspended,
+			"route_segments": spatial.route.get("segments", []).size(), "segment_index": spatial._segment_index,
+			"point_index": spatial._point_index, "retry_remaining": spatial._timer,
+			"active_kind": spatial._active.get("kind", ""), "escape_reserved": String(spatial.escape_reserved),
+			"level_gap": spatial._level_gap, "progress_clock": spatial._progress_clock,
+			"geometry_revision": spatial._revision, "nav_revision": spatial._nav_revision,
+			"recovery_count": spatial.recovery_count})
+		if spatial._job != null:
+			var job: RefCounted = spatial._job
+			result["job"] = {"id": str(job.get_instance_id()), "done": job.done, "kind": spatial._job_kind, "has_result": not job.result.is_empty()}
+			if spatial._job_kind == "route":
+				result.job.merge({"expansions": job.expansions, "queue": job._queue.size(), "stances_remaining": job._stance_candidates.size(), "goal": [job.goal.x, job.goal.y, job.goal.z]})
+			else:
+				result.job["candidate_index"] = job._index
+	return result
 
 
 func raw_ground_velocity(goal: Vector3, desired: Vector3, delta: float) -> Vector3:
@@ -263,6 +309,27 @@ func raw_ground_velocity(goal: Vector3, desired: Vector3, delta: float) -> Vecto
 	if needs_route(goal) or (not direct.is_zero_approx() and route.dot(direct.normalized()) < 0.95):
 		return route * desired.length()
 	return desired
+
+
+## 目标持续移动时的连续修正检查：朝当前目标走一小步，完整身体与脚下支撑都要成立。
+##
+## 只用于决定“瞄准点要不要换成当前目标”，不改变任何通行判定：真正的移动仍由
+## gate_motion、脱困状态机与规划器把关。探测长度取 0.3 米（约半个身体半径），
+## 比纯视线射线强，又比整段 ground_segment 便宜。
+func live_direct_ok(goal: Vector3, probe := 0.3) -> bool:
+	if _character == null or _body == null or not _character.is_on_floor():
+		return false
+	var offset := goal - _body.global_position
+	offset.y = 0.0
+	if offset.length() < 0.25:
+		return true
+	var motion := offset.normalized() * probe
+	if _character.test_move(_character.global_transform, motion) and GroundMovement.step_landing(_character, _character.global_transform, motion).is_empty():
+		return false
+	var feet := _body.to_global(Vector3(0, -_body_height * 0.5, 0)) + motion
+	var hit := _body.get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(
+		feet + Vector3.UP * GroundMovement.STEP_HEIGHT, feet + Vector3.DOWN * GroundMovement.STEP_HEIGHT, 1))
+	return not hit.is_empty() and (hit.normal as Vector3).dot(_character.up_direction) >= cos(_character.floor_max_angle)
 
 
 func _safe_local_motion(desired: Vector3, delta: float) -> bool:
@@ -380,7 +447,7 @@ func _leave_to_normal() -> void:
 	_state_time = 0.0
 	_side_sign = -_side_sign
 	# 立刻重算路径：脱困期间是横向走的，缓存的路径已经不代表当前位置。
-	_timer = 0.0
+	repath()
 
 
 ## 换路：先在"自己→目标"的侧前方定一个中间点，把导航目标指过去。
@@ -389,23 +456,37 @@ func _enter_reroute(position: Vector3, goal: Vector3) -> void:
 	if to_goal.length_squared() < MIN_DIRECTION_SQR:
 		_leave_to_normal()
 		return
-	var along := to_goal.normalized() * minf(
-		to_goal.length() * REROUTE_ALONG_RATIO, REROUTE_OFFSET * 2.0
-	)
-	var side := Vector3(-to_goal.z, 0.0, to_goal.x).normalized() * REROUTE_OFFSET * _side_sign
-	var point := position + along + side
-	# 中间点必须落在可导航区域上，否则路径会被截断，等于没换路。
-	# map_get_closest_point 在没有网格时返回原点，用"吸附距离是否合理"来识别
-	# 这种情况 —— 直接判 is_zero_approx 会误伤本来就靠近原点的合法点。
-	if is_instance_valid(_agent):
-		var closest := NavigationServer3D.map_get_closest_point(_agent.get_navigation_map(), point)
-		if closest.distance_to(point) < 20.0:
-			point = closest
-	_detour_point = point
+	var map := _agent.get_navigation_map()
+	var goal_floor := NavigationServer3D.map_get_closest_point(map, goal)
+	var goal_hit := PathStyle.Query.floor_at(_body, goal_floor, 1.5)
+	if spatial == null or goal_hit.is_empty():
+		_leave_to_normal()
+		return
+	var body_goal := PathStyle.Query.ground_pose(_character, goal_hit)
+	var forward := to_goal.normalized()
+	var side := Vector3(-forward.z, 0, forward.x) * _side_sign
+	var selected := false
+	for distance: float in [REROUTE_OFFSET, REROUTE_OFFSET * 0.5]:
+		for offset: Vector3 in [side * distance + forward * minf(to_goal.length() * REROUTE_ALONG_RATIO, distance), -side * distance, -forward * distance]:
+			var wanted := position + offset
+			var closest := NavigationServer3D.map_get_closest_point(map, wanted)
+			if Vector2(closest.x - wanted.x, closest.z - wanted.z).length() > 1.0: continue
+			var hit := PathStyle.Query.floor_at(_body, closest, 1.5)
+			if hit.is_empty(): continue
+			var body_point := PathStyle.Query.ground_pose(_character, hit)
+			# 吸附到网格不足以证明绕路：去程和继续追击都需完整可走路径。
+			if spatial._walking(position, body_point).is_empty() or spatial._walking(body_point, body_goal).is_empty(): continue
+			_detour_point = closest
+			selected = true
+			break
+		if selected: break
+	if not selected:
+		_leave_to_normal()
+		return
 	_state = State.REROUTING
 	_state_time = 0.0
 	_side_sign = -_side_sign
-	_timer = 0.0
+	repath()
 
 
 # ---------------------------------------------------------------- 方向修正
@@ -421,10 +502,7 @@ func _unstick_direction(desired: Vector3) -> Vector3:
 ## -desired·away 越大说明越是在正对着墙推；推力按这个比例给，
 ## 擦着墙走的时候几乎不改动方向，不会把正常沿墙移动也搅乱。
 func _contact_push(desired: Vector3) -> Vector3:
-	if _character == null:
-		return desired
-	# 薄板挡脚边虽有竖直法线，却是可跨低坎；先确认完整身体能通过再决定绕墙。
-	if _character.is_on_floor() and not desired.is_zero_approx() and not GroundMovement.step_landing(_character, _character.global_transform, desired * 0.1).is_empty():
+	if _character == null or desired.is_zero_approx():
 		return desired
 	var count := _character.get_slide_collision_count()
 	if count == 0:
@@ -442,6 +520,10 @@ func _contact_push(desired: Vector3) -> Vector3:
 	away = away.normalized()
 	var opposing := clampf(-desired.dot(away), 0.0, 1.0)
 	if opposing <= 0.0:
+		return desired
+	# 只有接触了不可行走表面并正顶着它走，才需要区分可跨低坎与真正的墙。
+	# 保留完整身体扫掠；GroundMovement.move() 受阻后的实际跨坎检查仍独立执行。
+	if _character.is_on_floor() and not GroundMovement.step_landing(_character, _character.global_transform, desired * 0.1).is_empty():
 		return desired
 	var pushed := desired + away * opposing * CONTACT_PUSH
 	if pushed.is_zero_approx():

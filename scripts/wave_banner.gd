@@ -55,7 +55,6 @@ var _state := STATE_PREPARE
 var _timer_key := ""
 var _timer_span := 1.0
 var _combat_age := 0.0
-const COMBAT_SHOW_TIME := 2.8
 
 
 func _ready() -> void:
@@ -66,11 +65,17 @@ func _ready() -> void:
 
 
 ## 倒计时条需要每帧重画（秒数在连续变化），波次格只在快照到达时变。
+##
+## 【交战中不再自动隐藏】原先整条横幅在开打 2.8 秒后淡出，理由是"战斗时别挡视线"。
+## 但那条横幅上写着"剩余 N"—— 它恰恰是战斗中最需要的推进感读数：
+## 看着数字掉到 0 就是这一波的收束。现在交战期间常驻，只在换状态时淡入一次。
+## 真正会挡视线的只是屏幕顶部中央 42 像素，比"打完这波还要多久心里没数"划算。
 func _process(delta: float) -> void:
 	if _state == STATE_FIGHT or _state == STATE_BOSS:
 		_combat_age += delta
-		modulate.a = clampf((COMBAT_SHOW_TIME - _combat_age) / 0.5, 0.0, 1.0)
-		visible = _combat_age < COMBAT_SHOW_TIME
+		visible = true
+		# 只做一次入场淡入（0.18 秒），之后常驻满不透明，不再衰减。
+		modulate.a = clampf(_combat_age / 0.18, 0.0, 1.0)
 	if is_countdown():
 		queue_redraw()
 
@@ -97,7 +102,8 @@ func update_wave(info: Dictionary) -> void:
 	else:
 		_timer_span = maxf(_timer_span, _timer)
 	var combat := _state == STATE_FIGHT or _state == STATE_BOSS
-	visible = not combat or _combat_age < COMBAT_SHOW_TIME
+	# 交战中同样常驻（见 _process 的说明）；这里只负责"有快照就显示"。
+	visible = true
 	if not combat:
 		modulate.a = 1.0
 	queue_redraw()
@@ -107,7 +113,8 @@ func update_wave(info: Dictionary) -> void:
 func status_text() -> String:
 	match _state:
 		STATE_FIGHT:
-			return "第 %d / %d 波" % [_wave, _total_waves]
+			# "剩余 N" 是这一波最直接的推进读数：它把"还有多久"变成一个在掉的数。
+			return "第 %d / %d 波　·　剩余 %d" % [_wave, _total_waves, _remaining]
 		STATE_BREAK:
 			return "下一波 %.1f 秒" % _timer
 		STATE_PREPARE:

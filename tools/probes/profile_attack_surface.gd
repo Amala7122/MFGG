@@ -1,6 +1,6 @@
 extends SceneTree
 ## 地面效果成本探针：同一场地、同一组范围，对照构建与完整横扫过程。
-const SpatialScene := preload("res://prototypes/combat/spatial/combat_spatial_lab.tscn")
+const SpatialScene := preload("res://prototypes/spatial_lab/combat_spatial_lab.tscn")
 const AttackArea := preload("res://scripts/enemy_attack_area.gd")
 const MeleeEffect := preload("res://scripts/prototypes/titan_melee_effect.gd")
 var _lab: Node3D

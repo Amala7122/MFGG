@@ -271,6 +271,7 @@ func _aftermath() -> void:
 	var elevated := _target(Vector3(3, 6, 0))
 	var old_boss := _target(Vector3(4, 1, -3))
 	old_boss.collision_layer = 3
+	old_boss.add_to_group("boss")
 	var blocked := _target(Vector3(-6, 1, 0))
 	var wall := StaticBody3D.new()
 	wall.position = Vector3(-4, _ground_y + 2.0, 0)
@@ -280,8 +281,9 @@ func _aftermath() -> void:
 	wall_collision.shape = wall_box
 	wall.add_child(wall_collision)
 	_world.add_child(wall)
-	for target in [inside, outside, elevated, old_boss, blocked]:
-		target.add_to_group("boss")
+	# 用大型体型避免爆发即死，保持它们是普通敌人；只有 old_boss 走 Boss 契约。
+	for target in [inside, outside, elevated, blocked]:
+		target.scale = Vector3.ONE * 1.3
 	await _sync()
 	_choose("resonance_burn")
 	_player._resonance._energy = _player._resonance._max_energy
@@ -302,7 +304,7 @@ func _aftermath() -> void:
 	zone._physics_process(0.5)
 	_check(is_equal_approx(inside_hp - inside.health, 20.0), "领域每半秒按配置结算 20 点伤害")
 	_check(outside.health == outside_hp and elevated.health == elevated_hp, "领域不伤害范围外或另一楼层敌人")
-	_check(old_boss.health < old_boss_hp, "占地形碰撞层的旧 Boss 仍能被领域灼烧")
+	_check(old_boss.health == old_boss_hp, "范围清场型的余震灼烧同样不会伤害 Boss")
 	_check(blocked.health == blocked_hp, "领域伤害不能穿过实体墙")
 	outside.position = Vector3(5, _ground_y + 1, 0)
 	zone._physics_process(0.5)
@@ -454,8 +456,8 @@ func _timewarp() -> void:
 	await _fixture()
 	var target := SlowTarget.new()
 	target.position = _player.position + Vector3.FORWARD * 3
+	target.scale = Vector3.ONE * 1.3
 	target.add_to_group("enemies")
-	target.add_to_group("boss")
 	_world.add_child(target)
 	_choose("timewarp")
 	_player._resonance._energy = _player._resonance._max_energy
@@ -571,9 +573,9 @@ func _reaper_echo() -> void:
 	await _fixture()
 	_choose("reaper_echo")
 	var first := _target(Vector3(0, 1, -3))
-	first.add_to_group("boss")
+	first.scale = Vector3.ONE * 1.3
 	var second := _target(Vector3(3, 1, 0))
-	second.add_to_group("boss")
+	second.scale = Vector3.ONE * 1.3
 	second.health = 0.0
 	var resonance: Node = _player._resonance
 	resonance._energy = resonance._max_energy

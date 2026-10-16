@@ -5,6 +5,7 @@ const Geometry := preload("res://scripts/lowpoly_mesh.gd")
 const Terrain := preload("res://scripts/terrain_field.gd")
 const Landscape := preload("res://scripts/valley_terrain.gd")
 const StaticCache := preload("res://scripts/valley_static_cache.gd")
+const Arena := preload("res://scripts/arena.gd")
 const CASCADE_UPPER_STEPS := 108
 const CASCADE_FALL_STEPS := 24
 const CASCADE_LOWER_STEPS := 128
@@ -61,7 +62,7 @@ func _ready() -> void:
 		add_child(scene.instantiate())
 		return
 	if not StaticCache.force_generation and not OS.get_cmdline_user_args().has("--valley-source"):
-		push_warning("山谷静态资源不存在或已过期，本次使用源几何。运行 tests/bake_valley_art.gd 可重新预生成。")
+		push_warning("山谷静态资源不存在或已过期，本次使用源几何。用 tools/run_probe.py 运行 tools/probes/bake_valley_assets.gd 可重新预生成。")
 	generated_builds += 1
 	_build_art()
 
@@ -368,6 +369,8 @@ static func _ruin_surfaces() -> Geometry.Builder:
 
 
 func _clear_ground(p: Vector2) -> bool:
+	if Arena.is_building_area(Terrain._arena_params, p.x, p.y, 1.2):
+		return false
 	if absf(p.x) < 10.0 or absf(p.x) > 84 or absf(p.y) > 84:
 		return false
 	if p.x > 7 and p.x < 57 and absf(p.y - 2.0) < 6:

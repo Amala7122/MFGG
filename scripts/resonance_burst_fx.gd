@@ -11,6 +11,12 @@ extends Node3D
 
 const DURATION := 0.82
 const CombatFXUtil := preload("res://scripts/combat_fx.gd")
+const ConfigUtil := preload("res://scripts/game_config.gd")
+
+## 【爆发特效铺满全屏】光柱 / 半球 / 双环原本是 alpha 0.65~0.95 + 自发光 8~14，
+## 放一次技能屏幕就被糊住，改造后还怎么看敌人的反应（用户实测：实验场里一放技能
+## 什么都看不清）。这个系数统一缩放透明度与自发光，配置 `resonance.fx_opacity`。
+var _opacity := 0.45
 
 var _radius := 20.0
 var _elapsed := 0.0
@@ -45,6 +51,7 @@ static func spawn(parent: Node, pos: Vector3, radius: float, is_overload: bool =
 
 
 func setup_visuals(is_overload: bool) -> void:
+	_opacity = clampf(ConfigUtil.get_float("resonance.fx_opacity", 0.45), 0.05, 1.0)
 	var gold := Color(1.0, 0.78, 0.28, 1.0)
 	var purple := Color(0.88, 0.32, 1.0, 1.0)
 	var core_color := gold if not is_overload else Color(1.0, 0.35, 0.15, 1.0)
@@ -231,31 +238,31 @@ func _process(delta: float) -> void:
 		_pillar.scale.z = pillar_scale_xz
 		_pillar.position.y += delta * 18.0 # 向上腾飞
 	if _pillar_mat:
-		_pillar_mat.albedo_color.a = 0.85 * pow(fade, 1.6)
-		_pillar_mat.emission_energy_multiplier = 14.0 * fade
+		_pillar_mat.albedo_color.a = 0.85 * pow(fade, 1.6) * _opacity
+		_pillar_mat.emission_energy_multiplier = 14.0 * fade * _opacity
 
 	# 2. 毁灭半球：从中心膨胀至整个爆发半径
 	if _dome:
 		var dome_scale := lerpf(1.0, _radius, eased_blast)
 		_dome.scale = Vector3(dome_scale, dome_scale * 0.75, dome_scale)
 	if _dome_mat:
-		_dome_mat.albedo_color.a = 0.65 * pow(fade, 1.8)
-		_dome_mat.emission_energy_multiplier = 8.0 * fade
+		_dome_mat.albedo_color.a = 0.65 * pow(fade, 1.8) * _opacity
+		_dome_mat.emission_energy_multiplier = 8.0 * fade * _opacity
 
 	# 3. 外层光环与内层光环
 	if _ring_outer:
 		_ring_outer.scale = Vector3.ONE * lerpf(1.5, _radius * 1.08, eased_ring)
 	if _ring_outer_mat:
-		_ring_outer_mat.albedo_color.a = 0.95 * fade
-		_ring_outer_mat.emission_energy_multiplier = 10.0 * fade
+		_ring_outer_mat.albedo_color.a = 0.95 * fade * _opacity
+		_ring_outer_mat.emission_energy_multiplier = 10.0 * fade * _opacity
 
 	if _ring_inner:
 		var inner_progress := clampf((_elapsed - 0.06) / (DURATION - 0.06), 0.0, 1.0)
 		var inner_eased := 1.0 - pow(1.0 - inner_progress, 2.2)
 		_ring_inner.scale = Vector3.ONE * lerpf(1.0, _radius * 0.82, inner_eased)
 	if _ring_inner_mat:
-		_ring_inner_mat.albedo_color.a = 0.8 * fade
-		_ring_inner_mat.emission_energy_multiplier = 8.0 * fade
+		_ring_inner_mat.albedo_color.a = 0.8 * fade * _opacity
+		_ring_inner_mat.emission_energy_multiplier = 8.0 * fade * _opacity
 
 	# 4. 爆裂晶片物理运动
 	for shard in _shards:

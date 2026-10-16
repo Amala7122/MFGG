@@ -6,6 +6,7 @@ const HealthUtil := preload("res://scripts/health_util.gd")
 
 enum Phase { IDLE, PREPARE, LOCKED, STRIKE, RECOVERY }
 const FillShader := preload("res://shaders/enemy_attack_fill.gdshader")
+const BorderShader := preload("res://shaders/enemy_attack_border.gdshader")
 const SurfaceMesh := preload("res://scripts/attack_surface_mesh.gd")
 var phase := Phase.IDLE
 var progress := 0.0
@@ -36,11 +37,8 @@ func _ready() -> void:
 	_mesh.top_level = true
 	_border = MeshInstance3D.new()
 	_border.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var edge_material := StandardMaterial3D.new()
-	edge_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	edge_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	edge_material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	edge_material.albedo_color = Color(1.0, 0.25, 0.055, 0.9)
+	var edge_material := ShaderMaterial.new()
+	edge_material.shader = BorderShader
 	_border.material_override = edge_material
 	add_child(_border)
 	_border.top_level = true
@@ -78,6 +76,9 @@ func _physics_process(delta: float) -> void:
 	if phase == Phase.PREPARE and _surface_dirty and _surface_cooldown <= 0.0 and _should_track_surface():
 		_rebuild(true)
 	if phase in [Phase.PREPARE, Phase.LOCKED] and _countdown_duration > 0.0:
+		var host := get_parent()
+		if host != null and host.has_method("grenade_stagger_active") and host.call("grenade_stagger_active"):
+			return
 		_countdown_elapsed += delta
 		set_progress(_countdown_elapsed / _countdown_duration)
 
@@ -97,6 +98,14 @@ func track(pose: Transform3D) -> void:
 		return
 	global_transform = next
 	_surface_dirty = true
+	# 大型敌人的蓄力范围会连续转向。复杂地形下若每 0.05 秒异步替换一次
+	# 完整网格，玩家看到的是旧范围停住、新范围突然跳到位，透明面还会短暂
+	# 叠出碎片闪烁。稳定追踪模式让已经生成的整片预警连续随姿态移动，锁定
+	# 时再同步投影一次，伤害与最终公布范围仍然使用精确地表。
+	if bool(shape.get("stable_tracking_surface", false)):
+		_mesh.global_transform = next
+		_border.global_transform = next
+		return
 	if _surface_cooldown <= 0.0 and _should_track_surface():
 		_rebuild(true)
 
@@ -190,6 +199,13 @@ func can_hit(actor: Node3D, source: Vector3) -> bool:
 	if absf(actor.global_position.y - global_position.y) > float(shape.get("height", 2.5)):
 		return false
 	return unobstructed(self, source, actor.global_position)
+
+
+func hit_source() -> Vector3:
+	# 圆形落地技的攻击姿态就在地表上；从精确地表发射视线会先撞到地面
+	# 自己。source_height 与可达面构建共用，避免显示可达但实际永远 miss。
+	var default_height := 0.2 if String(shape.get("kind", "")) == "circle" else 0.0
+	return global_position + global_basis.y * float(shape.get("source_height", default_height))
 
 
 func can_reach(point: Vector3) -> bool:
@@ -287,7 +303,11 @@ func _rebuild(deferred := false) -> void:
 			polygon.append(Vector3(cos(a),0,sin(a)) * float(shape.radius) + Vector3(0,0,-float(shape.length)))
 	else:
 		var angle := TAU if kind == "circle" else deg_to_rad(float(shape.angle))
-		if kind != "circle":
+		var full_circle := kind == "circle" or angle >= TAU - 0.0001
+		# 360° 横扫仍保留 sector 语义供逐角度命中与动画使用，但地面多边形
+		# 必须按完整圆生成。若仍从中心点开始，会留下重合端点与径向接缝，
+		# 透明填充在相机移动时就像一条破碎闪烁的裂口。
+		if not full_circle:
 			polygon.append(Vector3.ZERO)
 		for i in range(49):
 			var a := -angle * 0.5 + angle * float(i) / 48.0

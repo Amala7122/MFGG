@@ -14,5 +14,6 @@ void fragment() {
 		: (start_z - UV.y) / max(start_z - end_z, 0.001);
 	float filled = 1.0 - smoothstep(progress - 0.012, progress, metric);
 	ALBEDO = mix(vec3(0.95, 0.015, 0.006), vec3(1.0, 0.025, 0.008), locked_phase);
-	ALPHA = mix(0.055, mix(0.43, 0.56, locked_phase), filled);
+	// 未填充区域从第一帧就表示完整危险范围，亮填充只表示剩余时间。
+	ALPHA = mix(0.16, mix(0.48, 0.60, locked_phase), filled);
 }

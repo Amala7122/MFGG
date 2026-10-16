@@ -1,12 +1,12 @@
 extends SceneTree
 const CapturePaths := preload("res://scripts/capture_paths.gd")
 ## 用真实攻击验证破坏时机、可赋予组件、遮挡与清理。
-const SpatialScene := preload("res://prototypes/combat/spatial/combat_spatial_lab.tscn")
+const SpatialScene := preload("res://prototypes/spatial_lab/combat_spatial_lab.tscn")
 const Prop := preload("res://scripts/destructible_prop.gd")
 const Component := preload("res://scripts/destructible_component.gd")
 const Destruction := preload("res://scripts/environment_destruction.gd")
-const SmallTree := preload("res://prototypes/combat/spatial/props/small_tree.tscn")
-const LowWall := preload("res://prototypes/combat/spatial/props/low_wall.tscn")
+const SmallTree := preload("res://prototypes/spatial_lab/small_tree.tscn")
+const LowWall := preload("res://prototypes/spatial_lab/low_wall.tscn")
 var _lab: Node3D
 var _failed := false
 var _contact_broken_in_air := false

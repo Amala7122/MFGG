@@ -56,6 +56,8 @@ const STAT_WIDTH := 180.0
 const STAT_HEIGHT := 66.0
 
 var state: State = State.MENU
+## F6 独立场景不自动接管开始页、鼠标与普通 ESC；实验场可显式请求静默暂停。
+var _standalone_scene := false
 
 var _root: Control
 ## 开始、暂停和结算共用黑玻璃内容区。
@@ -91,9 +93,18 @@ func _ready() -> void:
 	# juice：波间强化（波次肃清特写演完后由 wave_director 广播）
 	EventBusUtil.subscribe_upgrade_pick_requested(_on_upgrade_pick_requested)
 	_build_ui()
+	_set_overlay_visible(false)
 	# 等一帧：让场景里的 Player._ready() 先跑完（它会把鼠标设为捕获态），
 	# 再进菜单把鼠标交还给用户。
 	await get_tree().process_frame
+	var scene := get_tree().current_scene
+	var main_scene: String = ProjectSettings.get_setting("application/run/main_scene", "")
+	if main_scene.begins_with("uid://"):
+		main_scene = ResourceUID.get_id_path(ResourceUID.text_to_id(main_scene))
+	_standalone_scene = is_instance_valid(scene) and scene.scene_file_path != main_scene
+	if _standalone_scene:
+		state = State.PLAYING
+		return
 	_enter_menu()
 
 
@@ -353,6 +364,7 @@ func _enter_menu() -> void:
 	_build_arena_row()
 	_set_actions([
 		{"text": "开始游戏", "callback": _on_start},
+		{"text": "实战陪练 / 真人录制", "callback": open_sparring},
 		{"text": "显示设置", "callback": _on_open_display_settings},
 		{"text": "退出", "callback": _on_quit},
 	])
@@ -509,6 +521,36 @@ func _on_start() -> void:
 	AudioUtil.play("ui")
 	start_run()
 
+func open_sparring() -> void:
+	preload("res://tools/probes/sparring/sparring_settings.gd").pending_run = {"mode": "manual", "autostart": false}
+	_pending_transition.clear()
+	_dismiss_cinematics()
+	PoolUtil.clear_all()
+	_standalone_scene = true
+	_resume_play()
+	var error := get_tree().change_scene_to_file("res://prototypes/sparring_lab/combat_sparring_lab.tscn")
+	if error != OK:
+		push_error("无法打开实战陪练：%s" % error)
+		_standalone_scene = false
+		_enter_menu()
+
+func return_from_sparring() -> void:
+	_pending_transition.clear()
+	_dismiss_cinematics()
+	PoolUtil.clear_all()
+	RunStateUtil.end_run()
+	state = State.MENU
+	_set_overlay_visible(false)
+	get_tree().paused = false
+	var error := get_tree().change_scene_to_file("res://scenes/hyrule_field.tscn")
+	if error != OK:
+		push_error("无法返回主菜单：%s" % error)
+		return
+	await get_tree().scene_changed
+	_standalone_scene = false
+	visible = true
+	_enter_menu()
+
 
 ## 供外部直接开局（性能基准等）。语义与点"开始游戏"完全一致。
 func start_run() -> void:
@@ -633,6 +675,8 @@ func _on_quit() -> void:
 
 
 func _enter_game_over(survival: float, kills: int) -> void:
+	if bool(get_meta(&"sparring_session_active", false)):
+		return
 	_pending_transition.clear()
 	_dismiss_cinematics()
 	if state == State.GAME_OVER:
@@ -680,6 +724,8 @@ func _preview_game_over() -> void:
 ## 所以这里给的是"进入下一区域"，并且明确告诉玩家武装会保留 ——
 ## 不然玩家会以为换图等于重开，不敢往下走。
 func _enter_stage_cleared(stage: int) -> void:
+	if bool(get_meta(&"sparring_session_active", false)):
+		return
 	if _transition_must_wait():
 		_remember_transition({"kind": "stage", "stage": stage})
 		return
@@ -744,6 +790,8 @@ func _notification(what: int) -> void:
 # ---------------------------------------------------------------- 输入
 
 func _input(event: InputEvent) -> void:
+	if _standalone_scene and not bool(get_meta(&"experiment_silent_pause", false)):
+		return
 	if state == State.UPGRADE_PICK:
 		if _upgrade_picked:
 			get_viewport().set_input_as_handled()

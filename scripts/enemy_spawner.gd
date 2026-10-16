@@ -10,9 +10,11 @@ const ConfigUtil := preload("res://scripts/game_config.gd")
 const GaitUtil := preload("res://scripts/enemy_gait.gd")
 const BallisticsUtil := preload("res://scripts/ballistics.gd")
 const BossUtil := preload("res://scripts/boss.gd")
+const EnemyTuningUtil := preload("res://scripts/prototypes/enemy_tuning.gd")
 
 const RANGED_ENEMY_SCENE: PackedScene = preload("res://scenes/ranged_enemy.tscn")
 const MELEE_ENEMY_SCENE: PackedScene = preload("res://scenes/melee_enemy.tscn")
+const SEDIMENT_TITAN_SCENE: PackedScene = preload("res://prototypes/enemy_prototypes/procedural_sediment_titan.tscn")
 
 ## 敌人摆位时抬离地面的高度（配置缺失时的兜底，实际从
 ## spawn.enemy_stand_clearance 读）。
@@ -152,6 +154,21 @@ func _resolve_attrs(entry: Dictionary) -> Dictionary:
 
 
 func _build_boss(info: Dictionary) -> Node:
+	var boss_id := String(info.get("boss_id", ""))
+	if boss_id == "sediment_titan":
+		var titan := SEDIMENT_TITAN_SCENE.instantiate() as Node3D
+		var cfg := ConfigUtil.get_dictionary("bosses.%s" % boss_id)
+		var preset := String(cfg.get("preset", "项目默认"))
+		var values := EnemyTuningUtil.preset_values("PrototypeSedimentTitan", preset)
+		# 元数据必须在 add_child 之前写入；泰坦 _ready 会据此读取固定 Boss
+		# 方案，关闭随机个体差异，并切换到正式 Boss 血条契约。
+		titan.set_meta(&"enemy_tuning", values)
+		titan.set_meta(&"crowd_uniform", true)
+		titan.set_meta(&"formal_boss", true)
+		titan.set_meta(&"formal_boss_id", boss_id)
+		titan.set_meta(&"formal_boss_title", String(cfg.get("label", "沉积泰坦")))
+		_apply_boss_config.call_deferred(titan, info)
+		return titan
 	var boss := CharacterBody3D.new()
 	boss.set_script(BossUtil)
 	_apply_boss_config.call_deferred(boss, info)
@@ -164,15 +181,26 @@ func _apply_boss_config(boss: Node3D, info: Dictionary) -> void:
 	var boss_id := String(info.get("boss_id", ""))
 	var position: Vector3 = info.get("position", Vector3.ZERO)
 	var label := String(ConfigUtil.get_dictionary("bosses.%s" % boss_id).get("label", "BOSS"))
-	boss.call("configure", boss_id, label)
+	if boss.has_method("configure"):
+		boss.call("configure", boss_id, label)
 	# 站立高度 = 胶囊半高 × 体型，而体型是 configure 读出来的，所以摆位必须在它之后。
-	boss.position = position + Vector3.UP * float(boss.call("get_stand_height"))
+	var stand_height := float(boss.call("get_stand_height")) if boss.has_method("get_stand_height") else _stand_clearance
+	boss.position = position + Vector3.UP * stand_height
 
 
 # ---------------------------------------------------------------- 数值
 
 ## 远程血量走档位表（"狙击几发打死"的契约），绝不叠加等级成长 ——
 ## 否则档位会随等级漂移。近战则是基准 × 等级成长。
+##
+## 【为什么近战血量要多一个复利项】`health_growth_per_level` 是**线性**的，而玩家
+## 输出随等级是**近似指数**的（等级曲线 + 模块乘区，实测到 L13 约 19 倍）。
+## 两者相除，击杀耗时 TTK 会一路塌下去：L1 约 1 秒 → L13 约 0.4 秒。
+## 于是敌人**在跑到玩家面前之前就死了**（投放距离 14~32 米，接近要 2~4 秒），
+## 表现就是"怪很多但没压力、近战像木桩"。加再多数量也只是把队列拉长。
+##
+## `health_growth_compound` 用复利把 TTK 拉平到 1~1.4 秒：默认改 1.0 即恢复纯线性。
+## 只作用于近战；远程仍走档位表，避免破坏"狙击几发打死"的契约。
 func _health_for(entry: Dictionary, kind: String, level: float) -> float:
 	var tier := int(entry.get("health_tier", -1))
 	if kind == "ranged":
@@ -180,7 +208,12 @@ func _health_for(entry: Dictionary, kind: String, level: float) -> float:
 	var base := float(entry.get("health", 100.0))
 	if base < 0.0:
 		base = 100.0
-	return base * (1.0 + level * ConfigUtil.get_float("enemy_roster.health_growth_per_level", 0.35))
+	var linear := 1.0 + level * ConfigUtil.get_float("enemy_roster.health_growth_per_level", 0.35)
+	var compound := pow(
+		maxf(ConfigUtil.get_float("enemy_roster.health_growth_compound", 1.0), 0.5),
+		maxf(level - 1.0, 0.0)
+	)
+	return base * linear * compound
 
 
 func _color(value: Variant, fallback: Color) -> Color:

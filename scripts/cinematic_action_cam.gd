@@ -212,4 +212,3 @@ func _restore_controls() -> void:
 
 func _exit_tree() -> void:
 	_restore_controls()
-

@@ -11,6 +11,9 @@ extends Node3D
 const CombatFXUtil := preload("res://scripts/combat_fx.gd")
 const AudioUtil := preload("res://scripts/audio_manager.gd")
 
+## 掠顶判定的半径（米）。重弹飞行 72 m/s、一帧约 1.2 米，2.6 米不会漏判。
+const SNIPER_WHIZ_RADIUS := 2.6
+
 var speed: float = 72.0
 var damage: float = 35.0
 var direction: Vector3 = Vector3.FORWARD
@@ -114,11 +117,21 @@ func _physics_process(delta: float) -> void:
 		var player := get_tree().get_first_node_in_group("player") as Node3D
 		if player and is_instance_valid(player):
 			var dist := next_pos.distance_to(player.global_position + Vector3.UP * 0.9)
-			if dist <= 2.6:
+			if dist <= SNIPER_WHIZ_RADIUS:
 				_near_miss_triggered = true
-				AudioUtil.play_at("shot", player.global_position, 1.5, 2.4)
+				# 【三层叠出"擦着我过去了"】
+				#   1. bullet_whiz —— 1500→310Hz 的扫频破空声，本来就是为这一下写的；
+				#   2. shot 高八度 —— 重弹掠过的锐利爆音。旧版本只有这一层，
+				#      单听像"又一枪"；两层叠起来才是"重物从耳边过去了"；
+				#   3. whoosh —— 低频气流，给体量感。
+				# 音量：音效库接入后 sniper/shot 换成了真实采样，合成音色必须相应抬高，
+				# 否则会被枪声盖住（这正是上一版听起来"不如以前"的原因）。
+				# 优先声道只有一个：主体声（破空）独占它，气垫层走普通池。
+				AudioUtil.play_at_priority("bullet_whiz", player.global_position, 4.0, 1.1)
+				AudioUtil.play_at("shot", player.global_position, 0.0, 2.4)
+				AudioUtil.play_at("whoosh", player.global_position, 1.0, 0.85)
 				if player.has_method("apply_camera_shake"):
-					player.call("apply_camera_shake", 0.3)
+					player.call("apply_camera_shake", 0.45)
 
 	global_position = next_pos
 	_last_pos = current_pos

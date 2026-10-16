@@ -4,7 +4,11 @@ extends RefCounted
 const CELL_SIZE := 1.0
 const MAX_CELLS := 160.0
 const BORDER_SUBDIVISIONS := 2
-const SURFACE_OFFSET := 0.045
+const WARNING_BORDER_WIDTH := 0.28
+# 圣所道路只是可见色面，不带碰撞；山谷土路最高正好位于碰撞地面上方
+# 0.045m，石铺可到 0.065m。旧值 0.045m 会让预警与黄色土路完全共面，
+# 产生深度争抢。这里保留 3cm 的最小可见间隙，显示、边界与攻击痕迹共用。
+const SURFACE_OFFSET := 0.095
 const SURFACE_TOLERANCE := 0.025
 const GroundMovement := preload("res://scripts/ground_movement.gd")
 const BRUSH_STEP_HEIGHT := GroundMovement.STEP_HEIGHT
@@ -23,6 +27,7 @@ var _path: Array[Vector3] = []
 var _fill := PackedVector3Array()
 var _fill_uv := PackedVector2Array()
 var _edge := PackedVector3Array()
+var _edge_uv := PackedVector2Array()
 var _triangles: Array[Dictionary] = []
 var _by_cell: Dictionary = {}
 var _boundary: Dictionary = {}
@@ -206,7 +211,7 @@ func advance(budget_usec: int) -> void:
 					_add_border(_boundary_edges[_edge_index])
 					_edge_index += 1
 				else:
-					_meshes = {"fill": _commit(_fill, _fill_uv), "edge": _commit(_edge)}
+					_meshes = {"fill": _commit(_fill, _fill_uv), "edge": _commit(_edge, _edge_uv)}
 					_stage = BuildStage.DONE
 
 
@@ -229,7 +234,7 @@ func _finish_meshes() -> Dictionary:
 	# 边界来自真正刷出的面，包括被墙/台阶截断的边，不再画原始完整轮廓。
 	for edge: Dictionary in _boundary_edges:
 		_add_border(edge)
-	return {"fill": _commit(_fill, _fill_uv), "edge": _commit(_edge)}
+	return {"fill": _commit(_fill, _fill_uv), "edge": _commit(_edge, _edge_uv)}
 
 
 func _add_border(edge: Dictionary) -> void:
@@ -243,9 +248,30 @@ func _add_border(edge: Dictionary) -> void:
 	if allows(_pose * (middle + side)) and allows(_pose * (middle - side)):
 		return
 	var center: Vector3 = edge.center
-	var inset := minf(0.3, 0.035 / maxf(minf(a.distance_to(center), b.distance_to(center)), 0.001))
-	for p: Vector3 in [a, b, b.lerp(center, inset), a, b.lerp(center, inset), a.lerp(center, inset)]:
+	var inward := Vector3(-along.y, 0, along.x)
+	if inward.dot(center - middle) < 0.0:
+		inward = -inward
+	# 不能按细碎三角形的中心收边：薄三角形会把“加宽”仍挤成断续细线。
+	# 沿边法线取固定世界宽度，重新采样同一可达面，整条危险外沿保持不变。
+	var inner_a := _border_inner_point(a, inward, center)
+	var inner_b := _border_inner_point(b, inward, center)
+	for p: Vector3 in [a, b, inner_b, a, inner_b, inner_a]:
 		_edge.append(p + Vector3.UP * 0.004)
+	_edge_uv.append_array(PackedVector2Array([
+		Vector2.ZERO, Vector2.RIGHT, Vector2.ONE,
+		Vector2.ZERO, Vector2.ONE, Vector2.DOWN]))
+
+
+func _border_inner_point(outer: Vector3, inward: Vector3, center: Vector3) -> Vector3:
+	var width := WARNING_BORDER_WIDTH
+	for _attempt in range(4):
+		var point := outer + inward * width
+		if allows(_pose * point):
+			var hit := _sample(Vector2(point.x, point.z))
+			if not hit.is_empty():
+				return hit.point
+		width *= 0.5
+	return outer.lerp(center, 0.6)
 
 
 func _find_clear_plane(footprint: PackedVector2Array) -> void:

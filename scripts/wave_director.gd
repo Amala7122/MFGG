@@ -168,6 +168,28 @@ func start_for_active_run() -> void:
 	_start_waves()
 
 
+## 实验入口专用：跳过普通波次，直接使用本竞技场的正式 Boss 配置开战。
+##
+## 入口只改推进位置，不复制 Boss 场景、生成逻辑或结算逻辑；因此正式关卡对 Boss
+## 的体型、血量、血条和死亡结算做任何调整，直战台都会同步得到。
+func start_boss_direct(trial_seed: int = 0) -> bool:
+	if not _enabled or not GameFlowUtil.is_playing():
+		return false
+	if is_instance_valid(_boss):
+		return true
+	if trial_seed != 0:
+		_random.seed = trial_seed
+		_deployment.configure(self, _arena, _random)
+	_started = true
+	_wave = _total_waves
+	_spawn_budget = 0
+	_spawn_cooldown = 0.0
+	set_process(true)
+	RunStateUtil.set_progress(_stage, _total_waves)
+	_start_boss()
+	return is_instance_valid(_boss)
+
+
 func _on_weapon_level_changed(level: int) -> void:
 	_weapon_level = level
 
@@ -247,8 +269,21 @@ func _tick_fight(delta: float) -> void:
 	if _spawn_budget > 0:
 		_spawn_cooldown -= delta
 		var max_alive := maxi(int(_spawn_cfg.get("max_alive", 14)), 1)
-		if _spawn_cooldown <= 0.0 and _alive.size() < max_alive:
-			_spawn_one()
+		if _spawn_cooldown > 0.0 or _alive.size() >= max_alive:
+			return
+		_spawn_one()
+		# 【密度维持】场上人数掉到目标线以下时改用更短的补人间隔。
+		#
+		# 出怪节拍原本是固定的（队内 0.25 / 队间 0.85 秒），所以玩家输出涨十几倍
+		# 也不会让这一波更快结束 —— 他能秒掉眼前两三只，然后对着空场等下一只。
+		# 变强只换来了等待，这正是"打得不够爽"最直接的一处。
+		#
+		# 本条只保证"场上一直有得打"，不碰本波总预算：波次规模仍由
+		# arena.wave 的 base_enemies / growth_per_wave 决定，所以调它不会让关卡变长。
+		var target := maxi(int(_spawn_cfg.get("target_alive", 0)), 1)
+		if _alive.size() < target:
+			var refill := maxf(float(_spawn_cfg.get("refill_interval", 0.35)), 0.05)
+			_spawn_cooldown = minf(_spawn_cooldown, refill)
 		return
 	if _alive.is_empty():
 		_finish_wave()
@@ -267,7 +302,8 @@ func _tick_boss() -> void:
 	set_process(false)
 
 	# juice：Boss 击杀慢动作特写（0.15 倍速 + 环绕镜头）
-	AudioUtil.play("explode", 4.0, 0.65)
+	# 键名应为 explosion；曾写成 explode，音色库里没有这个键，调用一直是空操作（I-033）。
+	AudioUtil.play("explosion", 4.0, 0.65)
 	AudioUtil.play("shockwave", 3.0, 0.45)
 	# 取景目标必须经过校验：_boss 在这里已经无效（本函数正是被"Boss 不见了"唤醒的）
 	var focus := _cinematic_focus()
@@ -394,8 +430,12 @@ func _start_boss() -> void:
 	if _spawner == null:
 		return
 	var location := _deployment.select_single({"scale": float(bcfg.get("scale", 2.2)),
-		"body_radius": ConfigUtil.get_float("bosses.capsule_radius", 0.62),
-		"body_height": ConfigUtil.get_float("bosses.capsule_half_height", 1.15) * 2.0}, _anchors)
+		"body_radius": float(bcfg.get("body_radius", ConfigUtil.get_float("bosses.capsule_radius", 0.62))),
+		"body_height": float(bcfg.get("body_height", ConfigUtil.get_float("bosses.capsule_half_height", 1.15) * 2.0)),
+		"flat_footprint": bool(bcfg.get("flat_spawn", false)),
+		"flat_height_delta": float(bcfg.get("flat_spawn_height_delta", 0.3)),
+		"min_player_distance": float(bcfg.get("min_player_distance", ConfigUtil.get_float("enemy_roster.anchor_min_player_distance", 14.0))),
+		"max_player_distance": float(bcfg.get("max_player_distance", ConfigUtil.get_float("enemy_roster.anchor_max_player_distance", 32.0)))}, _anchors)
 	if location.is_empty():
 		_state = State.BREAK
 		_timer = 0.5
@@ -489,18 +529,59 @@ func _make_enemy(entry: Dictionary, position: Vector3) -> Node3D:
 	return enemy
 
 
+## 按图鉴抽一只敌人。
+##
+## 【先掷 kind，再在组内按权重抽】—— 竞技场配置里的 `enemy_mix.ranged_ratio`
+## 原先全项目零读取点（改了没反应），远程占比实际只由"解锁了几条远程条目"决定
+## （L1 池 1/3、L3 池 4/11…），于是五张图打起来配比完全一样：
+## 沙丘期望 58% 弹幕、内城期望 24%，体感却一致。
+##
+## 试玩反馈"基本没弹幕"就是这一条：玩家要的是"这张图远程多"，
+## 而不是"权重表上的均匀随机"。现在 ratio 决定 kind，weight 决定组内具体是哪一条。
+## arena 没配就用 spawn.ranged_ratio 兜底，两者都没配（<0）才退回纯权重抽。
 func _pick_entry() -> Dictionary:
-	var total := 0.0
+	var ranged_ratio := _ranged_ratio()
+	if ranged_ratio < 0.0:
+		return _pick_weighted(_roster)
+	var want_ranged := _random.randf() < ranged_ratio
+	var primary: Array = []
+	var fallback: Array = []
 	for entry in _roster:
 		if int(entry.get("min_weapon_level", 1)) > _weapon_level:
 			continue
+		var is_ranged := String(entry.get("kind", "melee")) == "ranged"
+		if is_ranged == want_ranged:
+			primary.append(entry)
+		else:
+			fallback.append(entry)
+	var picked := _pick_weighted(primary)
+	# 想要的这一类在当前等级还没有解锁条目时，退回另一类，而不是不出怪。
+	return picked if not picked.is_empty() else _pick_weighted(fallback)
+
+
+## 本图的远程占比。arena.enemy_mix.ranged_ratio 优先，其次 spawn.ranged_ratio；
+## 都没有则返回 -1，表示"不按比例、纯权重抽"。
+func _ranged_ratio() -> float:
+	var mix: Variant = _arena.get("enemy_mix", null)
+	if mix is Dictionary:
+		var value: Variant = (mix as Dictionary).get("ranged_ratio", null)
+		if value is float or value is int:
+			return clampf(float(value), 0.0, 1.0)
+	var fallback: Variant = _spawn_cfg.get("ranged_ratio", null)
+	if fallback is float or fallback is int:
+		return clampf(float(fallback), 0.0, 1.0)
+	return -1.0
+
+
+## 在给定池子里按 weight 抽一条。weight 全为 1 时就是均匀随机。
+func _pick_weighted(pool: Array) -> Dictionary:
+	var total := 0.0
+	for entry in pool:
 		total += maxf(float(entry.get("weight", 1.0)), 0.0)
 	if total <= 0.0:
 		return {}
 	var roll := _random.randf() * total
-	for entry in _roster:
-		if int(entry.get("min_weapon_level", 1)) > _weapon_level:
-			continue
+	for entry in pool:
 		roll -= maxf(float(entry.get("weight", 1.0)), 0.0)
 		if roll <= 0.0:
 			return entry

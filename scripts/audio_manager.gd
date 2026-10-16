@@ -1,14 +1,22 @@
 extends Node
 ## 音频管理（autoload）。
 ##
-## 关键决策：**全部音效由代码合成（AudioStreamWAV），不依赖任何音频文件。**
-## 理由：这个项目从第一天就是"零美术资源"的风格（网格是程序化的、特效是代码
-## 拼的），引入二进制音频会打破它，也让仓库变重。而枪声 / 命中 / 爆炸本质就是
-## "噪声 + 快速衰减 + 频率下坠"，合成出来足够用。
+## 音色来源分两层，键名对调用方完全一致（75 处调用不用改）：
+##
+##   1. **合成层（默认兜底）**：全部音色由代码合成（AudioStreamWAV），不依赖任何
+##      音频文件。这个项目从第一天就是"零美术资源"的风格（网格是程序化的、特效
+##      是代码拼的），而枪声 / 命中 / 爆炸本质就是"噪声 + 快速衰减 + 频率下坠"，
+##      合成出来足够用。
+##   2. **文件层（可选覆盖）**：`data/game_config.json` 的 `audio.file_bank` 里点名
+##      的键改用真实音频文件（Ovani Sound 音效库）；没点名的键继续用合成音色。
+##      路径失效 / 文件损坏 / 写法非法都只影响那一个键并回退合成音色，
+##      最坏情况等于"没接文件层"，游戏一定有声音。
+##      `audio.file_bank_enabled = false` 可整体关掉文件层做 A/B 对比。
 ##
 ## 用法：
 ##   AudioUtil.play("shot")            非定位（自己的枪声、UI）
 ##   AudioUtil.play_at("hit", 位置)     3D 定位（命中、爆炸、敌人开火）
+##   AudioUtil.reload()                改完 game_config.json 后立刻重建音色库
 ##
 ## autoload 未注册时 instance 为 null，所有调用自动变成空操作，不会崩。
 
@@ -21,8 +29,21 @@ const VOICE_COUNT := 12
 const SPATIAL_VOICE_COUNT := 16
 
 var _bank: Dictionary = {}
+## 文件层音量微调：键 -> dB 偏移。文件之间响度差异很大，需要逐个配平。
+var _file_gain_db: Dictionary = {}
+## 当前走文件音源的键，调试与测试用。
+var _file_keys: Array[String] = []
 var _voices: Array[AudioStreamPlayer] = []
 var _spatial: Array[AudioStreamPlayer3D] = []
+## 【优先声道】不参与轮转的专用 3D 声道。
+##
+## 为什么需要它：`_play_at` 是**轮转** 16 个声道的（每次调用覆盖其中一个），
+## 而一次交火里命中音、破空音、格挡音每秒会调用几十次 —— 一段 0.16 秒的
+## `bullet_whiz` 极容易被下一个音效当场截断。用户的反馈是"近失弹完全听不到"，
+## 抬高音量也救不回来，因为问题不是响度而是**被覆盖**。
+##
+## 破空声这类"一次事件、短促、必须被听见"的音走这里：独占声道，播完为止。
+var _priority_spatial: AudioStreamPlayer3D = null
 var _next_voice := 0
 var _next_spatial := 0
 var _spatial_host: Node = null
@@ -46,7 +67,7 @@ var _current_cutoff := 20500.0
 func _ready() -> void:
 	instance = self
 	_rng.randomize()
-	_build_bank()
+	rebuild_bank()
 	_setup_low_pass_filter()
 	for _index in range(VOICE_COUNT):
 		var player := AudioStreamPlayer.new()
@@ -93,6 +114,14 @@ static func play_at(
 		instance.call("_play_at", key, position, volume_db, pitch)
 
 
+## 重新读取 data/game_config.json 并重建音色库。
+## 运行中改了 audio.file_bank 或 audio.file_bank_enabled 后调它即可立刻生效，
+## 不用重开游戏 —— 用于文件音源与合成音色的 A/B 对比。
+static func reload() -> void:
+	if instance:
+		instance.call("rebuild_bank")
+
+
 # ---------------------------------------------------------------- 音色库
 
 ## 音色参数表来自 data/game_config.json 的 audio.bank，数组含义：
@@ -118,6 +147,9 @@ const BANK_FALLBACK := {
 	"pickup": [0.2, 640.0, 1180.0, 3.0, 0.05, 0.42],
 	"explosion": [0.55, 150.0, 38.0, 2.6, 0.8, 1.0],
 	"shockwave": [0.42, 260.0, 45.0, 2.8, 0.55, 0.95],
+	# mortar 曾只写在 game_config.json 里而没有进这张清单，而键清单由本常量决定，
+	# 于是 mortar_shell.gd 的调用一直是空操作（问题台账 I-033）。
+	"mortar": [1.3, 880.0, 190.0, 0.5, 0.12, 0.9],
 	"titan_charge": [0.8, 72.0, 118.0, 0.6, 0.22, 0.45],
 	"titan_takeoff": [0.3, 145.0, 42.0, 2.4, 0.65, 0.7],
 	"titan_land": [0.65, 92.0, 24.0, 2.5, 0.72, 0.85],
@@ -148,6 +180,99 @@ func _build_bank() -> void:
 				push_error("AudioManager: 音色 %s 的参数非法，已用兜底值。" % key)
 			stream = _synth_from_spec(BANK_FALLBACK[key])
 		_bank[key] = stream
+
+
+# ---------------------------------------------------------------- 文件音源层
+
+## 配置路径。写法见 data/game_config.json 的 audio.file_bank。
+const FILE_BANK_ENABLED_PATH := "audio.file_bank_enabled"
+const FILE_BANK_PATH := "audio.file_bank"
+
+
+## 重建音色库：先合成全部兜底音色，再用配置里点名的音频文件覆盖。
+## 改完 data/game_config.json 想立刻听效果时调 AudioUtil.reload()。
+func rebuild_bank() -> void:
+	_bank.clear()
+	_file_gain_db.clear()
+	_file_keys.clear()
+	_build_bank()
+	_apply_file_bank()
+
+
+func _apply_file_bank() -> void:
+	if not ConfigUtil.get_bool(FILE_BANK_ENABLED_PATH, true):
+		return
+	var table: Dictionary = ConfigUtil.get_dictionary(FILE_BANK_PATH)
+	# 音效库目录被 .gitignore 排除，干净检出时这里本来就找不到文件；聚合到一条警告，
+	# 既不把"没有音效库"当成配置错误，也避免启动时报错刷屏。
+	var missing: Array[String] = []
+	for raw_key in table.keys():
+		var key := String(raw_key)
+		var spec: Variant = table[raw_key]
+		var path := ""
+		var loop := false
+		var gain_db := 0.0
+		# 允许两种写法：直接写路径字符串，或写 {path, loop, volume_db} 对象。
+		if spec is String:
+			path = spec
+		elif spec is Dictionary:
+			var entry := spec as Dictionary
+			path = String(entry.get("path", ""))
+			loop = bool(entry.get("loop", false))
+			gain_db = float(entry.get("volume_db", 0.0))
+		else:
+			push_error("AudioManager: 音色 %s 的文件音源写法非法（应为路径字符串或对象），继续用合成音色。" % key)
+			continue
+		if path.is_empty():
+			push_error("AudioManager: 音色 %s 的文件音源缺少 path，继续用合成音色。" % key)
+			continue
+		if not ResourceLoader.exists(path):
+			missing.append("%s -> %s" % [key, path])
+			continue
+		var loaded: Variant = load(path)
+		if not (loaded is AudioStream):
+			push_error("AudioManager: 音色 %s 的 %s 不是音频流，继续用合成音色。" % [key, path])
+			continue
+		var stream := loaded as AudioStream
+		if loop:
+			_enable_loop(stream)
+		_bank[key] = stream
+		_file_gain_db[key] = gain_db
+		_file_keys.append(key)
+	if not missing.is_empty():
+		push_warning("AudioManager: %d 个文件音源找不到（音效库不在仓库里时属正常），这些键继续用合成音色：%s"
+			% [missing.size(), ", ".join(PackedStringArray(missing))])
+
+
+## 音效库里名字带 Loop 的文件导入后是 LOOP_DISABLED（问题台账 I-032），
+## 因此只在配置显式写 "loop": true 时于运行时打开循环。
+func _enable_loop(stream: AudioStream) -> void:
+	if stream is AudioStreamWAV:
+		var wav := stream as AudioStreamWAV
+		wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
+		wav.loop_begin = 0
+		# loop_end 的单位是采样帧；导入后是 QOA 压缩流，data 不是 PCM，
+		# 无法由字节数换算，只能拿时长乘采样率。
+		wav.loop_end = int(wav.get_length() * float(wav.mix_rate))
+	elif stream is AudioStreamOggVorbis:
+		(stream as AudioStreamOggVorbis).loop = true
+	elif stream is AudioStreamMP3:
+		(stream as AudioStreamMP3).loop = true
+	else:
+		push_error("AudioManager: %s 不支持运行时开循环，按单次播放处理。" % stream.get_class())
+
+
+## 调试与测试用：每个键当前走"文件音源"还是"合成音色"。
+static func describe_bank() -> Dictionary:
+	var out: Dictionary = {}
+	if instance == null:
+		return out
+	var bank: Dictionary = instance.get("_bank")
+	var file_keys: Array = instance.get("_file_keys")
+	for raw_key in bank.keys():
+		var key := String(raw_key)
+		out[key] = "file" if file_keys.has(key) else "synth"
+	return out
 
 
 ## 把 [时长, 起始频率, 结束频率, 衰减指数, 噪声占比, 增益] 合成成音频流。
@@ -236,6 +361,7 @@ func _ensure_spatial_pool() -> Array[AudioStreamPlayer3D]:
 	if host == null:
 		return []
 	if host == _spatial_host and not _spatial.is_empty() and is_instance_valid(_spatial[0]):
+		_ensure_priority_spatial(host)
 		return _spatial
 	_stop_spatial_pool()
 	for _index in range(SPATIAL_VOICE_COUNT):
@@ -245,10 +371,48 @@ func _ensure_spatial_pool() -> Array[AudioStreamPlayer3D]:
 		host.add_child(player)
 		_spatial.append(player)
 	_spatial_host = host
+	_ensure_priority_spatial(host)
 	var on_exit := _on_spatial_host_exiting.bind(host)
 	if not host.tree_exiting.is_connected(on_exit):
 		host.tree_exiting.connect(on_exit, CONNECT_ONE_SHOT)
 	return _spatial
+
+
+func _ensure_priority_spatial(host: Node) -> void:
+	if is_instance_valid(_priority_spatial) and _priority_spatial.get_parent() == host:
+		return
+	_priority_spatial = AudioStreamPlayer3D.new()
+	_priority_spatial.name = "PriorityVoice"
+	_priority_spatial.max_distance = 70.0
+	_priority_spatial.unit_size = 7.0
+	host.add_child(_priority_spatial)
+
+
+## 走【优先声道】播一次 3D 音：不会被轮转池覆盖，也不会覆盖别人。
+## 给"一次事件、短促、必须被听见"的音效（近失弹破空声）。
+static func play_at_priority(
+	key: String, position: Vector3, volume_db: float = 0.0, pitch: float = 1.0
+) -> void:
+	if instance == null:
+		return
+	instance.call("_play_at_priority", key, position, volume_db, pitch)
+
+
+func _play_at_priority(key: String, position: Vector3, volume_db: float, pitch: float) -> void:
+	if not _bank.has(key):
+		_play(key, volume_db, pitch)
+		return
+	if not is_instance_valid(_priority_spatial):
+		var host := get_tree().current_scene
+		if host == null:
+			_play(key, volume_db, pitch)
+			return
+		_ensure_priority_spatial(host)
+	_priority_spatial.global_position = position
+	_priority_spatial.stream = _bank[key]
+	_priority_spatial.volume_db = _calc_volume(key, volume_db)
+	_priority_spatial.pitch_scale = _calc_pitch(key, pitch)
+	_priority_spatial.play()
 
 # ────────────────── juice 侧音频（ruin-star 移植）──────────────────
 
@@ -294,7 +458,8 @@ func _duck(duration: float, attenuation_db: float) -> void:
 
 
 func _calc_volume(key: String, volume_db: float) -> float:
-	var final_vol := volume_db
+	# 文件音源之间响度差异远大于合成音色，逐个配平的偏移加在这里。
+	var final_vol := volume_db + float(_file_gain_db.get(key, 0.0))
 	if _duck_timer > 0.0 and key in DUCKABLE_KEYS:
 		final_vol += _duck_attenuation_db
 	return final_vol

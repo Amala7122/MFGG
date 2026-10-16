@@ -1,6 +1,6 @@
 extends SceneTree
 ## 固定场地中的实际构建、横扫和并发追踪预算，防止地面效果重新拖慢物理帧。
-const SpatialScene := preload("res://prototypes/combat/spatial/combat_spatial_lab.tscn")
+const SpatialScene := preload("res://prototypes/spatial_lab/combat_spatial_lab.tscn")
 const AttackArea := preload("res://scripts/enemy_attack_area.gd")
 const Surface := preload("res://scripts/attack_surface_mesh.gd")
 const MeleeEffect := preload("res://scripts/prototypes/titan_melee_effect.gd")
@@ -22,6 +22,7 @@ func _run() -> void:
 	_verify_flat_builds()
 	_verify_sweep()
 	await _verify_tracking()
+	_verify_stable_tracking()
 	current_scene = null
 	_lab.free()
 	paused = false
@@ -42,6 +43,7 @@ func _verify_flat_builds() -> void:
 	body.size = Vector3(0.9, 1.55, 1.6)
 	for spec in [
 		{"kind": "sector", "radius": 5.0, "angle": 270.0, "height": 2.5},
+		{"kind": "sector", "radius": 5.0, "angle": 360.0, "height": 2.5},
 		{"kind": "capsule", "radius": 1.6, "length": 7.35, "height": 1.6, "travel_speed": 11.44,
 			"jump_speed": 4.5, "gravity": 14.0, "flight_time": 0.64, "hit_angle": 90.0, "body_shape": body},
 	]:
@@ -55,6 +57,10 @@ func _verify_flat_builds() -> void:
 				times.append((Time.get_ticks_usec() - start) / 1000.0)
 		_check(area._mesh.mesh != null and area.can_reach(Vector3(0, 1, 8)), "平地完整预警仍覆盖实际攻击路径")
 		_check(is_finite(area.get_surface()._plane_height), "平地性能样本必须确实只有同一块平坦地板")
+		if spec.kind == "sector" and is_equal_approx(float(spec.angle), 360.0):
+			_check(not area.get_surface()._flat_footprint.is_empty()
+				and not area.get_surface()._flat_footprint[0].is_zero_approx(),
+				"360 度 sector 的地面轮廓按完整圆生成，不保留中心径向接缝")
 		_check(times.max() < 8.0, "平地 " + spec.kind + " 单次构建应低于 8ms：" + str(times))
 		print("[地面性能回归] 平地 ", spec.kind, " build_ms=", times)
 		area.free()
@@ -125,6 +131,25 @@ func _verify_tracking() -> void:
 	_check(immediate._pending_surface == null and immediate._mesh.global_transform.is_equal_approx(immediate.global_transform), "追踪任务尚未完成便锁定时也会完整结算最终姿态")
 	immediate.free()
 	print("[地面性能回归] 三个并发坡面追踪 peak_frame_ms=%.3f completed=%s" % [peak, completed])
+
+
+func _verify_stable_tracking() -> void:
+	var area := _area()
+	var spec := {"kind": "sector", "radius": 8.25, "angle": 360.0, "height": 4.0,
+		"stable_tracking_surface": true}
+	area.prepare(Transform3D(Basis.IDENTITY, Vector3(-12, 2.2, 9)), spec, 60.0)
+	var original_mesh: Mesh = area._mesh.mesh
+	for step in range(12):
+		var pose := Transform3D(Basis(Vector3.UP, 0.04 * float(step + 1)),
+			Vector3(-12.0 + float(step) * 0.04, 2.2, 9.0))
+		area.track(pose)
+		_check(area._mesh.mesh == original_mesh and area._pending_surface == null
+			and area._mesh.global_transform.is_equal_approx(area.global_transform),
+			"稳定追踪期间复用完整预警面并逐帧连续跟随，不异步碎片替换")
+	area.lock()
+	_check(area._pending_surface == null and area._mesh.global_transform.is_equal_approx(area.global_transform),
+		"稳定追踪锁定时同步重建最终准确地表")
+	area.free()
 
 
 func _check(condition: bool, detail: String) -> void:

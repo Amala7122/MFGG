@@ -19,8 +19,6 @@
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_7jmfh"]
 shader = ExtResource("2_tvosd")
 shader_parameter/sky_visible = true
-shader_parameter/weather_overcast = 0.0
-shader_parameter/weather_horizon = Color(0.4, 0.44, 0.48, 1)
 shader_parameter/color_correction = Vector2(0, 0.805)
 shader_parameter/ground_color = Color(0.4, 0.52, 0.46, 1)
 shader_parameter/horizon_offset = 0.0

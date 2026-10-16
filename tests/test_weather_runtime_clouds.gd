@@ -7,6 +7,13 @@ const Timeline := preload("res://scripts/weather_timeline.gd")
 var _failed := false
 
 
+func _has_sky_cloud_deck(material: ShaderMaterial) -> bool:
+	for uniform in material.shader.get_shader_uniform_list():
+		if uniform.name in ["weather_overcast", "weather_cloud_density", "weather_horizon"]:
+			return true
+	return false
+
+
 func _initialize() -> void:
 	call_deferred("_run")
 
@@ -63,9 +70,13 @@ func _run() -> void:
 	_check(_casts_shadows(field), "首帧开启云影")
 	if DisplayServer.get_name() != "headless":
 		_check(_rendered_cloud_count(field) > 0, "首帧无需等待逐帧更新即可显示云体")
-	_check(not bool(dome.get("cumulus_visible")), "程序云停用 Sky3D 的另一套积云")
+	_check(not bool(dome.get("cumulus_visible")) and not bool(dome.get("cirrus_visible")),
+		"程序云停用 Sky3D 的积云与卷云")
+	dome.set("cumulus_visible", true)
+	dome.set("cirrus_visible", true)
 	weather._update_environment()
-	_check(not bool(dome.get("cumulus_visible")), "外部环境刷新不会重新开启另一套积云")
+	_check(not bool(dome.get("cumulus_visible")) and not bool(dome.get("cirrus_visible")),
+		"外部环境刷新关闭其它云层")
 	_check(not sky.environment.fog_enabled, "暴雨不会擅自开启独立雾层")
 	var clear_sun_energy := float(dome.get("sun_light_energy"))
 	var clear_darkening := float(scene.get_node("Sky3DExperimentController").get("weather_darkening"))
@@ -80,11 +91,9 @@ func _run() -> void:
 	weather._process(1.8)
 	_check(is_equal_approx(float(field.get_weather_state()[0]), 0.82), "覆盖率到达新目标")
 	_check(is_equal_approx(float(field.get_weather_state()[1]), 0.86), "云厚度到达新目标")
-	_check(is_equal_approx(float(sky_material.get_shader_parameter("weather_overcast")),
-		0.82 * smoothstep(0.55, 0.88, 0.82)), "云幕使用当前覆盖率，父类更新不会覆盖它")
+	_check(not _has_sky_cloud_deck(sky_material), "实际天空材质已移除模糊云幕入口")
 	weather._update_environment()
-	_check(is_equal_approx(float(sky_material.get_shader_parameter("weather_overcast")),
-		0.82 * smoothstep(0.55, 0.88, 0.82)), "外部环境刷新保留程序云幕")
+	_check(not _has_sky_cloud_deck(sky_material), "外部环境刷新不会恢复模糊云幕")
 	_check(float(dome.get("sun_light_energy")) < clear_sun_energy, "阴天云层降低直射光")
 	_check(sky.environment.ambient_light_source == Environment.AMBIENT_SOURCE_COLOR,
 		"阴天云层切换到漫射环境光")
@@ -124,7 +133,6 @@ func _run() -> void:
 		"关闭云层时先平滑减少覆盖率")
 	weather._process(0.9)
 	_check(not field.visible and is_zero_approx(float(field.get_weather_state()[0])), "过渡结束后隐藏云场")
-	_check(is_zero_approx(float(sky_material.get_shader_parameter("weather_overcast"))), "关闭云层也清空天空云幕")
 	_check(is_equal_approx(sun.light_angular_distance, weather._sun_angular_baseline), "云场隐藏后恢复太阳角径")
 	_check(is_equal_approx(sun.directional_shadow_pancake_size, weather._sun_pancake_baseline),
 		"云场隐藏后恢复太阳投影深度")

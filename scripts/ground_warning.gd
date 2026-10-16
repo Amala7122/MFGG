@@ -87,6 +87,10 @@ func _physics_process(delta: float) -> void:
 	if _cancelled or not _attacker_alive():
 		cancel()
 		return
+	if _attacker != null:
+		var actor := _attacker.get_ref() as Node
+		if actor != null and actor.has_method("grenade_stagger_active") and actor.call("grenade_stagger_active"):
+			return
 	timer -= delta
 	if not exploded:
 		var progress := 1.0 - clampf(timer / maxf(warning_duration, 0.01), 0.0, 1.0)

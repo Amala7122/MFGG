@@ -1,0 +1,12 @@
+{
+	"enabled": false,
+	"drag_mode": "snap",
+	"radii": [
+		6,
+		16,
+		40,
+		90
+	],
+	"level_tolerance": 0,
+	"spawn_outside_ring": 0
+}

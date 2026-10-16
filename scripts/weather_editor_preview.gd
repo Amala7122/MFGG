@@ -69,18 +69,12 @@ func _capture_baseline(
 		return
 
 	for key in [
-		"cumulus_visible", "sun_disk_intensity", "atm_sun_mie_intensity",
+		"cumulus_visible", "cirrus_visible", "sun_disk_intensity", "atm_sun_mie_intensity",
 		"sun_light_energy", "atm_darkness", "exposure", "atm_day_tint",
 		"atm_night_tint", "atm_horizon_light_tint", "ground_color",
 		"fog_visible", "fog_density", "fog_start", "fog_end"
 	]:
 		_base_sky[key] = sky_dome.get(key)
-
-	var sky_material := sky_dome.get("sky_material") as ShaderMaterial
-	if sky_material != null:
-		_base_sky["weather_overcast"] = sky_material.get_shader_parameter("weather_overcast")
-		_base_sky["weather_cloud_density"] = sky_material.get_shader_parameter("weather_cloud_density")
-		_base_sky["weather_horizon"] = sky_material.get_shader_parameter("weather_horizon")
 
 	var environment := sky_world.environment
 	if environment != null:
@@ -136,12 +130,12 @@ func _apply(
 	var cloud_type := int(weather.get("cloud_type"))
 	var daylight := smoothstep(-0.06, 0.25, sun.global_basis.z.normalized().y)
 	var overcast_blend := smoothstep(0.55, 0.88, coverage)
-	var deck_cover := coverage * overcast_blend
 	var stratus_cover := coverage if cloud_type == 1 else 0.0
 	var darkening := _preview_darkening(weather)
 
-	# 云幕与运行时使用同一组颜色逻辑。编辑器里也不启用 Sky3D 写实 Cumulus。
+	# 程序云与运行时使用同一组颜色逻辑，不叠加 Sky3D 的其它云层。
 	sky_dome.set("cumulus_visible", false)
+	sky_dome.set("cirrus_visible", false)
 	var day_light_deck := Color(0.67, 0.71, 0.75, 1.0)
 	var day_storm_deck := Color(0.25, 0.29, 0.34, 1.0)
 	var night_deck := Color(0.10, 0.13, 0.18, 1.0)
@@ -149,15 +143,9 @@ func _apply(
 	var day_deck := day_light_deck.lerp(day_storm_deck, heavy_factor)
 	var matte_deck := night_deck.lerp(day_deck, daylight)
 
-	var sky_material := sky_dome.get("sky_material") as ShaderMaterial
-	if sky_material != null:
-		sky_material.set_shader_parameter("weather_overcast", deck_cover)
-		sky_material.set_shader_parameter("weather_cloud_density", density)
-		sky_material.set_shader_parameter("weather_horizon", matte_deck)
-
 	_apply_cloud_banks(host, weather, coverage, density, overcast_blend, daylight, matte_deck)
 	_apply_sun_and_sky(sky_dome, sun, stratus_cover, darkening)
-	CloudShadowLighting.apply_cloud_shadow_softness(weather, sun,
+	CloudShadowLighting.apply_cloud_shadow_settings(weather, sun,
 		float(_base_sun.get("light_angular_distance", 0.0)),
 		coverage > 0.001 and is_instance_valid(_cloud_mesh),
 		float(_base_sun.get("directional_shadow_pancake_size", 20.0)),
@@ -234,9 +222,9 @@ func _apply_sun_and_sky(
 	var base_horizon := _base_sky.get(
 		"atm_horizon_light_tint", Color(0.96, 0.70, 0.52, 1.0)
 	) as Color
-	sky_dome.set("atm_day_tint", base_day.lerp(Color(0.27, 0.325, 0.39, 1.0), darkening))
+	sky_dome.set("atm_day_tint", base_day.lerp(CloudShadowLighting.OVERCAST_DAY_TINT, darkening))
 	sky_dome.set("atm_night_tint", base_night.lerp(Color(0.05, 0.065, 0.085, 1.0), darkening * 0.72))
-	sky_dome.set("atm_horizon_light_tint", base_horizon.lerp(Color(0.28, 0.31, 0.35, 1.0), darkening))
+	sky_dome.set("atm_horizon_light_tint", base_horizon.lerp(CloudShadowLighting.OVERCAST_HORIZON_TINT, darkening))
 
 
 func _apply_environment(
@@ -321,7 +309,7 @@ func _preview_darkening(weather: Node) -> float:
 
 
 func _make_signature(weather: Node, sun: DirectionalLight3D) -> String:
-	return "%s|%s|%.4f|%.4f|%s|%.4f|%.2f|%s|%.5f|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%.4f" % [
+	return "%s|%s|%.4f|%.4f|%s|%.4f|%.2f|%s|%.5f|%s|%s|%s|%s|%s|%s|%s|%.4f" % [
 		str(weather.get("cloud_enabled")),
 		str(weather.get("cloud_type")),
 		float(weather.get("cloud_coverage")),
@@ -335,8 +323,6 @@ func _make_signature(weather: Node, sun: DirectionalLight3D) -> String:
 		weather.get("cloud_size_multiplier"), weather.get("cloud_deformation_amount"),
 		weather.get("cloud_shape_style"),
 		weather.get("cloud_shadow_enabled"),
-		weather.get("cloud_shadow_strong_sun_angle"), weather.get("cloud_shadow_weak_sun_angle"),
-		weather.get("cloud_shadow_reference_energy"),
 		_cloud_mesh.get_instance_id() if is_instance_valid(_cloud_mesh) else 0,
 		sun.light_energy,
 	]
@@ -361,18 +347,13 @@ func _restore(
 	if not _baseline_captured:
 		return
 	for key in [
-		"cumulus_visible", "sun_disk_intensity", "atm_sun_mie_intensity",
+		"cumulus_visible", "cirrus_visible", "sun_disk_intensity", "atm_sun_mie_intensity",
 		"sun_light_energy", "atm_darkness", "exposure", "atm_day_tint",
 		"atm_night_tint", "atm_horizon_light_tint", "ground_color",
 		"fog_visible", "fog_density", "fog_start", "fog_end"
 	]:
 		if _base_sky.has(key):
 			sky_dome.set(key, _base_sky[key])
-	var sky_material := sky_dome.get("sky_material") as ShaderMaterial
-	if sky_material != null:
-		for key in ["weather_overcast", "weather_cloud_density", "weather_horizon"]:
-			if _base_sky.has(key):
-				sky_material.set_shader_parameter(key, _base_sky[key])
 
 	if not _base_sun.is_empty():
 		sun.light_energy = float(_base_sun.get("light_energy", sun.light_energy))

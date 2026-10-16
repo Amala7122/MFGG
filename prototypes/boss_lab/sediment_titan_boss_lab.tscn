@@ -1,0 +1,7 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/hyrule_field.tscn" id="1_world"]
+[ext_resource type="Script" path="res://prototypes/boss_lab/sediment_titan_boss_lab.gd" id="2_controller"]
+
+[node name="SedimentTitanBossLab" instance=ExtResource("1_world")]
+script = ExtResource("2_controller")

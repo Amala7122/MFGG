@@ -59,6 +59,10 @@ static func apply(model: Node3D, profile: String) -> void:
 
 ## 盾卫：大盾 + 宽肩线 + 方正头线。目标剪影 = 一堵墙。
 ## 成员：大型盾卫。
+##
+## 【盾面挂在 ShieldPivot 下】—— 举盾这个动作要有地方可转。原先三块盾面直接挂在
+## 肘节点上，谁都没法把它们当成一个整体抬起来；现在统一挂到一个零偏移的枢轴下，
+## melee_enemy 只需要找 "ShieldPivot" 就能做"举盾 / 收盾"的姿态。
 static func _build_shield_guard(model: Node3D) -> void:
 	var materials := {}
 	# 去掉"骑士"的尖角：尖肩与双角会在轮廓上读成"普通兵"。
@@ -73,15 +77,22 @@ static func _build_shield_guard(model: Node3D) -> void:
 	# 短剑：盾卫的主防御是盾，武器压小一档，避免和狂战士读混。
 	_multiply_scale(model, "Chest/RightShoulder/Elbow/Fist/WeaponPivot/Blade", Vector3(0.85, 0.78, 1.0))
 
+	var elbow := _node(model, "Chest/LeftShoulder/Elbow")
+	if elbow == null:
+		return
+	var pivot := Node3D.new()
+	pivot.name = "ShieldPivot"
+	elbow.add_child(pivot)
+
 	# 盾面朝前（模型正面 -Z），带一点外倾角。三块：盾面 + 竖脊 + 盾心。
 	# 尺寸取"塔盾"而不是小圆盾：30 米外能读出来的只有轮廓，把盾做大才有效。
-	_attach(model, "Chest/LeftShoulder/Elbow", _mesh_instance(
+	_attach(pivot, "", _mesh_instance(
 		_box(Vector3.ONE), _material(materials, "plate", COLOR_STEEL, 0.35, 0.5), true
 	), Vector3(0.68, 1.18, 0.09), Vector3(-0.24, 0.02, -0.20), Vector3(0.0, -0.14, 0.0))
-	_attach(model, "Chest/LeftShoulder/Elbow", _mesh_instance(
+	_attach(pivot, "", _mesh_instance(
 		_box(Vector3.ONE), _material(materials, "rib", COLOR_IRON, 0.5, 0.45)
 	), Vector3(0.11, 1.02, 0.10), Vector3(-0.24, 0.02, -0.25), Vector3(0.0, -0.14, 0.0))
-	_attach(model, "Chest/LeftShoulder/Elbow", _mesh_instance(
+	_attach(pivot, "", _mesh_instance(
 		_sphere(0.5), _material(materials, "boss", COLOR_IRON, 0.6, 0.35)
 	), Vector3.ONE * 0.24, Vector3(-0.24, 0.02, -0.30), Vector3.ZERO)
 

@@ -6,7 +6,7 @@ const CapturePaths := preload("res://scripts/capture_paths.gd")
 
 
 func _initialize() -> void:
-	change_scene_to_file("res://prototypes/environment/weather_lab.tscn")
+	change_scene_to_file("res://prototypes/weather_lab/weather_lab.tscn")
 	call_deferred("_capture")
 
 

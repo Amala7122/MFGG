@@ -1,0 +1,15 @@
+PYROLUX Lite - Fire & Explosion VFX for Godot 4
+Lite (free) version license
+
+Copyright (c) 2026 gennai (https://gennai.itch.io). All rights reserved.
+
+1. Grant. You may use and modify PYROLUX Lite in your own games, apps and other media,
+   commercial or non-commercial, on any platform, free of charge and royalty-free.
+
+2. Credit. No credit is required. A mention is appreciated.
+
+3. You may NOT redistribute, resell or share PYROLUX Lite or any part of it as-is or
+   modified, on its own or as part of another asset pack, template or tool, and you may
+   not claim it as your own work. Exported builds of your product are fine.
+
+4. No warranty. PYROLUX Lite is provided "as is", without warranty of any kind.

@@ -1,7 +1,7 @@
 extends SceneTree
 const CapturePaths := preload("res://scripts/capture_paths.gd")
 
-const SpatialScene := preload("res://prototypes/combat/spatial/combat_spatial_lab.tscn")
+const SpatialScene := preload("res://prototypes/spatial_lab/combat_spatial_lab.tscn")
 const JumpLanding := preload("res://scripts/jump_landing.gd")
 var _lab: Node3D
 var _failed := false

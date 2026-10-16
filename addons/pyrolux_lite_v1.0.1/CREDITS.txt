@@ -1,0 +1,15 @@
+PYROLUX - credits and provenance
+
+- All GDScript code and shaders in this pack were written specifically for PYROLUX,
+  with the help of an AI coding assistant. Nothing was copied from godotshaders.com,
+  GitHub, other asset packs or tutorials. Techniques are standard, first-principles
+  graphics methods: integer hashing (PCG), value noise and fBm, domain warping,
+  camera-facing billboards and ribbons expanded in the vertex shader, closed-form
+  ballistic motion with drag, cell (Voronoi) noise, depth-buffer soft particles.
+- No textures or images are used by the effects. Everything is computed in shaders.
+- No AI-generated images, audio or third-party art are included.
+- Editor icons (addons/pyrolux_fx/icons/*.svg) were drawn as hand-written SVG code.
+- Demo scenes are built from Godot primitive meshes and polygons in code.
+- Demo fonts: Godot's built-in default font.
+- Made with Godot Engine (MIT license, https://godotengine.org/license). Godot is not
+  included in this pack.

@@ -75,14 +75,16 @@ func setup(spec: Dictionary, size: float, sweep: bool, swing: float, shake: floa
 					_quad(unused, _arc_edges[i*2], _arc_edges[i*2+1], _arc_edges[(i+1)*2+1], _arc_edges[(i+1)*2])
 			# 只裁剪一次；每帧用材质进度露出已扫过的部分，复用同一网格。
 			_trace.mesh = _coverage.call("paint_strokes", global_transform, _strokes)
-		Audio.play_at("titan_sweep", global_position, -5.0)
+		if not bool(spec.get("material_warmup", false)):
+			Audio.play_at("titan_sweep", global_position, -5.0)
 		set_progress(0.0)
 	else:
 		radius = float(spec.width)
 		_build_slam(spec)
 		var contact := _ground(spec.get("contact", Vector3(float(spec.offset), 0, -minf(float(spec.length) * 0.35, 2.8 * size))))
 		_tip = contact
-		if not _coverage or _coverage.call("allows", to_global(contact)):
+		if not bool(spec.get("material_warmup", false)) \
+			and (not _coverage or _coverage.call("allows", to_global(contact))):
 			GroundEffect.spawn(get_tree().current_scene, to_global(contact), float(spec.width) * 0.65, 1.0, false, shake, false, _coverage)
 
 func refresh_surface(surface: RefCounted) -> void:

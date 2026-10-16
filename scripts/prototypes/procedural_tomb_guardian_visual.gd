@@ -3,9 +3,13 @@ extends Node3D
 ## 参考釉陶镇墓兽：连贯折角、中央额脊、凹眼窝、方吻。朝 -Z，脚底为原点。
 const Profile = preload("res://scripts/prototypes/tomb_guardian_visual_profile.gd")
 const POSE_NAMES := ["守立呼吸", "张翼威吓", "抬爪蓄势"]
-@export var visual_profile: Profile = preload("res://prototypes/visual/enemies/tomb_guardian_reference.tres")
+@export var visual_profile: Profile = preload("res://prototypes/visual_lab/tomb_guardian_reference.tres")
 @export_range(0.5, 2.0, 0.05) var body_size := 1.0
 var preview_pose := 0
+## 观察台契约（与 crystal_creature_visual 同名同义）：可定位的时间、慢放倍速、按时刻取姿态。
+## 姿势本来就由 _clock 驱动，这里只是把时钟开放出来，不做第二套动画。
+var preview_time := 0.0
+var preview_speed := 1.0
 var _clock := 0.0
 var _body: Node3D
 var _head: Node3D
@@ -31,7 +35,15 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	_clock += delta * float(_p.animation_speed)
+	_clock += delta * float(_p.animation_speed) * preview_speed
+	preview_time = _clock
+	_apply_pose()
+
+
+## 观察台契约：把姿态定到任意时刻（逐帧、叠影、排开都靠它）。
+func sample_pose(time: float) -> void:
+	_clock = time
+	preview_time = time
 	_apply_pose()
 
 

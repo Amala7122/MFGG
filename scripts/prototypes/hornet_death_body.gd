@@ -6,6 +6,8 @@ var fall_age := 0.0
 var impact_age := 0.0
 var impacted := false
 var shattered := false
+var legs: Array[Node3D] = []
+var leg_rest: Array[Vector3] = []
 
 
 func _ready() -> void:
@@ -13,6 +15,8 @@ func _ready() -> void:
 	add_to_group("hornet_death_body")
 	contact_monitor = true
 	max_contacts_reported = 4
+	for leg in legs:
+		leg_rest.append(leg.rotation)
 
 
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
@@ -32,6 +36,12 @@ func _ground_impact() -> void:
 
 func _physics_process(delta: float) -> void:
 	fall_age += delta
+	var twitch_end := float(tuning.death_leg_twitch_duration)
+	var strength := 1.0 - smoothstep(0.0, twitch_end, fall_age)
+	for index in legs.size():
+		if is_instance_valid(legs[index]):
+			var jitter := sin(fall_age * TAU * float(tuning.death_leg_twitch_frequency) + index * 1.4) * deg_to_rad(float(tuning.death_leg_twitch_angle)) * strength
+			legs[index].rotation = leg_rest[index] + Vector3(jitter, 0, jitter * 0.35)
 	if impacted:
 		impact_age += delta
 	if (impacted and impact_age >= float(tuning.impact_delay)) or (not impacted and fall_age >= float(tuning.fall_timeout)):

@@ -4,12 +4,150 @@
   "title": "沉积泰坦",
   "groups": [
     {
+      "title": "正式泰坦战 · 玩家手雷储备（下次战斗生效）",
+      "fields": [
+        {
+          "key": "grenade_reserve_enabled",
+          "label": "开启玩家手雷储备",
+          "value": false,
+          "tip": "仅正式泰坦战接入；普通场景不改变。正式命名方案开启，原型默认关闭。"
+        },
+        {
+          "key": "grenade_reserve_capacity",
+          "label": "手雷储备容量",
+          "value": 3,
+          "min": 1,
+          "max": 6,
+          "step": 1,
+          "unit": "枚",
+          "tip": "玩家库存上限；首次进入该战斗快照，运行中不重新发放。"
+        },
+        {
+          "key": "grenade_reserve_start",
+          "label": "初始手雷枚数",
+          "value": 3,
+          "min": 0,
+          "max": 6,
+          "step": 1,
+          "unit": "枚",
+          "tip": "不得超过容量；同一Boss重复接入不重新补满。"
+        },
+        {
+          "key": "grenade_throw_interval",
+          "label": "两投最短间隔",
+          "value": 1.2,
+          "min": 0.4,
+          "max": 6,
+          "step": 0.1,
+          "unit": "秒",
+          "tip": "与逐枚回充分开；下次战斗实例读取。"
+        },
+        {
+          "key": "grenade_recharge_seconds",
+          "label": "逐枚回充时间",
+          "value": 6.0,
+          "min": 2,
+          "max": 30,
+          "step": 0.1,
+          "unit": "秒/枚",
+          "tip": "缺额时逐枚回充，充满停表；暂停不计时，额外投掷不重置正在进行的回充。"
+        }
+      ]
+    },
+    {
+      "title": "有限攻势 · 实例生成后生效",
+      "fields": [
+        {
+          "key": "offense_enabled",
+          "label": "有限攻势与重招卸盾",
+          "value": false,
+          "tip": "正式Boss方案启用。重招前卸盾，完整后摇结束恢复；狂暴无盾。"
+        },
+        {
+          "key": "offense_front_limit",
+          "label": "前半每组最多招数",
+          "value": 2,
+          "min": 1,
+          "max": 4,
+          "step": 1,
+          "unit": "招",
+          "tip": "一组开始锁定上限；重招可提前收尾。"
+        },
+        {
+          "key": "offense_rage_limit",
+          "label": "狂暴每组最多招数",
+          "value": 3,
+          "min": 1,
+          "max": 5,
+          "step": 1,
+          "unit": "招",
+          "tip": "半血切换不延长当前招组。"
+        },
+        {
+          "key": "offense_link_timeout",
+          "label": "招组衔接等待上限",
+          "value": 2.0,
+          "min": 0.3,
+          "max": 6,
+          "step": 0.1,
+          "unit": "秒",
+          "tip": "收招后无合法后续时中止本组，不无限补招。"
+        },
+        {
+          "key": "offense_failed_rest",
+          "label": "衔接失败短收势",
+          "value": 0.8,
+          "min": 0.3,
+          "max": 3,
+          "step": 0.1,
+          "unit": "秒",
+          "tip": "保持常态盾，不兑换重招或长奖励。"
+        }
+      ]
+    },
+    {
       "title": "环境破坏",
       "fields": [
-        {"key": "slam_break_power", "label": "砸地破坏强度", "value": 1.0, "min": 0, "max": 100, "step": 0.1, "unit": "级", "tip": "达到物件耐破坏强度才会破坏；0 表示不破坏。"},
-        {"key": "sweep_break_power", "label": "横扫破坏强度", "value": 1.0, "min": 0, "max": 100, "step": 0.1, "unit": "级", "tip": "随实际挥击进度破坏碰到的物件；0 表示不破坏。"},
-        {"key": "leap_break_power", "label": "跃击破坏强度", "value": 1.0, "min": 0, "max": 100, "step": 0.1, "unit": "级", "tip": "同时控制落点预测、下落接触和落地冲击；0 表示不破坏。"},
-        {"key": "normal_break_power", "label": "跳跃普攻破坏强度", "value": 1.0, "min": 0, "max": 100, "step": 0.1, "unit": "级", "tip": "跳起挥击时破坏攻击范围内物件；不产生地面震波。"}
+        {
+          "key": "slam_break_power",
+          "label": "砸地破坏强度",
+          "value": 1.0,
+          "min": 0,
+          "max": 100,
+          "step": 0.1,
+          "unit": "级",
+          "tip": "达到物件耐破坏强度才会破坏；0 表示不破坏。"
+        },
+        {
+          "key": "sweep_break_power",
+          "label": "横扫破坏强度",
+          "value": 1.0,
+          "min": 0,
+          "max": 100,
+          "step": 0.1,
+          "unit": "级",
+          "tip": "随实际挥击进度破坏碰到的物件；0 表示不破坏。"
+        },
+        {
+          "key": "leap_break_power",
+          "label": "跃击破坏强度",
+          "value": 1.0,
+          "min": 0,
+          "max": 100,
+          "step": 0.1,
+          "unit": "级",
+          "tip": "同时控制落点预测、下落接触和落地冲击；0 表示不破坏。"
+        },
+        {
+          "key": "normal_break_power",
+          "label": "跳跃普攻破坏强度",
+          "value": 1.0,
+          "min": 0,
+          "max": 100,
+          "step": 0.1,
+          "unit": "级",
+          "tip": "跳起挥击时破坏攻击范围内物件；不产生地面震波。"
+        }
       ]
     },
     {
@@ -20,7 +158,7 @@
           "label": "最大生命",
           "value": 450,
           "min": 1,
-          "max": 100000,
+          "max": 1000000,
           "step": 1,
           "unit": "点",
           "tip": ""
@@ -353,7 +491,7 @@
         {
           "key": "sweep_recovery",
           "label": "后摇 / 复位",
-          "value": 0.30,
+          "value": 0.3,
           "min": 0,
           "max": 20,
           "step": 0.01,
@@ -933,6 +1071,12 @@
           "tip": "仅在距离拉远或追击持续失败，且落点与飞行路径合法时使用。"
         },
         {
+          "key": "opening_leap",
+          "label": "开场固定跃击",
+          "value": false,
+          "tip": "正式 Boss 出土后优先尝试一次蓄力跃击；落点或通道暂时不合法时保留请求，直到能够安全施放。"
+        },
+        {
           "key": "leap_min_distance",
           "label": "跃击最小距离",
           "value": 8.0,
@@ -1061,6 +1205,16 @@
           "step": 0.5,
           "unit": "米/秒",
           "tip": ""
+        },
+        {
+          "key": "leap_arc_height",
+          "label": "跃击弧顶高度",
+          "value": 2.5,
+          "min": 0.5,
+          "max": 8,
+          "step": 0.1,
+          "unit": "米×体型",
+          "tip": "相对起点与落点连线的最高离地量；按体型倍率缩放，不改变飞行时长与撤离窗口。"
         },
         {
           "key": "leap_min_flight",

@@ -3,7 +3,7 @@ const Artifacts := preload("res://scripts/artifact_paths.gd")
 ## T03 观察探针：默认 AI 与有路可走时的决策对照，不改变敌人实现。
 ## 使用 --headless --fixed-fps 60 --script res://tools/probes/t03_enemy_spatial_audit.gd。
 
-const SpatialScene := preload("res://prototypes/combat/spatial/combat_spatial_lab.tscn")
+const SpatialScene := preload("res://prototypes/spatial_lab/combat_spatial_lab.tscn")
 var _lab: Node3D
 var _observations: Array[Dictionary] = []
 

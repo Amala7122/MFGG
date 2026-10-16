@@ -66,7 +66,7 @@ func _run() -> void:
 	camera.fov = 65.0
 	camera.make_current()
 	var weather := Weather.new()
-	Lighting.apply_cloud_shadow_softness(weather, sun, 0.0, true, 20.0, 650.0)
+	Lighting.apply_cloud_shadow_settings(weather, sun, 0.0, true, 20.0, 650.0)
 	var folder := CapturePaths.ensure_dir("cloud_shadow_layers")
 	var images: Dictionary = {}
 	for mode in ["clear", "lower", "upper", "overlap", "upper_cross", "cross"]:
@@ -82,11 +82,11 @@ func _run() -> void:
 		picture.save_png(folder.path_join(mode + ".png"))
 	var aligned := _check_overlap(images.clear, images.lower, images.upper, images.overlap)
 	var crossed := _check_overlap(images.clear, images.lower, images.upper_cross, images.cross)
-	# 高云的柔度也应随阳光强弱变化。
+	# 弱日光仍保留云影，不切回造成表面纹路的 PCSS。
 	lower.visible = true
 	upper.visible = false
 	sun.light_energy = 0.3
-	Lighting.apply_cloud_shadow_softness(weather, sun, 0.0, true, 20.0, 650.0)
+	Lighting.apply_cloud_shadow_settings(weather, sun, 0.0, true, 20.0, 650.0)
 	for _frame in range(12):
 		await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png(folder.path_join("weak_sun.png"))

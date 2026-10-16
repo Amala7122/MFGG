@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "active": "reactive",
+  "default_seed": 10420261014,
+  "observation_seconds": 180.0,
+  "diagnostics": {
+    "stall_seconds": 4.0,
+    "stationary_radius": 0.25,
+    "snapshot_interval": 0.1,
+    "context_seconds": 5.0
+  },
+  "presets": {
+    "orbit": {
+      "title": "持续绕射",
+      "strategy": "orbit",
+      "reaction_seconds": 0.30,
+      "aim_error_degrees": 1.5,
+      "turn_degrees_per_second": 110.0,
+      "preferred_distance": 15.0,
+      "dodge_progress": 0.58,
+      "greed_seconds": 0.0,
+      "use_grenade": false,
+      "use_q": false,
+      "use_sniper": false,
+      "adapt_to_visible_range": false
+    },
+    "reactive": {
+      "title": "预警应对",
+      "strategy": "reactive",
+      "reaction_seconds": 0.24,
+      "aim_error_degrees": 1.0,
+      "turn_degrees_per_second": 125.0,
+      "preferred_distance": 12.0,
+      "dodge_progress": 0.58,
+      "greed_seconds": 0.0,
+      "use_grenade": true,
+      "use_q": true,
+      "use_sniper": false,
+      "adapt_to_visible_range": true
+    },
+    "greedy": {
+      "title": "迟反应与贪枪",
+      "strategy": "greedy",
+      "reaction_seconds": 0.48,
+      "aim_error_degrees": 2.5,
+      "turn_degrees_per_second": 90.0,
+      "preferred_distance": 10.0,
+      "dodge_progress": 0.72,
+      "greed_seconds": 0.14,
+      "use_grenade": true,
+      "use_q": false,
+      "use_sniper": true,
+      "adapt_to_visible_range": false
+    }
+  }
+}

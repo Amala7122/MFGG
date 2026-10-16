@@ -1,0 +1,247 @@
+{
+  "version": 1,
+  "schema": "dsh.aps_port.plan/v1",
+  "project": "godot-ruin_star_new",
+  "project_root": "D:/godot_project/godot-ruin_star_new",
+  "doc": "docs/features/APS路径算法移植实现文档.md",
+  "source_plugin": "D:/godot_project/Adaptive64768b7cb9a5V14",
+  "research_reports": [
+    "_artifacts/Adaptive64768b7cb9a5V14/aps_ptc_port/20261011_121500_fb1548bc/reports/research_lowlevelarc_1.md",
+    "_artifacts/Adaptive64768b7cb9a5V14/aps_ptc_port/20261011_121500_fb1548bc/reports/research_lowlevelarc_2.md",
+    "_artifacts/Adaptive64768b7cb9a5V14/aps_ptc_port/20261011_121500_fb1548bc/reports/research_lowlevelarc_tail.md",
+    "_artifacts/Adaptive64768b7cb9a5V14/aps_ptc_port/20261011_121500_fb1548bc/reports/research_pathmodes.md",
+    "_artifacts/Adaptive64768b7cb9a5V14/aps_ptc_port/20261011_121500_fb1548bc/reports/research_nav_crowd_debug.md",
+    "_artifacts/Adaptive64768b7cb9a5V14/aps_ptc_port/20261011_121500_fb1548bc/reports/recon_godot_nav.md"
+  ],
+  "state_file": "_artifacts/godot-ruin_star_new/aps_port/state.json",
+  "artifact_root": "_artifacts/godot-ruin_star_new/aps_port",
+  "execution_contract": {
+    "mode": "ptc",
+    "one_shot_runs": true,
+    "state_must_be_persisted_to_disk": true,
+    "return_compact_json_only": true,
+    "assert_inside_the_program_before_writing_state": true,
+    "tool_bindings": "按会话 system prompt 声明的 tools.<name> 调用；文件读写、pwsh、godot 相关 MCP 工具名以实际声明为准",
+    "user_gate": "P7 未获用户明确同意前不得开始；P0-P6 开工也需用户说「继续」"
+  },
+  "invariants": [
+    "不得放宽身体通道、真实支撑、坡度、落差与能力进出口判定",
+    "不得按地图名、障碍名或测试坐标分支",
+    "新增 steering.json 键必须同时登记 navigation_path.apply 白名单与观察台 UI",
+    "所有产物写项目外 _artifacts/<project>/<task>/<run>/",
+    "交付前运行 python -B tools/project_hygiene.py check"
+  ],
+  "steps": [
+    {
+      "id": "P0",
+      "title": "观测与基线（不改行为）",
+      "changes_behavior": false,
+      "write_scopes": [
+        "godot-ruin_star_new/scripts/prototypes/navigation_lab.gd",
+        "godot-ruin_star_new/tools/probes/navigation_main_scene.gd"
+      ],
+      "inputs": [
+        "godot-ruin_star_new/scripts/spatial_route_planner.gd",
+        "godot-ruin_star_new/scripts/navigation_path.gd",
+        "godot-ruin_star_new/scripts/combat_spatial_controller.gd"
+      ],
+      "deliverable": "观察台同时绘制基础网格路径/成形路径/实际轨迹，显示流水线分段耗时与候选计数",
+      "commands": [
+        "python -B tools/run_probe.py tools/probes/navigation_main_scene.gd --graphics --task aps_port_p0 --args --count=128 --frames=900",
+        "python -B tools/run_acceptance.py --tests test_navigation_main_scene test_navigation_obstacles --task aps_port_p0 --timeout 240"
+      ],
+      "gate": {
+        "evidence": ["screenshots/*.png", "reports/summary.json", "reports/navigation_acceptance.json"],
+        "assertions": [
+          "两道命令退出码均为 0",
+          "报告里出现 baseline 字段：p95_job_usec、零速比例、path_requests",
+          "到达数与改动前一致"
+        ]
+      },
+      "blocked_by": []
+    },
+    {
+      "id": "P1",
+      "title": "抽出可复用形状管线模块（行为等价）",
+      "changes_behavior": false,
+      "write_scopes": [
+        "godot-ruin_star_new/scripts/nav_arc_shape.gd",
+        "godot-ruin_star_new/scripts/navigation_path.gd"
+      ],
+      "inputs": ["godot-ruin_star_new/scripts/navigation_path.gd", "godot-ruin_star_new/scripts/spatial_query.gd"],
+      "deliverable": "nav_arc_shape.gd 提供阶段化流水线 [fillet,resample,warp,validate,final_gate]，navigation_path.shape() 变成薄适配层",
+      "commands": [
+        "python -B tools/run_acceptance.py --tests test_navigation_main_scene test_navigation_obstacles --task aps_port_p1 --timeout 240"
+      ],
+      "gate": {
+        "evidence": ["reports/navigation_acceptance.json", "reports/navigation_obstacles.json"],
+        "assertions": [
+          "到达数、path_requests、每用例结果与 P0 基线逐项一致",
+          "无 SCRIPT ERROR/ERROR 行"
+        ]
+      },
+      "blocked_by": ["P0"]
+    },
+    {
+      "id": "P2",
+      "title": "忠实移植圆角与侧偏数学（默认参数保持现状）",
+      "changes_behavior": false,
+      "write_scopes": [
+        "godot-ruin_star_new/scripts/nav_arc_shape.gd",
+        "godot-ruin_star_new/scripts/navigation_path.gd",
+        "godot-ruin_star_new/data/navigation/steering.json",
+        "godot-ruin_star_new/tests/test_nav_path_shape.gd",
+        "godot-ruin_star_new/scripts/prototypes/navigation_lab.gd"
+      ],
+      "aps_sources": [
+        "APS_PathMode_LowLevelArc.cpp:2273-2302",
+        "APS_PathMode_LowLevelArc.cpp:2309-2330",
+        "APS_PathMode_LowLevelArc.cpp:2959-2963",
+        "APS_PathMode_LowLevelArc.cpp:2984-2991",
+        "APS_PathMode_LowLevelArc.cpp:907-986",
+        "APS_PathMode_LowLevelArc.cpp:1312-1326",
+        "APS_PathMode_LowLevelArc.cpp:1395-1506"
+      ],
+      "deliverable": "ComputeArcShape / ComputeLocalSideSign / BaseAmp / 弧长重采样 / 圆角打分与五级跳过 的 1:1 移植，默认 arc_strength=0 保证现状",
+      "commands": [
+        "python -B tools/run_acceptance.py --tests test_nav_path_shape test_navigation_main_scene test_navigation_obstacles --task aps_port_p2 --timeout 240"
+      ],
+      "gate": {
+        "evidence": ["reports/navigation_acceptance.json", "reports/navigation_obstacles.json", "reports/test_nav_path_shape.json"],
+        "assertions": [
+          "包络公式采样比对全部通过：Smooth(N=1)=sin(pi t)、Smooth(N=6)=sin(pi t)^3.5、Wavy(N=3)=sin(pi t)*|sin(3 pi t)|",
+          "重采样点数 = min(max3(N+2, ceil(len/4.0)+1, in_num), shape_max_points)",
+          "缩幅链为 8 档单调 {1,.875,.75,.625,.5,.375,.25,.125}",
+          "全部候选被拒时输出逐点等于基准点，首末端点坐标不变",
+          "正式敌人行为与 P1 一致（默认 arc_strength=0）"
+        ]
+      },
+      "blocked_by": ["P1"]
+    },
+    {
+      "id": "P3",
+      "title": "候选验证与回退链（两级验证 + 绝对宽度 + 终检）",
+      "changes_behavior": false,
+      "write_scopes": [
+        "godot-ruin_star_new/scripts/nav_arc_shape.gd",
+        "godot-ruin_star_new/scripts/spatial_query.gd",
+        "godot-ruin_star_new/tests/test_nav_shape_fallback.gd"
+      ],
+      "aps_sources": [
+        "APS_PathMode_LowLevelArc.cpp:3111-3158",
+        "APS_PathMode_LowLevelArc.cpp:3160-3202",
+        "APS_PathMode_LowLevelArc.cpp:3232-3319",
+        "APS_PathMode_LowLevelArc.cpp:3336-3344",
+        "APS_PathMode_LowLevelArc.cpp:39",
+        "APS_PathMode_LowLevelArc.cpp:43"
+      ],
+      "deliverable": "8 档相对缩幅 + 6 档绝对宽度（600/450/300/200/120/80 uu -> 6/4.5/3/2/1.2/0.8 m）+ 保留基准点 + 全路径终检；一级验证先筛、二级 ground_segment 只对通过者执行",
+      "commands": [
+        "python -B tools/run_acceptance.py --tests test_nav_shape_fallback test_navigation_obstacles test_navigation_main_scene --task aps_port_p3 --timeout 300"
+      ],
+      "gate": {
+        "evidence": ["reports/test_nav_shape_fallback.json", "reports/navigation_obstacles.json"],
+        "assertions": [
+          "窄通道大 lane_offset 用例记录了实际命中档位且不超过预期档",
+          "断开地面仍不可达、未掉出地面",
+          "无穿墙（沿用现有身体断言）",
+          "报告含一级/二级查询次数与终检失败次数"
+        ]
+      },
+      "blocked_by": ["P2"]
+    },
+    {
+      "id": "P4",
+      "title": "接入与跟随策略（消除走停，针对 I-066）",
+      "changes_behavior": true,
+      "write_scopes": [
+        "godot-ruin_star_new/scripts/nav_steering.gd",
+        "godot-ruin_star_new/scripts/combat_spatial_controller.gd",
+        "godot-ruin_star_new/tests/test_navigation_moving_target.gd"
+      ],
+      "deliverable": "有保留路线时不清零速度；过期结果丢弃但不清零；阈值按请求时采样点计算；车道符号加滞后",
+      "commands": [
+        "python -B tools/run_acceptance.py --tests test_navigation_moving_target test_navigation_main_scene test_navigation_obstacles --task aps_port_p4 --timeout 300"
+      ],
+      "gate": {
+        "evidence": ["reports/test_navigation_moving_target.json", "reports/summary.json"],
+        "assertions": [
+          "非攻击帧零速比例、最长连续零速帧数满足由 P0 基线确定的阈值",
+          "每秒重算次数有上限",
+          "追击距离保持在区间内",
+          "同时覆盖 attack_pose 组与纯移动测量体组"
+        ]
+      },
+      "blocked_by": ["P3"]
+    },
+    {
+      "id": "P5",
+      "title": "分帧与预算（针对 I-064）",
+      "changes_behavior": true,
+      "write_scopes": [
+        "godot-ruin_star_new/scripts/nav_arc_shape.gd",
+        "godot-ruin_star_new/scripts/spatial_route_planner.gd",
+        "godot-ruin_star_new/scripts/combat_spatial_controller.gd"
+      ],
+      "deliverable": "形状流水线可恢复状态机（阶段/点/候选三层游标），可在 advance 预算内暂停与续跑",
+      "commands": [
+        "python -B tools/run_acceptance.py --tests test_navigation_stress test_navigation_stress_soak --task aps_port_p5 --timeout 1200"
+      ],
+      "gate": {
+        "evidence": ["reports/navigation_stress.json", "reports/navigation_stress_soak.json"],
+        "assertions": [
+          "last_job_usec P95 <= FRAME_BUDGET_USEC",
+          "单次最大耗时显著低于改造前（对照 I-064 的 38.222 ms）",
+          "到达数与 P3 一致",
+          "报告新增被打断次数与跨帧完成率"
+        ]
+      },
+      "blocked_by": ["P4"]
+    },
+    {
+      "id": "P6",
+      "title": "观测台与调参落盘",
+      "changes_behavior": false,
+      "write_scopes": [
+        "godot-ruin_star_new/scripts/prototypes/navigation_lab.gd",
+        "godot-ruin_star_new/scripts/navigation_path.gd",
+        "godot-ruin_star_new/data/navigation/steering.json"
+      ],
+      "deliverable": "新增参数面板（arc_strength/arc_num_midpoints/arc_mode/arc_min_distance/shape_max_points/arc_resample_length 等）、三段路线绘制、APS 语义配色、失败原因分布、另存命名方案与设为项目默认",
+      "commands": [
+        "python -B tools/run_probe.py tools/probes/navigation_main_scene.gd --graphics --task aps_port_p6 --args --count=128 --frames=900",
+        "python -B tools/project_hygiene.py check"
+      ],
+      "gate": {
+        "evidence": ["screenshots/*.png", "reports/summary.json", "logs/project_hygiene.txt"],
+        "assertions": [
+          "三段路线可见且语义配色正确",
+          "面板可读、参数改动实时生效",
+          "未保存状态显示正确，另存与设默认分离",
+          "目录规范检查通过（历史 I-060 的两处失效链接不计入本轮）"
+        ]
+      },
+      "blocked_by": ["P5"]
+    },
+    {
+      "id": "P7",
+      "title": "正式接入评估（需用户明确同意，不得自动开始）",
+      "changes_behavior": true,
+      "requires_user_approval": true,
+      "write_scopes": ["godot-ruin_star_new/data/enemies/", "godot-ruin_star_new/data/navigation/"],
+      "deliverable": "按敌人数据下发形状参数，量化战斗内帧率与观感，交用户试玩",
+      "commands": [
+        "python -B tools/run_acceptance.py --tests test_navigation_main_scene test_navigation_obstacles test_combat_spatial_policy test_combat_spatial_navigation test_combat_spatial_capabilities test_combat_spatial_attacks test_enemy_deployment test_sanctum_layout --task aps_port_p7 --timeout 600"
+      ],
+      "gate": {
+        "evidence": ["reports/summary.md", "screenshots/*.png"],
+        "assertions": [
+          "8 项回归全部通过",
+          "战斗内帧率与性能报告留档",
+          "观感结论等待用户验收，不由自动结果代替"
+        ]
+      },
+      "blocked_by": ["P6"]
+    }
+  ]
+}

@@ -6,10 +6,6 @@ render_mode use_debanding;
 
 group_uniforms general;
 uniform bool sky_visible = true;
-// Experiment weather extension. Zero leaves the original Sky3D sky unchanged.
-uniform float weather_overcast = 0.0;
-uniform float weather_cloud_density = 0.5;
-uniform vec4 weather_horizon: source_color = vec4(0.4, 0.44, 0.48, 1.0);
 uniform vec2 color_correction = vec2(0.0, 1.0);
 uniform vec4 ground_color: source_color = vec4(0.3, 0.3, 0.3, 1.0);
 uniform float horizon_offset = 0.0;
@@ -490,16 +486,6 @@ void render_grid(vec3 dir, vec3 pole_dir, float rotation_angle, vec4 line_color,
 	color += line_color.rgb * line_color.a * grid;
 }
 
-float weather_noise(vec2 p) {
-	// Continuous low-frequency field: no floor/fract hash whose precision differences
-	// can expose cell boundaries on the D3D12 shader backend.
-	vec2 q = p + vec2(sin(p.y * 0.73), cos(p.x * 0.61)) * 0.7;
-	float broad = sin(dot(q, vec2(1.13, 0.81)) + 0.4);
-	float cross = sin(dot(q, vec2(-0.67, 1.37)) + 2.1);
-	float detail = sin(dot(q, vec2(2.17, 1.71)) + 1.3);
-	return 0.5 + broad * 0.25 + cross * 0.16 + detail * 0.09;
-}
-
 void sky() {
 	float current_time = TIME;
 	vec3 col = vec3(0.0); // Set up the initial sky color which will be added to later to produce the final result.
@@ -527,35 +513,5 @@ void sky() {
 		}
 	}
 
-	// Stratus layer. Coverage controls how much of the sky is occupied; density controls
-	// the thickness/contrast of that cloud base. Near 100% coverage the mask deliberately
-	// closes all blue-sky holes so a true overcast cannot expose a hard sun disk.
-	float stratus_coverage = clamp(weather_overcast, 0.0, 1.0);
-	float stratus_density = clamp(weather_cloud_density, 0.0, 1.0);
-	vec3 overcast = weather_horizon.rgb * mix(1.0, 0.58, smoothstep(0.0, 0.85, EYEDIR.y));
-	vec2 cloud_uv = EYEDIR.xz / (0.45 + max(EYEDIR.y, 0.0));
-	float cloud_mass = weather_noise(cloud_uv * 2.1 + vec2(TIME * 0.0022, 0.0));
-	float cloud_detail = weather_noise(cloud_uv * 4.2 + vec2(0.21, 0.39));
-	float cloud_field = cloud_mass * 0.76 + cloud_detail * 0.24;
-
-	float threshold = mix(0.86, 0.16, stratus_coverage);
-	float edge_softness = mix(0.18, 0.08, stratus_density);
-	float stratus_mask = smoothstep(
-		threshold - edge_softness,
-		threshold + edge_softness,
-		cloud_field
-	);
-	// High coverage stops looking like scattered blobs and becomes one continuous ceiling.
-	stratus_mask = mix(stratus_mask, 1.0, smoothstep(0.80, 0.995, stratus_coverage));
-
-	float shade_range = mix(0.08, 0.28, stratus_density);
-	float cloud_shade = mix(
-		1.0 - shade_range,
-		1.0 + shade_range * 0.45,
-		smoothstep(0.12, 0.86, cloud_field)
-	);
-	overcast *= mix(1.0, cloud_shade, smoothstep(0.0, 0.22, EYEDIR.y));
-	overcast *= mix(1.04, 0.88, stratus_density);
-
-	COLOR = mix(col.rgb, overcast, stratus_mask * step(0.001, stratus_coverage));
+	COLOR = col;
 }

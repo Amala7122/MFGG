@@ -1,11 +1,12 @@
 extends SceneTree
 const CapturePaths := preload("res://scripts/capture_paths.gd")
 
-const SpatialScene := preload("res://prototypes/combat/spatial/combat_spatial_lab.tscn")
+const SpatialScene := preload("res://prototypes/spatial_lab/combat_spatial_lab.tscn")
 const AttackArea := preload("res://scripts/enemy_attack_area.gd")
+const AttackSurface := preload("res://scripts/attack_surface_mesh.gd")
 const GroundWarning := preload("res://scenes/ground_warning.tscn")
 const Telemetry := preload("res://scripts/combat_telemetry.gd")
-const StatsView := preload("res://prototypes/combat/combat_lab_stats_view.gd")
+const StatsView := preload("res://prototypes/combat_lab/combat_lab_stats_view.gd")
 const MeleeEffect := preload("res://scripts/prototypes/titan_melee_effect.gd")
 class Victim extends Node3D:
 	var health := 100.0
@@ -393,7 +394,8 @@ func _verify_mesh(instance: MeshInstance3D, label: String, border: bool) -> void
 		var c := points[indices[i + 2] if not indices.is_empty() else i + 2]
 		for p: Vector3 in [a, b, c, (a + b) * 0.5, (b + c) * 0.5, (c + a) * 0.5, (a + b + c) / 3.0]:
 			var hit := surface.intersect_ray(PhysicsRayQueryParameters3D.create(Vector3(p.x, 10, p.z), Vector3(p.x, -10, p.z), 1))
-			if hit.is_empty() or absf(p.y - float(hit.position.y) - (0.05 if border else 0.045)) > 0.08:
+			var expected_offset := AttackSurface.SURFACE_OFFSET + (0.005 if border else 0.0)
+			if hit.is_empty() or absf(p.y - float(hit.position.y) - expected_offset) > 0.08:
 				valid = false
 				break
 		if not valid:
