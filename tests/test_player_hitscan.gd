@@ -46,6 +46,8 @@ func _run() -> void:
 	await _fire_modes()
 	# 最后一发的非定位音效归 AudioManager 持有，等待播放结束后退出。
 	await create_timer(0.5).timeout
+	preload("res://scripts/object_pool.gd").clear_all()
+	await preload("res://tools/probes/sparring/sparring_runtime.gd").settle_audio(self)
 	print("[T02] 射击回归完成：", "FAIL" if _failed else "PASS")
 	quit(1 if _failed else 0)
 

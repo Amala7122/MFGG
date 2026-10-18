@@ -1,6 +1,6 @@
 extends RefCounted
 ## 独立冷却与记忆不阻止移动；只在当前合法候选之间选择。
-var cooldowns := {"slam": 0.0, "sweep": 0.0, "leap": 0.0}
+var cooldowns := {"slam": 0.0, "sweep": 0.0, "leap": 0.0, "thrust": 0.0}
 var approach_remaining := 0.0
 var chase_time := 0.0
 var far_time := 0.0

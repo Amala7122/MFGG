@@ -119,7 +119,10 @@ static func apply_radial_damage(
 				continue
 		var falloff := clampf(1.0 - distance / maxf(radius, 0.01), 0.25, 1.0)
 		if enemy.has_method("take_damage"):
-			Telemetry.hurt_enemy(enemy, damage * falloff, source.get_meta(Telemetry.CONTEXT, {}))
+			if direct and source.has_method("get_grenade_explosion_id") and enemy.has_method("receive_grenade_contact"):
+				enemy.call("receive_grenade_contact", damage * falloff, int(source.call("get_grenade_explosion_id")), source.get_meta(Telemetry.CONTEXT, {}))
+			else:
+				Telemetry.hurt_enemy(enemy, damage * falloff, source.get_meta(Telemetry.CONTEXT, {}))
 			hits += 1
 		if not HealthUtil.is_alive(enemy):
 			continue

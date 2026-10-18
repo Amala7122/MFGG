@@ -959,8 +959,8 @@ func _apply_highlight(key: String) -> void:
 	var entry := ParamParts.lookup(_current_profile(), key)
 	if entry.is_empty():
 		return
-	if entry.has("scope"):
-		return # 玩家战斗资源字段有说明，但不把Boss全身高亮成作用部位。
+	if entry.has("scope") and (entry.get("parts", []) as Array).is_empty():
+		return # 纯逻辑／玩家资源不高亮；有明确视觉部位时仍可定位。
 	var parts: Array = entry.get("parts", [])
 	if parts.is_empty():
 		for node in _subject.find_children("*", "MeshInstance3D", true, false):

@@ -20,10 +20,6 @@ const PROBE_LOOP := PACK_ROOT + "Environment/Wind Loop.wav"
 func _initialize() -> void:
 	var failed := false
 	var table: Dictionary = ConfigUtil.get_dictionary("audio.file_bank")
-	if table.is_empty():
-		push_error("[音效] audio.file_bank 为空，文件音源层没有任何条目。")
-		quit(1)
-		return
 	var enabled: bool = ConfigUtil.get_bool("audio.file_bank_enabled", true)
 	print("[音效] file_bank_enabled=%s，配置条目 %d 个" % [enabled, table.size()])
 
@@ -48,12 +44,16 @@ func _initialize() -> void:
 		failed = true
 
 	# 3. 按环境分别判定。
+	#    表为空 / 开关关闭都表示「全部走合成音色」，这是合法状态（枪声已撤销文件音源），
+	#    此时必须一个文件键都没有、且键一个不少。
 	var pack_present := ResourceLoader.exists(PROBE_FILE)
-	if not pack_present:
-		if _check_absent(bank, file_keys):
+	if table.is_empty() or not enabled:
+		var reason := "file_bank 为空" if table.is_empty() else "file_bank_enabled=false"
+		if _check_pure_synth(bank, file_keys, reason):
 			failed = true
-	elif not enabled:
-		print("[音效] 文件层被 file_bank_enabled=false 关闭，跳过接通检查（应为纯合成音色）")
+	elif not pack_present:
+		if _check_pure_synth(bank, file_keys, "音效库不在项目里"):
+			failed = true
 	else:
 		if _check_wired(table, bank, file_keys):
 			failed = true
@@ -106,18 +106,19 @@ func _check_fallback(bank: Dictionary, file_keys: Array) -> bool:
 	return failed
 
 
-## 干净检出、没有音效库：必须静默回退，键一个不少。
-func _check_absent(bank: Dictionary, file_keys: Array) -> bool:
+## 应当全部走合成音色的状态（表为空 / 开关关闭 / 干净检出错没有音效库）：
+## 必须一个文件键都没有，且音色键一个不少。
+func _check_pure_synth(bank: Dictionary, file_keys: Array, reason: String) -> bool:
 	var failed := false
 	if not file_keys.is_empty():
-		push_error("[音效] 音效库不存在，却仍有 %d 个键走了文件音源。" % file_keys.size())
+		push_error("[音效] %s，却仍有 %d 个键走了文件音源。" % [reason, file_keys.size()])
 		failed = true
 	for raw_key in AudioManagerScript.BANK_FALLBACK.keys():
 		if not bank.has(String(raw_key)):
-			push_error("[音效] 音效库不存在时键 %s 丢失，回退不完整。" % String(raw_key))
+			push_error("[音效] %s，键 %s 丢失，回退不完整。" % [reason, String(raw_key)])
 			failed = true
 	if not failed:
-		print("[音效] 音效库不在项目里，%d 个键已全部回退到合成音色。" % bank.size())
+		print("[音效] %s：%d 个键全部走合成音色。" % [reason, bank.size()])
 	return failed
 
 

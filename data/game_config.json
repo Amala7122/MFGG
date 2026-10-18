@@ -466,6 +466,7 @@
     "sprint_multiplier": 1.7,
     "acceleration": 24.0,
     "deceleration": 30.0,
+    "jump_enabled": false,
     "jump_velocity": 7.0,
     "step_height": 0.75,
     "air_control": 0.35,
@@ -1327,11 +1328,23 @@
     "_doc": "音色参数表。数组含义由 _bank_format 给出，改完立刻能听出差别。",
     "_bank_format": "[时长秒, 起始频率Hz, 结束频率Hz, 衰减指数, 噪声占比0~1, 增益]",
     "file_bank_enabled": true,
-    "_file_bank_doc": "文件音源层：只把下面列出的键换成真实音频文件，没列出的键一律用上面的合成音色。整体开关是 file_bank_enabled。一次只加一条、单独试听，确认后再加下一条 —— 2026-10-08 一次接了 17 条，结果分不清哪个是哪个，只剩 shot / sniper 通过试听。",
+    "_file_bank_doc": "文件音源层：只把下面列出的键换成真实音频文件，没列出的键一律用上面的合成音色。整体开关是 file_bank_enabled。一次只加一条、单独试听，确认后再加下一条。",
     "_file_bank_format": "值可写路径字符串，或 {path, loop, volume_db} 对象。loop 只对音效库里名字带 Loop 的文件需要（它们导入后不循环）；volume_db 用来逐个配平响度，文件音源一般比合成音色响，先用它压。",
+    "_file_bank_history": "2026-10-08 一次接了 17 条 → 用户分不清谁是谁，撤到 2 条（shot/sniper）；2026-10-18 用户判定 shot 的录音版『过于真实、有拉栓感』且全部试听候选都不如合成版，**两条全撤，枪声回到合成**。目前本表为空 = 全部音色走合成。",
     "file_bank": {
-      "shot": "res://addons/Sound FX Starter Pack Vol. 1/Hollywood/Titan Handgun.wav",
-      "sniper": "res://addons/Sound FX Starter Pack Vol. 1/Sci-Fi/Pulse Sniper.wav"
+    },
+    "_synth_variants_doc": "合成音变体数：同一个键用不同随机种子生成 N 个波形，参数完全相同、只有噪声细节不同，播放时用 AudioStreamRandomizer 的『不连续重复』模式轮换。变体 0 与改动前波形逐字节相同，所以音色不变，目的只是消掉连发时每秒重复同一个波的机械感。范围 1~8，1 = 关闭。只给高频重复的键配：连发武器、命中、脚步、弹壳、敌人射击。",
+    "synth_variants": {
+      "shot": 5,
+      "casing_clink": 3,
+      "footstep": 4,
+      "hit": 4,
+      "hit_metal": 4,
+      "hit_stone": 4,
+      "hit_flesh": 4,
+      "enemy_shot": 3,
+      "wisp_shot": 3,
+      "bullet_whiz": 3
     },
     "bank": {
       "shot": [0.13, 460.0, 95.0, 4.5, 0.55, 0.85],
@@ -1432,7 +1445,7 @@
     "range": 22.0,
     "blind_spot_angle": 65.0,
     "projectile_speed": 42.0,
-    "color": [0.25, 0.88, 1.0, 1.0],
+    "color": [0.10, 0.96, 1.0, 1.0],
     "ceasefire_min_enemies": 1,
     "_ceasefire_doc": "战场剩余敌人小于或等于该数量时浮游卫士停火（默认1：仅剩最后1个敌人时不抢人头射击，留由玩家亲自终结触发慢动作特写）"
   }

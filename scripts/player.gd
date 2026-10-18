@@ -10,6 +10,9 @@ const CombatFXUtil := preload("res://scripts/combat_fx.gd")
 const UpgradePoolScript := preload("res://scripts/upgrade_pool.gd")
 const ResonanceScript := preload("res://scripts/resonance.gd")
 const FloatingWispScript := preload("res://scripts/floating_wisp.gd")
+const MeleeScript := preload("res://scripts/player_melee.gd")
+const ShieldFXScript := preload("res://scripts/player_shield_fx.gd")
+const SupportPanelScript := preload("res://scripts/player_support_panel.gd")
 const TelegraphUtil := preload("res://scripts/telegraph.gd")
 const EventBusUtil := preload("res://scripts/event_bus.gd")
 const RunStateUtil := preload("res://scripts/run_state.gd")
@@ -34,6 +37,7 @@ const TerrainFieldUtil := preload("res://scripts/terrain_field.gd")
 @export var deceleration: float = 30.0
 @export var air_control: float = 0.35
 @export var jump_velocity: float = 7.0
+@export var jump_enabled: bool = false
 @export var step_height: float = 0.75
 @export var rotation_smooth: float = 16.0
 
@@ -106,6 +110,9 @@ static var best_survival_time: float
 
 var _rig: PlayerRig
 var _weapon: PlayerWeapon
+var _melee: Node3D
+var _shield_fx: Node3D
+var _support_panel: CanvasLayer
 var _hud: PlayerHUD
 ## -1 跟随天气自动开关；按 F 后以玩家选择为准，直到本局结束。
 var _flashlight_override := -1
@@ -260,6 +267,7 @@ func _read_feel_config() -> void:
 	deceleration = maxf(ConfigUtil.get_float("player.deceleration", 30.0), 0.1)
 	air_control = clampf(ConfigUtil.get_float("player.air_control", 0.35), 0.0, 1.0)
 	jump_velocity = maxf(ConfigUtil.get_float("player.jump_velocity", 7.0), 0.0)
+	jump_enabled = ConfigUtil.get_bool("player.jump_enabled", false)
 	step_height = clampf(ConfigUtil.get_float("player.step_height", 0.75), 0.0, 1.25)
 	rotation_smooth = maxf(ConfigUtil.get_float("player.rotation_smooth", 16.0), 0.1)
 	ads_speed_multiplier = clampf(ConfigUtil.get_float("player.ads_speed_multiplier", 0.62), 0.05, 1.0)
@@ -318,6 +326,17 @@ func _setup_components() -> void:
 	add_child(_wisp)
 	_wisp.setup(self, camera)
 	_apply_wisp_perks()
+	_melee = MeleeScript.new()
+	_melee.name = "PlayerMelee"
+	add_child(_melee)
+	_melee.setup(self, _weapon)
+	_shield_fx = ShieldFXScript.new()
+	_shield_fx.name = "PlayerEnergyShieldFX"
+	add_child(_shield_fx)
+	_support_panel = SupportPanelScript.new()
+	_support_panel.name = "PlayerSupportPanel"
+	_support_panel.setup(self)
+	add_child(_support_panel)
 	# juice：订阅波间赐福（选择结果由 game_flow 广播）
 	EventBusUtil.subscribe_upgrade_chosen(_on_upgrade_chosen)
 
@@ -401,6 +420,7 @@ func _physics_process(delta: float) -> void:
 		_update_death(delta)
 		return
 	if _recover_if_below_world():
+		_melee.cancel()
 		_update_camera(delta)
 		_update_presentation(delta)
 		return
@@ -584,7 +604,7 @@ func _update_movement(delta: float) -> void:
 	if not is_on_floor():
 		velocity.y -= gravity * delta
 		_fall_speed = minf(_fall_speed, velocity.y)
-	elif _just("jump"):
+	elif jump_enabled and _just("jump"):
 		velocity.y = jump_velocity
 
 	var input_dir := _move_vector()
@@ -605,6 +625,8 @@ func _update_movement(delta: float) -> void:
 		_held("sprint") and not direction.is_zero_approx() and is_on_floor()
 	)
 	var target_speed := speed * (sprint_multiplier if _sprinting else 1.0)
+	if _melee:
+		target_speed *= _melee.movement_scale()
 	if _aiming:
 		target_speed *= ads_speed_multiplier
 	var change_rate := acceleration if not direction.is_zero_approx() else deceleration
@@ -626,6 +648,8 @@ func _can_dodge() -> bool:
 
 
 func _start_roll(direction: Vector3) -> void:
+	if _melee:
+		_melee.cancel()
 	var roll_direction := direction
 	if roll_direction.is_zero_approx():
 		roll_direction = -camera_pivot.global_basis.z
@@ -663,6 +687,7 @@ func _update_combat(delta: float) -> void:
 	_weapon.visual_direction = _compute_weapon_direction()
 	if _cinematic_locked:
 		_aiming = false
+		_melee.tick(delta, false)
 		_weapon.update(delta, false, false, 0.0)
 		if _resonance != null:
 			_resonance.update(delta, false)
@@ -679,6 +704,10 @@ func _update_combat(delta: float) -> void:
 		_weapon.start_reload()
 	_handle_grenade()
 	_handle_skill()
+	_melee.tick(delta, captured and not _rolling and not _cinematic_locked)
+	if _melee.is_attacking():
+		trigger = false
+		_aiming = false
 	var movement_ratio := Vector2(velocity.x, velocity.z).length() / maxf(speed, 0.01)
 	_weapon.update(delta, trigger, _aiming, movement_ratio)
 
@@ -801,6 +830,8 @@ func _update_presentation(delta: float) -> void:
 		_hud.set_sprint(_sprinting)
 	_hud.set_survival(survival_time, best_survival_time)
 	_hud.set_abilities(_grenade_cooldown, _skill_cooldown, _skill_charges, _skill_charges_max, get_grenade_status())
+	if _melee:
+		_hud.set_melee_status(_melee.get_status())
 	# 生命与护盾都必须每帧刷新，不能只在受伤时推送。
 	# 原因：两者都会【自动回复】，而回复这条路不会经过 take_damage / try_heal ——
 	# 只推一次的话，自愈期间 HUD 显示的是旧值，低血量叠加层也会一直不消退。
@@ -940,6 +971,11 @@ func take_damage(
 	# 否则高护盾等于一段无敌时间，生存压力会消失。
 	var health_damage := amount - absorbed_raw
 	health = maxf(health - health_damage, 0.0)
+	if _shield_fx and absorbed_raw > 0.0:
+		var hit_direction: Vector3 = source_position - _shield_fx.mesh.global_position if source_position != Vector3.ZERO else -camera_pivot.global_basis.z
+		_shield_fx.trigger(hit_direction, absorbed_raw)
+	if _melee and amount > 0.0:
+		_melee.on_hurt(prev_shield, shield, health_damage)
 	# juice：护盾被打穿 → 共鸣充能激增 + 破盾反馈
 	if prev_shield > 0.0 and shield <= 0.0:
 		if _resonance != null:
@@ -982,6 +1018,10 @@ func _die() -> void:
 		return
 	best_survival_time = maxf(best_survival_time, survival_time)
 	_dying = true
+	if _shield_fx:
+		_shield_fx.cancel()
+	if _melee:
+		_melee.cancel()
 	_death_time = 0.0
 	_death_event_sent = false
 	GameFlowUtil.begin_death_transition()
@@ -1171,6 +1211,8 @@ func trigger_fov_punch(amount: float) -> void:
 func set_cinematic_locked(locked: bool) -> void:
 	_cinematic_locked = locked
 	if locked:
+		if _melee:
+			_melee.cancel()
 		_sprinting = false
 		_aiming = false
 		_rolling = false

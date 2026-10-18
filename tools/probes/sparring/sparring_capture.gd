@@ -201,6 +201,19 @@ static func _opponent_difference(actual: Array, expected: Array) -> Dictionary:
 		if not by_id.has(String(prior.id)):
 			return {"kind": "missing_subject", "subject_id": prior.id}
 		var current: Dictionary = by_id[String(prior.id)]
+		for key: String in ["landing_followup_armed", "landing_link_gap_snapshot", "heavy_recovery_scale_snapshot"]:
+			var prior_diagnostic: Dictionary = prior.get("diagnostic", {})
+			var current_diagnostic: Dictionary = current.get("diagnostic", {})
+			if prior_diagnostic.has(key) and prior_diagnostic[key] != current_diagnostic.get(key):
+				return {"kind": "attack_link", "subject_id": prior.id, "field": key, "expected": prior_diagnostic[key], "actual": current_diagnostic.get(key)}
+		var prior_reward: Dictionary = prior.get("diagnostic", {}).get("break_reward", {})
+		var current_reward: Dictionary = current.get("diagnostic", {}).get("break_reward", {})
+		for key: String in ["shield_hits", "kind", "pending", "crystal_hits", "crystal_break_pending"]:
+			if prior_reward.has(key) and prior_reward[key] != current_reward.get(key):
+				return {"kind": "break_reward", "subject_id": prior.id, "field": key, "expected": prior_reward[key], "actual": current_reward.get(key)}
+		for key: String in ["elapsed", "crystal_guard_remaining"]:
+			if prior_reward.has(key) and (not current_reward.has(key) or absf(float(prior_reward[key]) - float(current_reward[key])) > 0.1):
+				return {"kind": "break_reward", "subject_id": prior.id, "field": key, "expected": prior_reward[key], "actual": current_reward.get(key)}
 		var error := Vector3(float(current.position[0]), float(current.position[1]), float(current.position[2])).distance_to(Vector3(float(prior.position[0]), float(prior.position[1]), float(prior.position[2])))
 		var hp_error := absf(float(current.hp) - float(prior.hp)) if current.hp != null and prior.hp != null else 0.0
 		if error > 0.5 or hp_error > 1.0 or current.state != prior.state or current.alive != prior.alive or current.roster_id != prior.roster_id:

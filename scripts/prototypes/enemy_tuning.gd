@@ -118,7 +118,7 @@ static func validate(id: String, values: Dictionary) -> String:
 		for key in ["grenade_reserve_capacity", "grenade_reserve_start"]:
 			if float(values[key]) != roundf(float(values[key])):
 				return "手雷枚数必须为整数"
-	for key in ["offense_front_limit", "offense_rage_limit"]:
+	for key in ["offense_front_limit", "offense_rage_limit", "shield_grenade_hits", "crystal_sniper_hits"]:
 		if values.has(key) and float(values[key]) != roundf(float(values[key])):
 			return "招组上限必须为整数"
 	if values.has("circle_inner_distance") and float(values.circle_inner_distance) > float(values.circle_outer_distance):

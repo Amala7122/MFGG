@@ -2,7 +2,15 @@
 
 `tests/` 只放可以明确给出通过 / 失败结果的自动检查。
 
-统一验收使用 `python tools/run_acceptance.py`（Python 3.10+）。默认运行 17 项核心检查；`--suite full` 运行全部无界面检查，图形专属检查明确记为未运行。用 `--graphics` 启用图形检查，或用 `--tests test_ui_surfaces test_player_presentation` 选择检查。引擎可用 `--godot` 或 `GODOT_BIN` 指定，Windows 默认查找项目同级的 Godot 控制台版本。
+玩家近战：`test_player_melee.gd` 检查空格 / E 分离、禁跳、轻扫 / 蓄力 / 连段 / 打断、护甲、泥盾、碰撞表面与遮挡、100 个候选目标上限、F7 暂停与显式保存；保存仅在验收隔离副本运行。`--graphics --tests test_player_melee` 额外保存面板截图，不据此宣称手感验收。
+
+玩家支援表现：`test_player_support_visuals.gd` 检查卫士外观 / 跟随 / 超频与末只停火、真实护盾吸收 / 溢出 / 无盾 / 无敌、方向转换 / 秒时钟、F8重播不改数值、显式保存与退出清理。图形模式额外保存5张图片，使用干净角色，不把机制测试遗留白闪当作新表现；不代表百体性能或视觉已验收。
+
+手绘画面：`test_sketch_filter.gd` 检查统一风格互斥、关闭不绘制 / 不复制、全部Shader参数接入、F9与F7 / F8互斥、草稿精度 / 显式保存回读、个人开关与项目默认分离、换场清理。图形模式增加HUD像素、实际窗口缩放后的四方向外沿、完整范围 / 填充、黑白地面与移除保色反例。实景GPU对照在 `tools/probes/sketch_comparison.gd`，不将固定静态场景当百体AI验收。
+
+灰模：`test_greybox.gd` 检查独立相机环境、材质引用 / 可见性恢复、Mesh / MultiMesh共享资源与变换、100个受控角色（不作AI帧率结论）、碰撞保持、动态 / 离树 / 旧队列、F4 / F10输入与显式保存、手绘临时绕过、正式场景天气与F1保留、缓存草丛 / 天空雾幕、预警 / 泥盾 / 弱点及跨场景清理。新增真实道路同源网格 / 几何保持、卫士与内嵌钉弹动态接入 / 状态同步、敌弹实际池化再发射、效果材质 / 灯恢复、扬尘隐藏 / 中性预览 / 自动清理与真实行走 / 冲刺入口。图形运行另存正式地图和`fx_`效果前后对照。
+
+统一验收使用 `python -B tools/run_acceptance.py`（Python 3.10+）。默认运行核心检查（名单以运行器的 `CORE_TESTS` 为准）；`--suite full` 运行全部无界面检查，图形专属检查明确记为未运行。用 `--graphics` 启用图形检查，或用 `--tests test_ui_surfaces test_player_presentation` 选择检查。引擎可用 `--godot` 或 `GODOT_BIN` 指定，Windows 默认查找项目同级的 Godot 控制台版本。
 
 执行器先检查目录，再创建独立工程和存档。默认位置为项目外 `_artifacts/godot-ruin_star_new/acceptance/<运行编号>/`：日志在 `logs/`、截图在 `screenshots/`、汇总和版本记录在 `reports/`、副本在 `tmp/project/`。脚本/资源 ERROR、非零退出、超时或缺失日志使整体退出非零；WARNING 保留。错误门槛自检故意报错但打印 PASS、退出 0，确认入口确实拒绝错误。直接单脚本退出码不能替代此入口。
 
@@ -21,7 +29,8 @@
 
 - `test_player_presentation.gd`：真实玩家 FOV 在 30/60/120 Hz 与普通/两档慢动作下的冲刺、停止、狙击和冲击；真实物理按键映射及 F 手电筒、R 换弹、C 共鸣，满能量时无串扰，持续按住 C 不重复释放。
 - `test_scene_dependencies.gd`：遍历自有场景/资源的传递依赖，检查资源存在性、依赖解析及旧 Combat Lab 兼容入口；配合导入检查与执行器的引擎错误门槛。
-- `test_audio_file_bank.gd`：音色库的文件音源层两种环境都要判 PASS——音效库在场时，`audio.file_bank` 点名的每个键都必须真的换成音频文件且时长非零；音效库被 `.gitignore` 排除、干净检出时，这些键必须静默回退到合成音色且键一个不少。另验证 `mortar` 键存在（I-033）与运行时循环开关可用（I-032）。
+- `test_audio_file_bank.gd`：音色库的文件音源层三种状态都要判 PASS——音效库在场时，`audio.file_bank` 点名的每个键都必须真的换成音频文件且时长非零；表为空或开关关闭时（当前就是这一种，全部 26 个键走合成）、以及音效库被 `.gitignore` 排除的干净检出，都必须一个文件键都没有且音色键一个不少。另验证 `mortar` 键存在（I-033）与运行时循环开关可用（I-032）。
+- `test_audio_synth_variants.gd`：合成音的多变体层。`audio.synth_variants` 配了 N>1 的键必须装成 `AudioStreamRandomizer`、`streams_count == N`、模式为 `PLAYBACK_RANDOM_NO_REPEATS`；没配的键必须仍是单个 `AudioStreamWAV`；变体之间波形不得相同；两次独立重建的同一变体必须逐字节相同（合成本身要是确定的）。同时打印音色库构建耗时。
 - `test_ui_surfaces.gd`：菜单/设置/暂停/结算和真实通知渲染；赐福按钮的尺寸/换行/完整文字/三种稀有度交互颜色，1920×1080、1280×720、960×540 配合四档 UI 缩放的布局与焦点滚动，以及数字键/鼠标/确认键实际选卡且只生效一次。图形运行加 `-- --capture` 保存截图。
 
 - `test_cinematic_flow_lifecycle.gd`：电影期间阻止射击、瞄准、技能、翻滚和鼠标转向，同时保留冷却/装填更新；真实波次与 Boss 特写的暂停/继续/完成、流程请求暂存与终止状态拒绝、跨类型镜头交接、场景退出，以及狙击名额的持有/取消/出手/死亡/重开/退出。使用 `--fixed-fps 60`；加 `-- --live-cinematics` 另跑真实帧循环中的慢动作、超时暂停与继续。
@@ -67,3 +76,5 @@
 - `test_new_enemy_visuals.gd`：三种新外形的网格预算、四种预览姿态、时间冻结/重播、体型修改与剪影兼容、预设磁盘读写和设为默认分离。
 
 - `test_new_enemy_deaths.gd`：爬兽转身与撤退优先级、真实目标绑定、三种死亡确定性/末帧/抖腿朝向、完成信号与结算组，以及晶刺蜂 K 键实播和抖腿。
+
+`test_titan_followup.gd`：正式玩家翻滚后停下／延迟侧移的命中反例、前半全攻势保盾、远距轻击和更大横扫选招、方向锁定、暂停／死亡、空中三雷取消后续及越界退出；真实E／狙击仍由shield_break／crystal／down系列守住。固定步长机制快测不作实战难度结论。

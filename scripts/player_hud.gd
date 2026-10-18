@@ -425,6 +425,12 @@ func _build_hit_marker() -> void:
 	_hit_marker.name = "HitMarker"
 	_aim_ui.add_child(_hit_marker)
 
+func set_target_feedback(feedback: Dictionary) -> void:
+	if _crosshair != null: _crosshair.set_target_feedback(feedback)
+
+func flash_target_feedback(feedback: Dictionary) -> void:
+	if _crosshair != null: _crosshair.flash_target_feedback(feedback)
+
 
 ## 受击方向指示器。相机是可选的：没传进来时它只是不画东西，
 ## 其余 HUD 功能不受影响（方便单独测试 HUD）。
@@ -794,6 +800,11 @@ func set_abilities(
 ) -> void:
 	if _ability_bar:
 		_ability_bar.set_cooldowns(grenade_remaining, skill_remaining, skill_charges, skill_charges_max, grenade_stock)
+
+
+func set_melee_status(status: Dictionary) -> void:
+	if _ability_bar:
+		_ability_bar.set_melee_status(status)
 
 
 ## EventBus.hit_confirmed 的接收端。headshot 只用于将来区分标记样式，

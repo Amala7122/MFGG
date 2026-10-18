@@ -169,17 +169,22 @@ const BANK_FALLBACK := {
 }
 
 
+## 单个键最多生成多少个合成变体。变体只换噪声细节，不改参数。
+const MAX_SYNTH_VARIANTS := 8
+
+
 func _build_bank() -> void:
 	var configured := ConfigUtil.get_dictionary("audio.bank")
+	var variant_counts := ConfigUtil.get_dictionary("audio.synth_variants")
 	for key in BANK_FALLBACK.keys():
 		var spec: Variant = configured.get(key, null)
-		var stream := _synth_from_spec(spec)
-		if stream == null:
+		if not _valid_spec(spec):
 			# 键缺失或参数非法：回退到内置参数，保证每个音色一定可用。
 			if spec != null:
 				push_error("AudioManager: 音色 %s 的参数非法，已用兜底值。" % key)
-			stream = _synth_from_spec(BANK_FALLBACK[key])
-		_bank[key] = stream
+			spec = BANK_FALLBACK[key]
+		var count := clampi(int(variant_counts.get(key, 1)), 1, MAX_SYNTH_VARIANTS)
+		_bank[key] = _build_synth_stream(spec, count)
 
 
 # ---------------------------------------------------------------- 文件音源层
@@ -275,18 +280,44 @@ static func describe_bank() -> Dictionary:
 	return out
 
 
+## 参数表是否合法：[时长, 起始频率, 结束频率, 衰减指数, 噪声占比, 增益] 六个数。
+static func _valid_spec(spec: Variant) -> bool:
+	if not (spec is Array) or (spec as Array).size() < 6:
+		return false
+	for item in spec:
+		if not (item is float or item is int):
+			return false
+	return true
+
+
+## 生成一个键的音源。
+##
+## count == 1：单个波形，和改动前完全一致。
+## count > 1：用 AudioStreamRandomizer 装多个「同参数、不同随机种子」的变体，
+##   `PLAYBACK_RANDOM_NO_REPEATS` 轮换 —— 只换噪声细节，参数一点没动，所以音色不变。
+##   目的是消掉连发时「每秒 7 次同一个波」的机械重复感。
+##   变体 0 的种子偏移是 0，**波形与改动前逐字节相同**。
+func _build_synth_stream(spec: Array, count: int) -> AudioStream:
+	var first := _synth_from_spec(spec, 0)
+	if count <= 1:
+		return first
+	var randomizer := AudioStreamRandomizer.new()
+	randomizer.playback_mode = AudioStreamRandomizer.PLAYBACK_RANDOM_NO_REPEATS
+	for index in range(count):
+		var stream := first if index == 0 else _synth_from_spec(spec, index)
+		randomizer.add_stream(index, stream, 1.0)
+	return randomizer
+
+
 ## 把 [时长, 起始频率, 结束频率, 衰减指数, 噪声占比, 增益] 合成成音频流。
 ## 参数缺失或类型不对时返回 null，由调用方决定怎么兜底。
-func _synth_from_spec(spec: Variant) -> AudioStreamWAV:
-	if not (spec is Array) or (spec as Array).size() < 6:
+func _synth_from_spec(spec: Variant, variant: int = 0) -> AudioStreamWAV:
+	if not _valid_spec(spec):
 		return null
 	var values := spec as Array
-	for item in values:
-		if not (item is float or item is int):
-			return null
 	return _synth(
 		float(values[0]), float(values[1]), float(values[2]),
-		float(values[3]), float(values[4]), float(values[5])
+		float(values[3]), float(values[4]), float(values[5]), variant
 	)
 
 
@@ -297,14 +328,16 @@ func _synth(
 	freq_end: float,
 	decay: float,
 	noise_mix: float,
-	gain: float
+	gain: float,
+	variant: int = 0
 ) -> AudioStreamWAV:
 	var count := int(SAMPLE_RATE * duration)
 	var data := PackedByteArray()
 	data.resize(count * 2)
 	var rng := RandomNumberGenerator.new()
 	# 用参数派生固定种子：同一种音效每次生成的波形一致，避免听感漂移。
-	rng.seed = int(freq_start) * 7919 + count
+	# variant 偏移换的是噪声序列，参数与包络完全不变，所以变体之间只是噪声细节不同。
+	rng.seed = int(freq_start) * 7919 + count + variant * 104729
 	var phase := 0.0
 	for index in range(count):
 		var progress := float(index) / float(count)

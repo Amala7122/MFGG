@@ -176,6 +176,10 @@ func _check_enemy_contact() -> void:
 			_request_detonation(enemy)
 			return
 
+func get_grenade_explosion_id() -> int:
+	return get_instance_id()
+
+
 func explode(direct_target: Node3D = null) -> void:
 	if _exploded:
 		return

@@ -59,9 +59,9 @@
       "fields": [
         {
           "key": "offense_enabled",
-          "label": "有限攻势与重招卸盾",
+          "label": "有限攻势",
           "value": false,
-          "tip": "正式Boss方案启用。重招前卸盾，完整后摇结束恢复；狂暴无盾。"
+          "tip": "正式方案启用；前半泥盾常驻，三雷破盾才跪地；狂暴无泥盾。"
         },
         {
           "key": "offense_front_limit",
@@ -102,6 +102,298 @@
           "step": 0.1,
           "unit": "秒",
           "tip": "保持常态盾，不兑换重招或长奖励。"
+        },
+        {
+          "key": "rage_bullet_hitstop_interval",
+          "label": "狂暴普通枪顿帧最短间隔",
+          "value": 0.0,
+          "min": 0,
+          "max": 1.5,
+          "step": 0.05,
+          "unit": "秒",
+          "tip": "0保留每发顿帧；仅狂暴普通枪的表现停顿，E硬直和破晶奖励不受限。下次命中读取，已开始停顿不取消。"
+        },
+        {
+          "key": "rage_shot_movement_armor",
+          "label": "狂暴追击不被普通枪顿帧刹停",
+          "value": false,
+          "tip": "仅狂暴待机／追击；普通枪照常伤害、冲击与命中反馈。E完整硬直及晶体破击／倒地保留，招式中仍按间隔兑现枪击顿帧。下次普通枪命中生效。"
+        },
+        {
+          "key": "rage_heavy_recovery_scale",
+          "label": "狂暴普通重招后摇倍率",
+          "value": 1.0,
+          "min": 0.35,
+          "max": 1.5,
+          "step": 0.05,
+          "unit": "倍",
+          "tip": "只缩放普通砸地／跃击收势，不改前摇、出手、范围、4秒跪地或8秒倒地。每次重招开始快照，半血不能吞掉前半已公布的2.4秒窗口。"
+        }
+      ]
+    },
+    {
+      "title": "常驻泥盾与跃击衔接 · 新实例生效",
+      "fields": [
+        {
+          "key": "heavy_sheds_shield",
+          "label": "旧重招主动卸盾",
+          "value": true,
+          "tip": "兼容旧方案；正式方案关闭，重招不再解除前半泥盾。"
+        },
+        {
+          "key": "thrust_enabled",
+          "label": "远距轻震拳",
+          "value": false,
+          "tip": "正式方案开启；窄直线预警锁定后不追踪，填补横扫外的距离。"
+        },
+        {
+          "key": "leap_followup_enabled",
+          "label": "跃击接轻震拳",
+          "value": false,
+          "tip": "有剩余招数且合法落地时接震拳收尾；墙后、越界或失去目标则收势。"
+        },
+        {
+          "key": "leap_link_gap",
+          "label": "前半落地接招间隔",
+          "value": 0.32,
+          "min": 0.1,
+          "max": 1,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": "跃击起手快照；落地至震拳预警，不缩短已开始的旧重招。 新实例读取。"
+        },
+        {
+          "key": "rage_leap_link_gap",
+          "label": "狂暴落地接招间隔",
+          "value": 0.18,
+          "min": 0.1,
+          "max": 1,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": "跃击起手快照；不含震拳独立预警和出手。 新实例读取。"
+        },
+        {
+          "key": "thrust_distance",
+          "label": "震拳长度",
+          "value": 8.5,
+          "min": 4,
+          "max": 12,
+          "step": 0.1,
+          "unit": "模型米",
+          "tip": "乘模型体型；正式1.65倍约14米，世界与肢体碰撞正常阻挡。 新实例读取。"
+        },
+        {
+          "key": "thrust_width",
+          "label": "震拳宽度",
+          "value": 1.8,
+          "min": 1,
+          "max": 4,
+          "step": 0.1,
+          "unit": "模型米",
+          "tip": "乘体型；保留侧移出口，不做全向追踪。 新实例读取。"
+        },
+        {
+          "key": "thrust_damage",
+          "label": "震拳伤害",
+          "value": 35,
+          "min": 1,
+          "max": 100,
+          "step": 1,
+          "unit": "点",
+          "tip": "轻击；不沿用跃击95点伤害。 新实例读取。"
+        },
+        {
+          "key": "thrust_windup",
+          "label": "前半震拳预备",
+          "value": 0.65,
+          "min": 0.3,
+          "max": 1.5,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": "起手时快照；完整可见预警之后才出手。 新实例读取。"
+        },
+        {
+          "key": "rage_thrust_windup",
+          "label": "狂暴震拳预备",
+          "value": 0.55,
+          "min": 0.3,
+          "max": 1.5,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": "起手时快照；锁定方向，允许侧移。 新实例读取。"
+        },
+        {
+          "key": "thrust_swing",
+          "label": "震拳出手",
+          "value": 0.1,
+          "min": 0.05,
+          "max": 0.4,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": "预备结束至命中；同次只结算一次。 新实例读取。"
+        },
+        {
+          "key": "thrust_recovery",
+          "label": "震拳收势",
+          "value": 0.6,
+          "min": 0.2,
+          "max": 1.5,
+          "step": 0.05,
+          "unit": "秒",
+          "tip": "命中后无残留判定；落地衔接震拳后结束招组。 新实例读取。"
+        },
+        {
+          "key": "thrust_cooldown",
+          "label": "震拳独立冷却",
+          "value": 1.8,
+          "min": 0.5,
+          "max": 8,
+          "step": 0.1,
+          "unit": "秒",
+          "tip": "从起手计时；不能无限补震拳。 新实例读取。"
+        }
+      ]
+    },
+    {
+      "title": "三雷破盾与跪地 · 下次状态生效",
+      "fields": [
+        {
+          "key": "shield_break_enabled",
+          "label": "三雷破盾跪地",
+          "value": false,
+          "tip": "正式方案启用。只计不同手雷真实触敌爆炸，主动卸盾保留进度。"
+        },
+        {
+          "key": "shield_grenade_hits",
+          "label": "破盾有效手雷数",
+          "value": 3,
+          "min": 1,
+          "max": 8,
+          "step": 1,
+          "unit": "枚",
+          "tip": "新实例／下次奖励状态快照；不缩短已开始窗口。"
+        },
+        {
+          "key": "kneel_lower_seconds",
+          "label": "跪下过渡",
+          "value": 0.6,
+          "min": 0.1,
+          "max": 3,
+          "step": 0.1,
+          "unit": "秒",
+          "tip": "新实例／下次奖励状态快照；不缩短已开始窗口。"
+        },
+        {
+          "key": "kneel_hold_seconds",
+          "label": "有效跪地输出",
+          "value": 4,
+          "min": 1,
+          "max": 12,
+          "step": 0.1,
+          "unit": "秒",
+          "tip": "新实例／下次奖励状态快照；不缩短已开始窗口。"
+        },
+        {
+          "key": "kneel_rise_seconds",
+          "label": "跪地起身",
+          "value": 0.8,
+          "min": 0.1,
+          "max": 3,
+          "step": 0.1,
+          "unit": "秒",
+          "tip": "新实例／下次奖励状态快照；不缩短已开始窗口。"
+        }
+      ]
+    },
+    {
+      "title": "狂暴晶体 · 下次状态快照",
+      "fields": [
+        {
+          "key": "crystal_break_enabled",
+          "label": "晶体狙击破解",
+          "value": false,
+          "tip": "正式完整倒地接通后启用，旧原型默认关闭。"
+        },
+        {
+          "key": "crystal_sniper_hits",
+          "label": "有效晶体狙击次数",
+          "value": 3,
+          "min": 1,
+          "max": 8,
+          "step": 1,
+          "unit": "次",
+          "tip": "只护晶体，不挡身体；保护时钟不受手雷短硬直延长。"
+        },
+        {
+          "key": "crystal_guard_seconds",
+          "label": "命中后晶体保护",
+          "value": 5,
+          "min": 0.5,
+          "max": 15,
+          "step": 0.1,
+          "unit": "秒",
+          "tip": "只护晶体，不挡身体；保护时钟不受手雷短硬直延长。"
+        },
+        {
+          "key": "crystal_flash_strength",
+          "label": "完整晶体闪光强度",
+          "value": 2.8,
+          "min": 0.5,
+          "max": 8,
+          "step": 0.1,
+          "unit": "倍",
+          "tip": "只护晶体，不挡身体；保护时钟不受手雷短硬直延长。"
+        }
+      ]
+    },
+    {
+      "title": "第三枪倒地 · 完整有效窗口",
+      "fields": [
+        {
+          "key": "down_reward_enabled",
+          "label": "晶体第三击倒地奖励",
+          "value": false,
+          "tip": "完整循环正式方案启用，原型默认关闭。"
+        },
+        {
+          "key": "down_lower_seconds",
+          "label": "倒下过渡",
+          "value": 0.8,
+          "min": 0.1,
+          "max": 3,
+          "step": 0.1,
+          "unit": "秒",
+          "tip": "下次倒地状态快照；最终覆盖旧狂暴承伤，不叠成三倍。"
+        },
+        {
+          "key": "down_hold_seconds",
+          "label": "有效倒地输出",
+          "value": 8,
+          "min": 2,
+          "max": 15,
+          "step": 0.1,
+          "unit": "秒",
+          "tip": "下次倒地状态快照；最终覆盖旧狂暴承伤，不叠成三倍。"
+        },
+        {
+          "key": "down_rise_seconds",
+          "label": "倒地起身",
+          "value": 1.2,
+          "min": 0.1,
+          "max": 3,
+          "step": 0.1,
+          "unit": "秒",
+          "tip": "下次倒地状态快照；最终覆盖旧狂暴承伤，不叠成三倍。"
+        },
+        {
+          "key": "down_damage_multiplier",
+          "label": "倒地最终承伤",
+          "value": 2,
+          "min": 1,
+          "max": 4,
+          "step": 0.1,
+          "unit": "倍",
+          "tip": "下次倒地状态快照；最终覆盖旧狂暴承伤，不叠成三倍。"
         }
       ]
     },

@@ -38,7 +38,7 @@ const WEAPON_RIG_PATH := "PlayerModel/WeaponRig"
 ## （weapon.sniper.*、_sniper_ammo…），所以这里只能按约定名去 list 里查它的分类。
 const SNIPER_WEAPON_ID := "sniper"
 const RECOIL_PIVOT_PATH := WEAPON_RIG_PATH + "/RecoilPivot"
-const SHOT_COLLISION_MASK := 5
+const SHOT_COLLISION_MASK := 5 | preload("res://scripts/weapon_hit_regions.gd").LAYER
 const WORLD_COLLISION_MASK := 1
 const SHOT_SURFACE_MARGIN := 0.02
 const SPREAD_PITCH_RATIO := 0.6
@@ -113,6 +113,8 @@ var _host: CharacterBody3D
 var _camera: Camera3D
 var _weapon_rig: Node3D
 var _recoil_pivot: Node3D
+var _melee_pose := Vector3.ZERO
+var _melee_active := false
 var _muzzle: Node3D
 var _muzzle_flash: MeshInstance3D
 var _muzzle_light: OmniLight3D
@@ -124,7 +126,9 @@ var _pose_weight := 0.0
 
 var _weapon_level := 1
 var _ammo := 0
+var _shot_serial := 0
 var _sniper_ammo := 0
+var _target_feedback_timer := 0.0
 var _sniper_reload_timer := 0.0
 var _fire_cooldown := 0.0
 var _reload_timer := 0.0
@@ -348,6 +352,12 @@ func setup(host: CharacterBody3D, camera_node: Camera3D) -> void:
 
 # ---------------------------------------------------------------- 每帧驱动
 
+func set_melee_pose(pose: Vector3, active: bool) -> void:
+	_melee_pose = pose
+	_melee_active = active
+	if _recoil_pivot:
+		_recoil_pivot.rotation = pose if active else Vector3(-_visual_recoil, 0.0, 0.0)
+
 func update(delta: float, trigger_held: bool, aiming: bool, movement_ratio: float) -> void:
 	_aiming = aiming
 	_movement_ratio = clampf(movement_ratio, 0.0, 1.6)
@@ -357,9 +367,15 @@ func update(delta: float, trigger_held: bool, aiming: bool, movement_ratio: floa
 	view_kick = view_kick.lerp(Vector2.ZERO, minf(delta * recoil_recovery, 1.0))
 	_visual_recoil = move_toward(_visual_recoil, 0.0, delta * 0.9)
 	if _recoil_pivot:
-		_recoil_pivot.rotation.x = -_visual_recoil
+		_recoil_pivot.rotation = _melee_pose if _melee_active else Vector3(-_visual_recoil, 0.0, 0.0)
 	_pose_weapon(delta)
 	_update_muzzle_flash(delta)
+	_target_feedback_timer -= delta
+	if _target_feedback_timer <= 0.0:
+		_target_feedback_timer = 0.08
+		var hud: Variant = _host.get("_hud") if is_instance_valid(_host) and "_hud" in _host else null
+		if hud != null and hud.has_method("set_target_feedback"):
+			hud.call("set_target_feedback", get_aim_feedback())
 
 	# 狙击弹匣的自动装填独立于冲锋枪换弹，必须放在任何早退之前。
 	_update_sniper_reload(delta)
@@ -532,7 +548,13 @@ func _collect_hits(direction: Vector3, sniper: bool, origin: Vector3, distance: 
 		# 打到地形 / 掩体：子弹被挡下，穿透到此为止。
 		if not bool(entry.is_enemy):
 			break
-		exclude.append(hit.rid)
+		var receiver := entry.collider as Node
+		if is_instance_valid(receiver) and receiver.has_method("blocks_weapon_hit") and receiver.call("blocks_weapon_hit", {"weapon_kind": "sniper" if sniper else "rifle", "hit_region": entry.get("hit_region", "body")}):
+			break # 无敌晶体罩是这发子弹的终点，不能继续穿到后方。
+		if is_instance_valid(receiver) and receiver.has_method("get_projectile_exclusions"):
+			exclude.append_array(receiver.call("get_projectile_exclusions"))
+		else:
+			exclude.append(hit.rid)
 	return hits
 
 
@@ -574,12 +596,16 @@ func _resolve_shot_hits(direction: Vector3, sniper: bool) -> Array:
 		aim_point = origin + physical_direction * shot_range
 	var obstruction := _shot_ray(origin, aim_point + physical_direction * SHOT_SURFACE_MARGIN, exclude)
 	if not obstruction.is_empty():
-		var collider := obstruction.collider as Node
-		if collider == null or not collider.is_in_group("enemies"):
+		var collider := BallisticsUtil.damage_receiver(obstruction.collider)
+		if collider == null:
 			return [_shot_entry(obstruction, sniper, physical_direction)]
 		if candidates.is_empty() or collider != candidates[0].collider:
 			# 枪口前的另一名敌人确实挡住枪线，按这条实体路径结算与穿透。
 			return _collect_hits(physical_direction, sniper, origin)
+		if collider.has_method("get_hit_region") and not candidates.is_empty():
+			var physical := _shot_entry(obstruction, sniper, physical_direction)
+			if physical.get("hit_region", "body") != candidates[0].get("hit_region", "body"):
+				return _collect_hits(physical_direction, sniper, origin)
 	# 枪口已在瞄准敌人体内时也使用相机的表面命中点，保留正确的爆头位置。
 	return candidates
 
@@ -590,7 +616,19 @@ func _shot_ray(from: Vector3, to: Vector3, exclude: Array[RID], mask: int = SHOT
 	var query := PhysicsRayQueryParameters3D.create(from, to, mask, exclude)
 	query.collide_with_areas = true
 	query.hit_from_inside = true
-	return _host.get_world_3d().direct_space_state.intersect_ray(query)
+	while true:
+		var hit := _host.get_world_3d().direct_space_state.intersect_ray(query)
+		if hit.is_empty(): return hit
+		var receiver := BallisticsUtil.damage_receiver(hit.collider)
+		if receiver == null or not receiver.has_method("get_weapon_query_exclusions"): return hit
+		var movement_only: Array = receiver.call("get_weapon_query_exclusions")
+		if not movement_only.has(hit.rid): return hit
+		# 只忽略已声明的移动／旧代理；实际模型受弹、世界掩体和其他敌人照常阻挡。
+		var next_exclude := query.exclude
+		for rid: RID in movement_only:
+			if not next_exclude.has(rid): next_exclude.append(rid)
+		query.exclude = next_exclude
+	return {}
 
 
 func get_combat_threat() -> Dictionary:
@@ -600,9 +638,16 @@ func get_combat_threat() -> Dictionary:
 
 
 func _shot_entry(hit: Dictionary, sniper: bool, direction: Vector3) -> Dictionary:
-	var collider := hit.collider as Node
-	var enemy := collider as Node3D
-	var is_enemy := enemy != null and collider.is_in_group("enemies")
+	var raw_collider := hit.collider as Node
+	var receiver := BallisticsUtil.damage_receiver(raw_collider)
+	var collider: Node = receiver if receiver != null else raw_collider
+	var enemy := receiver as Node3D
+	var is_enemy := enemy != null
+	var region := "body"
+	if receiver != null and raw_collider != receiver:
+		region = String(raw_collider.get_meta(&"hit_region", "body"))
+	elif receiver != null and receiver.has_method("get_hit_region"):
+		region = String(receiver.call("get_hit_region", int(hit.get("shape", -1))))
 	var position: Vector3 = hit.position
 	var normal: Vector3 = hit.get("normal", Vector3.ZERO)
 	# 内部起点没有表面法线，不能把枪口高度误当爆头位置；反馈也需要有效法线。
@@ -613,7 +658,7 @@ func _shot_entry(hit: Dictionary, sniper: bool, direction: Vector3) -> Dictionar
 			* WeaponEffects.damage_multiplier(_host)
 	return {"collider": collider, "position": position,
 		"normal": -direction if normal.is_zero_approx() else normal,
-		"is_enemy": is_enemy, "headshot": headshot, "amount": amount}
+		"is_enemy": is_enemy, "headshot": headshot, "amount": amount, "hit_region": region}
 
 
 func _fire_hitscan(direction: Vector3, sniper: bool) -> void:
@@ -622,6 +667,8 @@ func _fire_hitscan(direction: Vector3, sniper: bool) -> void:
 	var scene := _host.get_tree().current_scene
 	if not scene:
 		return
+	_shot_serial += 1
+	var shot_id := "%s:%s" % [get_instance_id(), _shot_serial]
 	var hits := _resolve_shot_hits(direction, sniper)
 
 	# juice：弹道光迹（Hitscan 专用），瞬间出现并迅速淡出
@@ -640,9 +687,18 @@ func _fire_hitscan(direction: Vector3, sniper: bool) -> void:
 	var impact_scale := 1.4 if sniper else 1.0
 	# 穿透时逐个目标依次结算。
 	for entry in hits:
+		var context: Dictionary = get_meta(&"combat_context", {}).duplicate(true)
+		context.merge({"weapon_kind": "sniper" if sniper else "rifle", "shot_id": shot_id, "hit_region": entry.get("hit_region", "body")}, true)
+		var receiver := entry.collider as Node
+		var blocked: bool = is_instance_valid(receiver) and receiver.has_method("blocks_weapon_hit") and receiver.call("blocks_weapon_hit", context)
 		var killed := BallisticsUtil.apply_damage(
-			entry["collider"], entry["amount"], entry["position"], entry["headshot"], get_meta(&"combat_context", {})
+			entry["collider"], entry["amount"], entry["position"], entry["headshot"], context
 		)
+		var feedback_hud: Variant = _host.get("_hud") if "_hud" in _host else null
+		if feedback_hud != null and feedback_hud.has_method("flash_target_feedback") and is_instance_valid(receiver) and receiver.has_method("get_weapon_hit_feedback"):
+			feedback_hud.call("flash_target_feedback", receiver.call("get_weapon_hit_feedback", context))
+		if blocked:
+			continue # 受保护晶体只显示拦截反馈，不附加燃烧或再穿到同一身体。
 		if entry["is_enemy"]:
 			WeaponEffects.apply_hit_effects(entry["collider"], {
 				"damage": entry["amount"], "is_sniper": sniper,
@@ -687,6 +743,23 @@ func get_aim_point() -> Vector3:
 		exclude.append(_host.get_rid())
 	var hit := _shot_ray(ray_origin, ray_end, exclude)
 	return hit.position if hit else ray_end
+
+func get_aim_feedback() -> Dictionary:
+	if not is_instance_valid(_camera): return {}
+	var direction := -_camera.global_basis.z
+	var hits := _resolve_shot_hits(direction, _aiming)
+	if hits.is_empty(): return {}
+	var entry: Dictionary = hits[0]
+	var receiver := entry.collider as Node
+	if bool(entry.is_enemy) and receiver.has_method("get_weapon_aim_feedback"):
+		return receiver.call("get_weapon_aim_feedback", {"hit_region": entry.hit_region, "weapon_kind": "sniper" if _aiming else "rifle"})
+	# 相机确实看到了目标，但真实枪口／肩部被掩体挡住。
+	if not bool(entry.is_enemy):
+		var camera_hits := _collect_hits(direction, _aiming, _camera.global_position)
+		if not camera_hits.is_empty() and bool(camera_hits[0].is_enemy) and camera_hits[0].collider.has_method("get_weapon_aim_feedback"):
+			var cue: Dictionary = camera_hits[0].collider.call("get_weapon_aim_feedback", {"hit_region": camera_hits[0].hit_region, "weapon_kind": "sniper" if _aiming else "rifle"})
+			if not cue.is_empty(): return {"kind": "obstructed", "text": "枪线被掩体挡住", "color": Color(0.8, 0.85, 0.88)}
+	return {}
 
 
 # ---------------------------------------------------------------- 扩散

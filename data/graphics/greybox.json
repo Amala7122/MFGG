@@ -1,0 +1,35 @@
+{
+  "grid_size": 1,
+  "major_grid_step": 5,
+  "line_width": 0.025,
+  "major_line_width": 0.055,
+  "checker_strength": 0.22,
+  "light_energy": 1.25,
+  "ambient_energy": 0.95,
+  "ssao_enabled": 1,
+  "show_dust": 0,
+  "ground_color": [
+    0.7,
+    0.72,
+    0.75,
+    1
+  ],
+  "obstacle_color": [
+    0.48,
+    0.5,
+    0.53,
+    1
+  ],
+  "enemy_color": [
+    0.92,
+    0.4,
+    0.16,
+    1
+  ],
+  "studio_background": [
+    0.72,
+    0.74,
+    0.77,
+    1
+  ]
+}

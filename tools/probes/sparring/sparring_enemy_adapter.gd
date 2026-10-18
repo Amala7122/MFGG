@@ -43,6 +43,22 @@ static func public_area(actor: Node3D) -> Node3D:
 static func public_shield(actor: Node3D) -> bool:
 	return bool(value(actor, "has_mud_shield", false)) if implementation(actor) == "titan" else false
 
+static func public_break_cues(actor: Node3D) -> Dictionary:
+	# 决策只看场景中已显示的模型／颜色／罩；不读计数、状态机或剩余计时。
+	if implementation(actor) != "titan":
+		return {}
+	var core: MeshInstance3D = value(actor, "core_mesh")
+	var torso: Node3D = value(actor, "torso_pivot")
+	var visual: Node3D = value(actor, "visual_root")
+	var guard: Node3D = value(actor, "_crystal_guard_visual")
+	if not is_instance_valid(core) or not core.is_visible_in_tree():
+		return {}
+	var material := core.material_override as StandardMaterial3D
+	return {"crystal": core.global_position, "body": torso.global_position,
+		"red_crystal": material != null and material.albedo_color.g < 0.2,
+		"guard_visible": is_instance_valid(guard) and guard.is_visible_in_tree(),
+		"fallen_pose": absf(visual.rotation.x) > 0.8}
+
 static func sample(actor: Node3D, id: String) -> Dictionary:
 	var kind := implementation(actor)
 	var supported := kind != "basic"
@@ -58,7 +74,7 @@ static func sample(actor: Node3D, id: String) -> Dictionary:
 	var attack := {}
 	if kind == "titan":
 		raw_state = int(value(actor, "current_state", -1))
-		var names := ["emerging", "idle", "chase", "slam", "sweep", "shield", "dead", "leap_windup", "leap_air", "leap_recover", "jump_melee", "group_rest"]
+		var names := ["emerging", "idle", "chase", "slam", "sweep", "shield", "dead", "leap_windup", "leap_air", "leap_recover", "jump_melee", "group_rest", "reward_lower", "reward_hold", "reward_rise", "reward_landing", "thrust"]
 		state = names[raw_state] if raw_state >= 0 and raw_state < names.size() else "unknown"
 		actionable = raw_state in [1, 2]
 		waiting = not actionable

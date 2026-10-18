@@ -49,6 +49,7 @@ static func group_summary(rows: Array) -> Array:
 static func write(rows: Array, comparison := "") -> void:
 	var directory := Artifacts.ensure_dir("reports", "sparring")
 	var batch := {"schema_version": 3, "trials": rows, "time_is_quality_score": false, "comparison": comparison, "groups": group_summary(rows)}
+	batch["cycle_contrasts"] = load("res://tools/probes/sparring/sparring_cycle_analysis.gd").contrasts(rows)
 	batch["eligible_trials"] = rows.filter(func(row: Dictionary): return bool(row.get("analysis", {}).get("eligible_for_balance", false))).size()
 	batch["review_trials"] = rows.size() - int(batch.eligible_trials)
 	var file := FileAccess.open(directory.path_join("batch.json"), FileAccess.WRITE)
@@ -76,11 +77,11 @@ static func write(rows: Array, comparison := "") -> void:
 	for group: Dictionary in batch.groups:
 		file.store_string("| %s / %s / %s | %d / %d | %d | %d | %d | %.1f | %d / %d | %s |\n" % [group.scenario_id, group.group_id, group.actor_origin, group.valid, group.total, group.deaths, group.wins, group.censored, group.peak_one_second_loss, group.profiles.size(), group.seeds.size(), group.interpretation])
 	file.store_string("\n样本审计：可作正常交战对照 %d 局，待复核／重放等 %d 局。进程执行成功不等于样本有效；CI 可传 --require-valid。\n\n" % [batch.eligible_trials, batch.review_trials])
-	file.store_string("| 场景／编组 | 策略 | 种子 | 原始结果 | 样本有效性 | 观察秒 | 敌方剩余总生命 | 实际受击 | 寻敌占比 | 记录 |\n|---|---|---|---|---|---:|---:|---:|---:|---|\n")
+	file.store_string("| 场景／编组 | 策略／实例试验 | 种子 | 原始结果 | 样本有效性 | 观察秒 | 敌方剩余总生命 | 实际受击 | 寻敌占比 | 记录 |\n|---|---|---|---|---|---:|---:|---:|---:|---|\n")
 	for row: Dictionary in rows:
 		if row.is_empty():
 			continue
-		file.store_string("| %s | %s | %s | %s | %s | %.2f | %.0f | %d | %.1f%% | [详情](<%s>) |\n" % [String(row.conditions.get("scenario_id", "legacy")) + "/" + (String(row.conditions.get("group_id", "")) if row.conditions.get("scenario", {}).get("kind", "") != "boss_direct" else "Boss直战·" + phase_caption(row.conditions.scenario)), row.conditions.profile.title, row.conditions.seed, row.outcome, row.get("analysis", {}).get("sample_validity", "旧报告未核对"), row.observation_seconds, row.final_boss.get("hp", 0), row.unblocked_hits, float(row.get("engagement", {}).get("search_fraction", 0.0)) * 100.0, String(row.directory).path_join("结果.md")])
+		file.store_string("| %s | %s | %s | %s | %s | %.2f | %.0f | %d | %.1f%% | [详情](<%s>) |\n" % [String(row.conditions.get("scenario_id", "legacy")) + "/" + (String(row.conditions.get("group_id", "")) if row.conditions.get("scenario", {}).get("kind", "") != "boss_direct" else "Boss直战·" + phase_caption(row.conditions.scenario)), String(row.conditions.profile.title) + "/" + String(row.conditions.profile.get("boss_experiment", {}).get("pressure_trial", "formal")), row.conditions.seed, row.outcome, row.get("analysis", {}).get("sample_validity", "旧报告未核对"), row.observation_seconds, row.final_boss.get("hp", 0), row.unblocked_hits, float(row.get("engagement", {}).get("search_fraction", 0.0)) * 100.0, String(row.directory).path_join("结果.md")])
 	if not baseline.is_empty():
 		file.store_string("\n## 同条件配对差异\n\n只配对审计未发现异常、且策略参数、种子、配装、初始位置、预算、模式、运行环境与陪练指纹相同的样本；玩法指纹允许不同且明确列出。排除原因单列，截断样本无法推出完整胜率。\n\n| 策略/种子 | 基线 → 当前 | 受击变化 | 敌方剩余总生命变化 | 玩法文件变化 | 陪练指纹 |\n|---|---|---:|---:|---|---|\n")
 		for row: Dictionary in rows:
@@ -101,6 +102,11 @@ static func write(rows: Array, comparison := "") -> void:
 					var harness_matches: bool = row.get("harness_sha256", {}) == prior.get("harness_sha256", {}) and row.has("harness_sha256")
 					file.store_string("| %s/%s | %s → %s | %+d | %+.0f | %s | %s |\n" % [row.conditions.profile_id, row.conditions.seed, prior.outcome, row.outcome, row.unblocked_hits - prior.unblocked_hits, float(row.final_boss.hp) - float(prior.final_boss.hp), ", ".join(changed) if not changed.is_empty() else "无", "一致" if harness_matches else "不同或旧报告未记录，需复核"])
 					break
+	file.store_string("\n## 新循环与明确试验轴\n\n| 策略／种子 | 狙击／有效破击／保护拦截 | 有效触盾 | 奖励窗口数（含截断） | 窗口实际伤害／总伤害占比 |\n|---|---|---:|---:|---|\n")
+	for row: Dictionary in rows:
+		var cycles: Dictionary = row.get("cycles", {})
+		file.store_string("| %s／%s | %d／%d／%d | %d | %d | %.0f／%s |\n" % [row.conditions.profile_id, row.conditions.seed, cycles.get("sniper_shots", 0), cycles.get("crystal_break_hits", 0), cycles.get("protected_shots", 0), cycles.get("shield_contacts", 0), cycles.get("windows", []).size(), cycles.get("damage_in_reward", 0.0), str(cycles.get("reward_share", null))])
+	file.store_string("\n同种子、初始条件、环境与指纹审计后的策略／倒地时长／命名压力候选配对 %d；排除 %d，逐对原因见 batch.json 的 cycle_contrasts。仅声明的策略开关、倒地时长或压力候选可以不同，反应／误差不同不会伪装成同条件配对。\n" % [batch.cycle_contrasts.pairs.size(), batch.cycle_contrasts.exclusions.size()])
 	if not comparison.is_empty():
 		file.store_string("\n满足条件的配对：%d。\n" % paired_count)
 		for reason: String in exclusions:
@@ -113,6 +119,10 @@ static func write(rows: Array, comparison := "") -> void:
 static func comparison_rejection(current: Dictionary, prior: Dictionary) -> String:
 	if not bool(current.get("analysis", {}).get("eligible_for_balance", false)) or not bool(prior.get("analysis", {}).get("eligible_for_balance", false)):
 		return "样本异常、重放或旧报告尚未完成有效性审计"
+	for row: Dictionary in [current, prior]:
+		for field: String in ["conditions", "initial_player", "initial_world", "harness_sha256", "gameplay_sha256", "execution_environment"]:
+			if not row.get(field) is Dictionary or row[field].is_empty():
+				return "缺少实际配对证据：" + field
 	if not same_value(current.get("conditions", {}), prior.get("conditions", {})):
 		return "运行条件不同"
 	if not same_value(current.get("initial_player", {}), prior.get("initial_player", {})):

@@ -470,7 +470,7 @@ func take_damage(amount: float) -> void:
 	if current_state == State.DEAD or amount <= 0.0:
 		return
 	var before := health
-	health = maxf(health - amount * (1.0 - _armor), 0.0)
+	health = maxf(health - preload("res://scripts/combat_damage.gd").armored(self, amount, _armor), 0.0)
 	Telemetry.enemy_damaged(self, before)
 	_update_health_label()
 	if health <= 0.0:

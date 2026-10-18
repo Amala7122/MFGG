@@ -1,0 +1,37 @@
+{
+  "filter_blend": 0.8,
+  "monochrome_mode": 0,
+  "color_saturation": 1.25,
+  "color_contrast": 1.05,
+  "paper_tint": 0.04,
+  "protect_vfx_particles": 1,
+  "vfx_threshold": 0.92,
+  "vfx_glow_intensity": 1.2,
+  "keep_vfx_color": 1,
+  "preserve_red_signals": 1,
+  "paper_color": [
+    0.95,
+    0.93,
+    0.88,
+    1
+  ],
+  "pencil_color": [
+    0.12,
+    0.11,
+    0.1,
+    1
+  ],
+  "paper_texture_strength": 0,
+  "paper_mottling": 0.12,
+  "paper_vignette": 0.32,
+  "line_thickness": 0.6,
+  "edge_strength": 4.2,
+  "edge_threshold": 0.1,
+  "line_wobble": 1.5,
+  "stroke_roughness": 0.05,
+  "double_stroke": 0,
+  "enable_hatching": 0,
+  "shadow_threshold": 0.32,
+  "hatch_density": 3.5,
+  "color_bands": 4
+}

@@ -20,7 +20,7 @@ const RESOLUTIONS: Array[Vector2i] = [
 ]
 const UI_SCALES: Array[float] = [0.85, 1.0, 1.15, 1.3]
 const RENDER_SCALES: Array[float] = [1.0, 0.85, 0.7]
-const POST_PROCESS_LABELS := ["关闭", "黑白电视", "显像管电视", "老照片", "反色"]
+const POST_PROCESS_LABELS := ["关闭", "黑白电视", "显像管电视", "老照片", "反色", "手绘彩铅 / 素描"]
 
 static var instance: Node
 
@@ -152,6 +152,12 @@ func cycle_render_scale() -> void:
 
 func cycle_post_process_style() -> void:
 	post_process_style = (post_process_style + 1) % POST_PROCESS_LABELS.size()
+	_save_settings()
+	_apply_post_process()
+
+
+func select_post_process_style(value: int) -> void:
+	post_process_style = clampi(value, 0, POST_PROCESS_LABELS.size() - 1)
 	_save_settings()
 	_apply_post_process()
 

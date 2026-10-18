@@ -42,6 +42,8 @@ var _seed: SpinBox
 var _budget: SpinBox
 var _name: LineEdit
 var _fields: Dictionary = {}
+var _down_trial: OptionButton
+var _pressure_trial: OptionButton
 var _diagnostic_fields: Dictionary = {}
 var _profile_ids: Array = []
 var _document: Dictionary = {}
@@ -109,6 +111,16 @@ func start_run() -> void:
 		options["model_sha256"] = FileAccess.get_sha256(options.model_path)
 	driver.setup(options.profile, int(options.seed))
 	driver.encounter = encounter
+	var experiment: Dictionary = options.profile.get("boss_experiment", {})
+	if not experiment.is_empty():
+		if options.scenario.kind != "boss_direct" or not boss.has_method("get_break_reward_status"):
+			_status.text = "Boss试验仅支持已接入奖励机制的泰坦直战"
+			return
+		var values := Settings.BossTrials.values(experiment)
+		for key: String in values:
+			boss.get("_tuning")[key] = values[key]
+			if key == "rage_speed_multiplier":
+				boss.set(key, values[key])
 	actor.get("_weapon").get("_rng").seed = int(options.seed) + 727
 	recorder = Recorder.new()
 	recorder.encounter = encounter
@@ -363,6 +375,18 @@ func _build_panel() -> void:
 		check.button_pressed = bool(options.profile[spec[0]])
 		column.add_child(check)
 		_fields[spec[0]] = check
+	_down_trial = OptionButton.new()
+	for caption in ["正式配置（不覆盖）", "试验 4 秒", "试验 5 秒", "试验 6 秒", "试验 8 秒", "试验 10 秒"]:
+		_down_trial.add_item(caption)
+	_down_trial.select([0.0, 4.0, 5.0, 6.0, 8.0, 10.0].find(float(options.profile.get("boss_experiment", {}).get("down_hold_seconds", 0.0))))
+	_down_trial.tooltip_text = "仅陪练Boss下轮实例；可随命名策略保存，不写正式Boss默认。不同秒数作为明确的单项对照。"
+	_row(column, "倒地有效窗口试验（下轮生效）", _down_trial)
+	_pressure_trial = OptionButton.new()
+	for caption: String in Settings.BossTrials.LABELS:
+		_pressure_trial.add_item(caption)
+	_pressure_trial.select(Settings.BossTrials.IDS.find(String(options.profile.get("boss_experiment", {}).get("pressure_trial", ""))))
+	_pressure_trial.tooltip_text = "泰坦实例试验；原2.4秒／候选1.56或1.2秒完整收势，枪击限频0.35秒，追击只免普通枪动作暂停。E硬直、血量、伤害、范围和长奖励不变。"
+	_row(column, "狂暴压力对照（下轮生效）", _pressure_trial)
 	for spec: Array in [["stall_seconds", "停摆观察阈值 秒（不评分）", 0.5, 30, 0.5], ["stationary_radius", "原地容差 米", 0.01, 2, 0.01],
 		["snapshot_interval", "常态诊断间隔 秒", 0.016, 1, 0.001], ["context_seconds", "异常前保留 秒", 1, 15, 1]]:
 		_diagnostic_fields[spec[0]] = _number(column, spec[1], spec[2], spec[3], spec[4], options.diagnostics[spec[0]])
@@ -468,6 +492,13 @@ func _read_panel() -> Dictionary:
 		return value
 	value.profile_id = _profile_ids[_profiles.selected]
 	value.profile = _document.presets[value.profile_id].duplicate(true)
+	value.profile.erase("boss_experiment")
+	if _down_trial != null and _down_trial.selected > 0:
+		value.profile["boss_experiment"] = {"down_hold_seconds": [0.0, 4.0, 5.0, 6.0, 8.0, 10.0][_down_trial.selected]}
+	if _pressure_trial != null and _pressure_trial.selected > 0:
+		if not value.profile.has("boss_experiment"):
+			value.profile["boss_experiment"] = {}
+		value.profile.boss_experiment["pressure_trial"] = Settings.BossTrials.IDS[_pressure_trial.selected]
 	for key: String in _fields:
 		value.profile[key] = _fields[key].button_pressed if _fields[key] is CheckBox else _fields[key].value
 	value.diagnostics = {}
@@ -604,6 +635,8 @@ func _copy_batch_command() -> void:
 
 func _select_profile(index: int) -> void:
 	var values: Dictionary = _document.presets[_profile_ids[index]]
+	_down_trial.select([0.0, 4.0, 5.0, 6.0, 8.0, 10.0].find(float(values.get("boss_experiment", {}).get("down_hold_seconds", 0.0))))
+	_pressure_trial.select(Settings.BossTrials.IDS.find(String(values.get("boss_experiment", {}).get("pressure_trial", ""))))
 	_name.text = String(_profile_ids[index])
 	for key: String in _fields:
 		if _fields[key] is CheckBox:

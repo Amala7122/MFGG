@@ -26,6 +26,7 @@ var _skill_charges := -1
 var _skill_charges_max := 0
 var _drawn_key := ""
 var _grenade_stock: Dictionary = {}
+var _melee_text := ""
 
 
 func _ready() -> void:
@@ -59,7 +60,16 @@ func set_cooldowns(
 	queue_redraw()
 
 
+func set_melee_status(status: Dictionary) -> void:
+	var text := String(status.get("text", ""))
+	if text != _melee_text:
+		_melee_text = text
+		queue_redraw()
+
+
 func _draw() -> void:
+	if not _melee_text.is_empty() and _font:
+		draw_string(_font, Vector2(2.0, -5.0), _melee_text, HORIZONTAL_ALIGNMENT_LEFT, PANEL_WIDTH, 11, UiThemeUtil.COLOR_BODY)
 	var reserve: bool = _grenade_stock.get("mode", "cooldown") == "reserve"
 	_draw_card(Vector2.ZERO, "E", "手雷 %d/%d" % [_grenade_stock.charges, _grenade_stock.capacity] if reserve else "手雷",
 		_grenade_remaining, float(_grenade_stock.get("throw_interval", _grenade_total)), true,

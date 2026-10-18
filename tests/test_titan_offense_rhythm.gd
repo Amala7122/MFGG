@@ -34,6 +34,9 @@ func _run() -> void:
 	world.add_child(spawner)
 	var boss: CharacterBody3D = spawner.spawn_boss("sediment_titan", Vector3.ZERO)
 	boss.ai_enabled = false
+	# 本测试守住A4.1的原2.4秒完整窗口；狂暴新配置与快照由test_titan_pressure独立验证。
+	boss._tuning.rage_heavy_recovery_scale = 1.0
+	boss._tuning.leap_followup_enabled = false # 独立守住无衔接时完整重跃击；新衔接另测。
 	check(boss.prepare_sparring_phase("front"), "可以直入前半稳定姿态")
 	boss.target = player
 	for _i in range(5):
@@ -51,14 +54,14 @@ func _run() -> void:
 	check(boss.has_mud_shield and boss._brain.group_count == 1, "快横扫保留泥盾并消费一招")
 	await _idle(boss)
 	boss.trigger_slam_attack()
-	check(boss._heavy_window and not boss.has_mud_shield and not boss.mud_shield_visual.visible, "砸地预警前先卸盾，视觉与判定同步")
+	check(boss._heavy_window and boss.has_mud_shield and boss.mud_shield_visual.visible, "正式前半重招全程保盾，视觉与判定同步")
 	before = boss.health
 	boss.take_damage(100.0)
-	check(is_equal_approx(before - float(boss.health), 100.0), "主动卸盾立即兑现身体完整伤害")
+	check(is_equal_approx(before - float(boss.health), 20.0), "正式重招仍保留泥盾减伤，三雷破盾才有高收益")
 	var result: Dictionary = await _observe_heavy(boss, true)
 	rows.append(result)
 	check(float(result.recovery_seconds) >= 2.33 and float(result.recovery_seconds) < 2.8, "砸地有效收势约2.4秒，短硬直不吞窗口")
-	check(boss.has_mud_shield and boss._brain.group_count == 0, "完整后摇结束才重施泥盾并结束招组")
+	check(boss.has_mud_shield and boss._brain.group_count == 0, "完整后摇结束维持泥盾并结束招组")
 	# 半血发生在承诺后的动作中，不能取消已开始的收势或临时多加一招。
 	boss._brain.cooldowns.slam = 0.0
 	boss.trigger_slam_attack()
@@ -67,6 +70,7 @@ func _run() -> void:
 	var stock: Dictionary = player.get_grenade_status()
 	result = await _observe_heavy(boss, false)
 	rows.append(result)
+	check(float(result.recovery_seconds) >= 2.33, "半血不缩短前半已公布的完整2.4秒收势")
 	check(not boss.has_mud_shield and not boss.mud_shield_visual.visible, "狂暴重招收势结束不重建泥盾")
 	boss.on_resonance_incoming(Vector3.ZERO)
 	boss._activate_mud_shield(true)
@@ -90,6 +94,7 @@ func _run() -> void:
 	boss._brain.cooldowns.slam = 20.0
 	boss._brain.cooldowns.sweep = 20.0
 	boss._brain.cooldowns.leap = 20.0
+	boss._brain.cooldowns.thrust = 20.0
 	for _i in range(135):
 		await physics_frame
 	check(boss.current_state == boss.State.GROUP_REST and boss._brain.group_count == 0, "衔接失败在物理循环进入短收势而非无限补招")
@@ -163,9 +168,9 @@ func _observe_heavy(boss: Node, front: bool) -> Dictionary:
 			recovery_frame = Engine.get_physics_frames()
 			location = boss.global_position
 		if boss._heavy_window:
-			check(not boss.has_mud_shield and not boss.mud_shield_visual.visible, "重招前摇／出手／后摇全程无盾")
+			check(boss.has_mud_shield == (not boss.is_enraged) and boss.mud_shield_visual.visible == (not boss.is_enraged), "重招前摇／出手／后摇：前半常驻盾，狂暴无盾 rage=%s shield=%s visual=%s" % [boss.is_enraged, boss.has_mud_shield, boss.mud_shield_visual.visible])
 			boss.on_resonance_incoming(Vector3.ZERO)
-			check(not boss.has_mud_shield, "共鸣不能覆盖已承诺窗口")
+			check(boss.has_mud_shield == (not boss.is_enraged), "共鸣不能改变前半常驻／狂暴无盾规则")
 		if boss._heavy_recovering:
 			check(Vector2(boss.global_position.x - location.x, boss.global_position.z - location.z).length() < 0.04, "收势期间不追击或横移")
 			check(boss._attack_area.phase == boss.AttackArea.Phase.RECOVERY, "收势没有残留攻击判定")
@@ -176,7 +181,7 @@ func _observe_heavy(boss: Node, front: bool) -> Dictionary:
 				var elapsed: float = boss._brain.elapsed
 				for _j in range(8):
 					await process_frame
-				check(is_equal_approx(elapsed, float(boss._brain.elapsed)) and not boss.has_mud_shield, "暂停冻结窗口和招组计时")
+				check(is_equal_approx(elapsed, float(boss._brain.elapsed)) and boss.has_mud_shield, "暂停冻结窗口和招组计时，保留前半盾")
 				paused_frames += Engine.get_physics_frames() - pause_start
 				paused = false
 				boss.apply_grenade_stagger(0.25)

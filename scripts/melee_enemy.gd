@@ -754,7 +754,7 @@ func _apply_damage(amount: float) -> void:
 	var before := health
 	_took_damage = true
 	# 【重量】护甲：对所有伤害来源减伤（含手雷 / 脉冲的爆炸结算）。
-	health -= amount * (1.0 - _armor)
+	health -= preload("res://scripts/combat_damage.gd").armored(self, amount, _armor)
 	preload("res://scripts/combat_telemetry.gd").enemy_damaged(self, before)
 	# 【实验场】敌人不死：伤害照常结算、受击表现照常播，只是不进入死亡。
 	# 机制验证要在"挨打之后"才看得到反应（插盾 / 格挡 / 激怒），一打就死就没得看。

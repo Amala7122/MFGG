@@ -6,6 +6,8 @@ const Adapter := preload("res://tools/probes/sparring/sparring_enemy_adapter.gd"
 const InputContract := preload("res://tools/probes/sparring/sparring_input.gd")
 const HumanData := preload("res://tools/probes/sparring/sparring_human_data.gd")
 const PublicSensor := preload("res://tools/probes/sparring/sparring_controller.gd")
+const CycleAnalysis := preload("res://tools/probes/sparring/sparring_cycle_analysis.gd")
+var _recorded_actor: Node3D
 var _sensor: RefCounted
 var _public_context: Dictionary = {}
 var _next_context := 0.0
@@ -52,6 +54,7 @@ var _initial_world: Dictionary = {}
 
 func open_recording(settings: Dictionary, actor: Node, boss: Node3D) -> bool:
 	options = settings.duplicate(true)
+	_recorded_actor = actor
 	_sensor = PublicSensor.new()
 	_sensor.setup(options.profile, int(options.seed))
 	_sensor.encounter = encounter
@@ -215,6 +218,17 @@ func begin_attack(source: String) -> int:
 	var id := super.begin_attack(source)
 	if id > 0:
 		_event("attack_released", {"source": source, "shot": id})
+		if source == "sniper" and is_instance_valid(_recorded_actor):
+			# 狙击零散布；在正式fire紧接着结算之前记录同一相机／枪口射线。
+			# 只诊断，结果不回传给控制器，不改变扳机或弹道。
+			var weapon: Node = _recorded_actor.get("_weapon")
+			var camera: Camera3D = _recorded_actor.get("camera")
+			var hits: Array = weapon.call("_resolve_shot_hits", -camera.global_basis.z, true)
+			var hit: Dictionary = hits[0] if not hits.is_empty() else {}
+			var target := hit.get("collider") as Node
+			_event("sniper_trace", {"shot": id, "region": hit.get("hit_region", "miss") if bool(hit.get("is_enemy", false)) else "world" if not hit.is_empty() else "miss",
+				"subject_id": String(target.get_meta(&"sparring_actor_id", "")) if is_instance_valid(target) else "",
+				"blocked": bool(target.call("blocks_weapon_hit", {"hit_region": hit.get("hit_region", "body"), "weapon_kind": "sniper"})) if is_instance_valid(target) and target.has_method("blocks_weapon_hit") else false})
 	return id
 
 func resource(source: String, kind: String, amount: float) -> void:
@@ -238,7 +252,10 @@ func enemy_damaged(enemy: Node, before: float, after: float, context: Dictionary
 		var details := {"subject_id": String(enemy.get_meta(&"sparring_actor_id", "legacy_boss")), "roster_id": String(enemy.get_meta(&"lab_roster_id", "unknown")),
 			"damage": maxf(maxf(before, 0.0) - maxf(after, 0.0), 0.0), "hp": after, "source": context.get("source", "unknown"),
 			"source_kind": context.get("source_kind", "player"), "headshot": context.get("headshot", false),
+			"weapon_kind": context.get("weapon_kind", ""), "hit_region": context.get("hit_region", ""), "shot_id": context.get("shot_id", ""),
 			"rage": bool(Adapter.value(enemy, "is_enraged", false)), "mud_shield": Adapter.public_shield(enemy)}
+		if enemy.has_method("get_break_reward_status"):
+			details["break_reward"] = enemy.call("get_break_reward_status")
 		_event("enemy_damage", details)
 		if Adapter.implementation(enemy) == "titan":
 			_event("boss_damage", details)
@@ -274,6 +291,11 @@ func observe(delta: float, actor: Node3D, boss: Node3D) -> void:
 			if subject.implementation == "titan":
 				_event("boss_state", {"state": subject.raw_state, "name": subject.state})
 		if subject.implementation == "titan":
+			var reward: Dictionary = subject.diagnostic.get("break_reward", {})
+			var old_reward: Dictionary = prior.get("diagnostic", {}).get("break_reward", {})
+			for field: String in ["shield_hits", "crystal_hits", "kind", "pending", "state"]:
+				if reward.get(field) != old_reward.get(field):
+					_event("break_progress", {"subject_id": id, "field": field, "before": old_reward.get(field), "after": reward.get(field), "reward": reward})
 			if bool(subject.rage) != bool(prior.get("rage", false)):
 				_event("rage", {"subject_id": id, "enabled": subject.rage})
 			if bool(subject.mud_shield) != bool(prior.get("mud_shield", false)):
@@ -342,6 +364,7 @@ func finish(outcome: String) -> Dictionary:
 	var tail: Array = hits.slice(maxi(hits.size() - 6, 0))
 	var search_fraction := float(activity_seconds.get("search", 0.0)) / maxf(time, 0.01)
 	var fingerprints := {}
+	fingerprints["res://scripts/ballistics.gd"] = FileAccess.get_sha256("res://scripts/ballistics.gd")
 	fingerprints["res://scripts/prototypes/titan_combat_brain.gd"] = FileAccess.get_sha256("res://scripts/prototypes/titan_combat_brain.gd")
 	for path in ["res://scripts/player.gd", "res://scripts/player_weapon.gd", "res://scripts/grenade.gd",
 		"res://scripts/prototypes/procedural_sediment_titan.gd", "res://data/enemy_presets/PrototypeSedimentTitan.json", "res://data/game_config.json", "res://scripts/melee_enemy.gd", "res://scripts/ranged_enemy.gd"]:
@@ -358,6 +381,7 @@ func finish(outcome: String) -> Dictionary:
 		if diagnosis.sample_validity == "no_detected_anomaly":
 			diagnosis.sample_validity = "synthetic_or_unverified_capture"
 	var report := {"schema_version": 4, "input_schema": 2, "actor_origin": HumanData.origin({"conditions": options}), "outcome": outcome, "observation_seconds": time,
+		"cycles": CycleAnalysis.summarize(event_rows, time),
 		"analysis": diagnosis,
 		"pressure": pressure_summary(hits),
 		"time_is_quality_score": false, "conditions": options, "engine": Engine.get_version_info(),
@@ -379,6 +403,8 @@ func finish(outcome: String) -> Dictionary:
 		"limitations": ["测试策略不是玩家群体分布", "时长只记录，不用于质量评分", "读取已发布预警几何，不读取未公布选招或未来命中时间", "自定义遭遇和指定配装不等于完整四波流程，配装以实际快照为准", "脚本策略不能证明手感或反馈满意"],
 		"directory": directory}
 	var harness := {}
+	for path in ["res://tools/probes/sparring/sparring_boss_trials.gd", "res://tools/probes/sparring/sparring_pressure_analysis.gd"]:
+		harness[path] = FileAccess.get_sha256(path)
 	for path in ["res://data/testing/titan_sparring.json", "res://scripts/prototypes/titan_sparring_lab.gd", "res://tools/probes/titan_sparring.gd",
 		"res://tools/probes/sparring/sparring_settings.gd", "res://tools/probes/sparring/sparring_spawner.gd", "res://tools/probes/sparring/sparring_player.gd",
 		"res://tools/probes/sparring/sparring_controller.gd", "res://tools/probes/sparring/sparring_session.gd", "res://tools/probes/sparring/sparring_recorder.gd"]:
@@ -392,15 +418,21 @@ func finish(outcome: String) -> Dictionary:
 		harness[path] = FileAccess.get_sha256(path)
 	for path in ["res://tools/run_probe.py", "res://tools/run_acceptance.py"]:
 		harness[path] = FileAccess.get_sha256(path)
+	harness["res://tools/probes/sparring/sparring_cycle_analysis.gd"] = FileAccess.get_sha256("res://tools/probes/sparring/sparring_cycle_analysis.gd")
+	harness["res://scripts/ui_theme.gd"] = FileAccess.get_sha256("res://scripts/ui_theme.gd")
 	for path in ["res://tools/probes/sparring/sparring_input.gd", "res://tools/probes/sparring/sparring_human_data.gd", "res://tools/probes/sparring/sparring_imitation.gd"]:
 		harness[path] = FileAccess.get_sha256(path)
 	for path in ["res://scripts/enemy_spawner.gd", "res://scripts/enemy_deployment.gd", "res://scripts/arena.gd", "res://scripts/terrain_field.gd", "res://scripts/ground_movement.gd", "res://scenes/hyrule_field.tscn"]:
 		report.gameplay_sha256[path] = FileAccess.get_sha256(path)
 	for path in ["res://scripts/grenade_reserve.gd", "res://data/enemies/procedural_sediment_titan.json", "res://scripts/prototypes/enemy_tuning.gd", "res://scripts/grenade_action_pause.gd", "res://scripts/airborne_player_separation.gd", "res://scripts/combat_fx.gd", "res://scripts/enemy_attack_area.gd", "res://scripts/ground_warning.gd", "res://scripts/boss.gd", "res://scripts/prototypes/procedural_mud_golem.gd", "res://scripts/prototypes/procedural_fast_beast.gd", "res://scripts/prototypes/procedural_hornet.gd"]:
 		report.gameplay_sha256[path] = FileAccess.get_sha256(path)
+	for path in ["res://scripts/weapon_hit_regions.gd", "res://scripts/player_hud.gd", "res://scripts/dynamic_crosshair.gd"]:
+		report.gameplay_sha256[path] = FileAccess.get_sha256(path)
 	report["harness_sha256"] = harness
 	close_files()
 	var input := InputContract.read(directory.path_join("inputs.jsonl"))
+	var diagnostic_rows := preload("res://tools/probes/sparring/sparring_analysis.gd").read_lines(directory.path_join("snapshots.jsonl"))
+	report["boss_pressure"] = preload("res://tools/probes/sparring/sparring_pressure_analysis.gd").summarize(diagnostic_rows, input.frames, event_rows, time)
 	report["input_audit"] = {"complete_contract": input.complete_contract, "problems": input.problems, "reported_frames_match": input.frames.size() == input_frames}
 	report["human_behavior"] = HumanData.summarize(report, input.frames, event_rows)
 	report.human_behavior["input_audit"] = report.input_audit
@@ -419,6 +451,7 @@ func finish(outcome: String) -> Dictionary:
 	if file == null:
 		push_error("陪练结果无法保存")
 		return {}
+	report.cycles["clips"] = CycleAnalysis.write_clips(directory, diagnostics.samples, report.cycles, event_rows)
 	file.store_string(JSON.stringify(report, "  ") + "\n")
 	file.close()
 	_write_markdown(report)
@@ -462,6 +495,10 @@ func _write_markdown(report: Dictionary) -> void:
 	file.store_string("结果：**%s**。观察 %.2f 秒，仅为过程坐标，不按长短判好坏；预算到期属于截断，不算死亡或通关。\n\n" % [report.outcome, time])
 	if options.get("scenario", {}).get("kind", "") == "boss_direct":
 		file.store_string("Boss初始阶段：**%s**；直入阶段的记录只与相同起点比较，不能推算完整流程胜率。\n\n" % String(options.scenario.get("boss_phase", "full")))
+		file.store_string("Boss实例试验：%s；实际覆盖 %s。未覆盖项目沿用正式方案，正式默认不被试验改写。\n\n" % [str(options.profile.get("boss_experiment", {})), str(preload("res://tools/probes/sparring/sparring_boss_trials.gd").values(options.profile.get("boss_experiment", {})))])
+	var exposure: Dictionary = report.get("boss_pressure", {})
+	if exposure.get("status") == "observed_diagnostic_snapshots":
+		file.store_string("动作暂停 %.2f秒；追击／待机 %.2f秒（最长连续 %.2f秒）；完整重招后摇 %.2f秒；长奖励状态 %.2f秒。暂停可与后摇重叠，不相加评分。公开预警危及玩家当前位置 %.2f秒，无该预警时按住射击 %.2f秒；后者仍可能有其他威胁，不等于绝对安全。\n\n" % [exposure.action_pause_seconds, exposure.chase_idle_seconds, exposure.longest_chase_idle_seconds, exposure.heavy_recovery_seconds, exposure.reward_seconds, exposure.public_danger_seconds, exposure.shooting_without_public_danger_seconds])
 	file.store_string("**样本有效性：%s；可用于正常交战对照：%s。** 原始胜负与诊断分开。\n\n" % [report.analysis.get("sample_validity", "unknown"), str(report.analysis.get("eligible_for_balance", false))])
 	file.store_string("时间审计：%s；活动墙钟 %.3f 秒／模拟 %.3f 秒。加速与节奏未核对的记录不参与实战对照。\n\n" % [report.analysis.temporal_audit.status, report.analysis.temporal_audit.wall_seconds, time])
 	for incident: Dictionary in report.analysis.get("incidents", []):

@@ -467,6 +467,11 @@ func _enter_display_settings(focus_index: int = 0) -> void:
 				"text": "画面风格　< %s >" % settings.call("post_process_label"),
 				"callback": _on_cycle_post_process_style,
 			},
+			{
+				"text": "灰模开发视图　< %s >" % ("开" if get_node("/root/GreyboxDirector").is_active else "关"),
+				"callback": _on_toggle_greybox,
+				"tooltip": "F4即时切换，F10调参；只影响本次运行，不改变战斗与碰撞。",
+			},
 			{"text": "返回", "callback": _on_display_settings_back},
 		], focus_index)
 	_present("", UiThemeUtil.COLOR_ACCENT, "Enter 切换　·　ESC 返回")
@@ -507,6 +512,9 @@ func _on_cycle_post_process_style() -> void:
 	if DisplaySettingsUtil.instance != null:
 		DisplaySettingsUtil.instance.call("cycle_post_process_style")
 	_enter_display_settings(4)
+
+func _on_toggle_greybox() -> void:
+	get_node("/root/GreyboxDirector").toggle()
 
 
 func _on_display_settings_back() -> void:
@@ -790,6 +798,8 @@ func _notification(what: int) -> void:
 # ---------------------------------------------------------------- 输入
 
 func _input(event: InputEvent) -> void:
+	if bool(get_meta(&"player_melee_tuning_modal", false)) or bool(get_meta(&"player_visual_tuning_modal", false)) or bool(get_meta(&"sketch_tuning_modal", false)) or bool(get_meta(&"greybox_tuning_modal", false)):
+		return
 	if _standalone_scene and not bool(get_meta(&"experiment_silent_pause", false)):
 		return
 	if state == State.UPGRADE_PICK:

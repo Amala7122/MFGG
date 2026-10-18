@@ -605,9 +605,10 @@ static func draw_bar(
 		if fill_rect.size.x > 5.0 and fill_rect.size.y > 5.0:
 			var fp := fill_rect.position
 			var fs := fill_rect.size
+			var fill_bevel := minf(b, (fs.x - 1.0) * 0.5)
 			ci.draw_colored_polygon(PackedVector2Array([
 				fp + Vector2(1.0, fs.y * 0.58), fp + Vector2(fs.x - 1.0, fs.y * 0.58),
-				fp + Vector2(fs.x - b, fs.y - 1.0), fp + Vector2(b, fs.y - 1.0),
+				fp + Vector2(fs.x - fill_bevel, fs.y - 1.0), fp + Vector2(fill_bevel, fs.y - 1.0),
 			]), with_alpha(shade(fill, -0.32), 0.48))
 		# 顶端一线高光：给填充块"厚度"。
 		if fill_rect.size.x > 3.0:

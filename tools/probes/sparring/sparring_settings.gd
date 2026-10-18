@@ -4,6 +4,7 @@ const PATH := "res://data/testing/titan_sparring.json"
 const DiagnosticDefaults := preload("res://tools/probes/sparring/sparring_analysis.gd")
 const Scenarios := preload("res://tools/probes/sparring/sparring_scenarios.gd")
 const Groups := preload("res://tools/probes/sparring/sparring_groups.gd")
+const BossTrials := preload("res://tools/probes/sparring/sparring_boss_trials.gd")
 static var pending_run: Dictionary = {}
 
 static func same_values(left: Variant, right: Variant) -> bool:
@@ -41,9 +42,23 @@ static func read_document() -> Dictionary:
 		return {}
 	return parsed
 
+static func validate_cli_flags(flags: Dictionary) -> String:
+	var allowed := ["artifact-dir", "human-analyze", "dataset", "analyze-batch", "analyze", "profiles", "seeds", "seconds", "capture", "replay", "pacing", "scenarios", "groups", "repeats", "enemy_level", "count_multiplier", "loadout", "boss_phase", "model", "reaction_seconds", "aim_error_degrees", "turn_degrees_per_second", "preferred_distance", "dodge_progress", "greed_seconds", "down-seconds", "pressure-trials", "compare", "require-replay-match", "require-valid"]
+	for key: String in flags:
+		if key not in allowed:
+			return "未知陪练参数 --%s%s" % [key, "；选择场景请用 --scenarios" if key == "scenario" else ""]
+	return ""
+
 static func validate_profile(profile: Dictionary) -> String:
-	if String(profile.get("strategy", "")) not in ["orbit", "reactive", "greedy"]:
+	if String(profile.get("strategy", "")) not in ["orbit", "reactive", "greedy", "break_priority"]:
 		return "未知策略"
+	var experiment: Variant = profile.get("boss_experiment", {})
+	if not experiment is Dictionary or experiment.keys().any(func(key): return key not in ["down_hold_seconds", "pressure_trial"]):
+		return "未知Boss试验参数"
+	if experiment.has("pressure_trial") and (not experiment.pressure_trial is String or experiment.pressure_trial not in BossTrials.IDS.slice(1)):
+		return "未知压力试验方案"
+	if experiment.has("down_hold_seconds") and (not experiment.down_hold_seconds is float and not experiment.down_hold_seconds is int or float(experiment.down_hold_seconds) not in [4.0, 5.0, 6.0, 8.0, 10.0]):
+		return "倒地试验仅允许4／5／6／8／10秒"
 	for spec: Array in [["reaction_seconds", 0.0, 2.0], ["aim_error_degrees", 0.0, 15.0],
 		["turn_degrees_per_second", 15.0, 360.0], ["preferred_distance", 5.0, 30.0],
 		["dodge_progress", 0.0, 1.0], ["greed_seconds", 0.0, 1.0]]:

@@ -6,6 +6,7 @@ const Artifacts := preload("res://scripts/artifact_paths.gd")
 const BatchReport := preload("res://tools/probes/sparring/sparring_batch_report.gd")
 const Analysis := preload("res://tools/probes/sparring/sparring_analysis.gd")
 const HumanData := preload("res://tools/probes/sparring/sparring_human_data.gd")
+const Cycles := preload("res://tools/probes/sparring/sparring_cycle_analysis.gd")
 var _rows: Array[Dictionary] = []
 var _capture := false
 
@@ -18,6 +19,11 @@ func _run() -> void:
 		if argument.begins_with("--"):
 			var pair := argument.trim_prefix("--").split("=", true, 1)
 			flags[pair[0]] = pair[1] if pair.size() == 2 else "true"
+	var flag_error := Settings.validate_cli_flags(flags)
+	if not flag_error.is_empty():
+		push_error(flag_error)
+		quit(1)
+		return
 	if flags.has("human-analyze"):
 		var reviewed := HumanData.review(String(flags["human-analyze"]))
 		var output := Artifacts.ensure_dir("reports", "human_analysis")
@@ -117,7 +123,26 @@ func _run() -> void:
 								push_error("陪练参数越界")
 								quit(1)
 								return
-							await _trial(options)
+							var windows := String(flags.get("down-seconds", "0")).split(",", false)
+							for window: String in windows:
+								var candidate := options.duplicate(true)
+								if window != "0":
+									candidate.profile["boss_experiment"] = {"down_hold_seconds": float(window)}
+								if not window.is_valid_float() or not Settings.validate_profile(candidate.profile).is_empty():
+									push_error("倒地试验参数无效")
+									quit(1)
+									return
+								for pressure: String in String(flags.get("pressure-trials", "")).split(",", true):
+									var pressure_options := candidate.duplicate(true)
+									if not pressure.is_empty():
+										if not pressure_options.profile.has("boss_experiment"):
+											pressure_options.profile["boss_experiment"] = {}
+										pressure_options.profile.boss_experiment["pressure_trial"] = pressure
+									if not Settings.validate_profile(pressure_options.profile).is_empty():
+										push_error("压力试验参数无效")
+										quit(1)
+										return
+									await _trial(pressure_options)
 							if _rows.is_empty() or _rows[-1].is_empty():
 								quit(1)
 								return
@@ -162,11 +187,24 @@ func _trial(options: Dictionary) -> void:
 		if _capture:
 			await _screenshot("start_" + String(options.profile_id))
 		var captured_action := false
+		var captured_sweep := false
+		var captured_thrust := false
+		var captured_group_recovery := false
 		while ready_session.result.is_empty() and ready_session.running:
 			await process_frame
 			if _capture and not captured_action and ready_session.recorder.time >= 6.0:
 				captured_action = true
 				await _screenshot("action_" + String(options.profile_id))
+			if _capture and is_instance_valid(ready_session.boss) and ready_session.boss.has_method("get_break_reward_status"):
+				if not captured_thrust and int(ready_session.boss.current_state) == 16:
+					captured_thrust = true
+					await _screenshot("pressure_thrust_" + String(options.profile_id))
+				if not captured_sweep and int(ready_session.boss.current_state) == 4:
+					captured_sweep = true
+					await _screenshot("pressure_sweep_" + String(options.profile_id))
+				if not captured_group_recovery and bool(ready_session.boss.get("_heavy_recovering")) and int(ready_session.boss.get("_brain").group_count) >= 2:
+					captured_group_recovery = true
+					await _screenshot("pressure_group_recovery_" + String(options.profile_id))
 		_rows.append(ready_session.result)
 		if _capture:
 			await _screenshot("result_" + String(options.profile_id))
@@ -201,6 +239,9 @@ func _analyze_existing(path: String) -> void:
 		return
 	var output := Artifacts.ensure_dir("reports", "sparring_analysis")
 	var analysis: Dictionary = data.analysis
+	analysis["cycles"] = Cycles.summarize(data.events, float(data.source_report.observation_seconds)) if data.events.any(func(event): return event.kind == "break_progress") else Cycles.observed_progress(data.rows)
+	analysis.cycles["offense"] = Cycles.offense_summary(data.events)
+	analysis["boss_pressure"] = preload("res://tools/probes/sparring/sparring_pressure_analysis.gd").summarize(data.rows, Analysis.read_lines(directory.path_join("inputs.jsonl")), data.events, float(data.source_report.observation_seconds))
 	analysis["source_directory"] = directory
 	analysis["source_sha256"] = {}
 	for name in ["result.json", "events.jsonl", "timeline.csv", "inputs.jsonl", "snapshots.jsonl"]:
@@ -221,6 +262,7 @@ func _analyze_existing(path: String) -> void:
 	file.store_string("# 陪练实录自动诊断\n\n原始结果：%s；样本有效性：**%s**；可用于正常交战对照：%s。\n\n原始目录：%s\n\n" % [data.source_report.outcome, analysis.sample_validity, str(analysis.eligible_for_balance), directory])
 	file.store_string("重放核对：%s。数据完整性问题：%s。\n\n" % [str(analysis.replay_audit), str(analysis.data_integrity_problems)])
 	file.store_string("时间审计：%s。\n\n" % str(analysis.temporal_audit))
+	file.store_string("循环证据：%s。\n\n" % str(analysis.cycles))
 	for incident: Dictionary in analysis.incidents:
 		file.store_string("- %s／%s · %.2f–%.2f 秒：**%s**；该对象实损 %.1f。\n  证据：%s。分类 %s，证据程度 %s。\n\n" % [incident.get("subject_id", "legacy_boss"), incident.get("subject_title", "交战对象"), incident.start, incident.end, incident.cause.summary, incident.boss_damage, ", ".join(incident.evidence), incident.cause.code, incident.cause.certainty])
 	file.store_string("缺少原因数据的旧实录不会补造根因。新记录在 snapshots.jsonl 保存实际分支、选招门槛、导航状态与碰撞；incident 文件保存异常前后物理帧。原始胜负保留，异常局单列，不以战斗总时长打分。\n")
@@ -241,6 +283,10 @@ func _analyze_batch(path: String) -> void:
 		copy["source_batch"] = path
 		copy["source_batch_sha256"] = FileAccess.get_sha256(path)
 		copy.analysis = data.analysis if not data.is_empty() else {"sample_validity": "incomplete_recording", "eligible_for_balance": false}
+		if not data.is_empty():
+			var inputs := Analysis.read_lines(String(prior.directory).path_join("inputs.jsonl"))
+			copy["boss_pressure"] = preload("res://tools/probes/sparring/sparring_pressure_analysis.gd").summarize(data.rows, inputs, data.events, float(prior.observation_seconds))
+			copy["pressure_analysis_audit"] = {"analyzer_sha256": FileAccess.get_sha256("res://tools/probes/sparring/sparring_pressure_analysis.gd"), "source_snapshots_sha256": FileAccess.get_sha256(String(prior.directory).path_join("snapshots.jsonl")), "source_inputs_sha256": FileAccess.get_sha256(String(prior.directory).path_join("inputs.jsonl")), "source_events_sha256": FileAccess.get_sha256(String(prior.directory).path_join("events.jsonl")), "source_recording_unchanged": true}
 		reviewed.append(copy)
 	BatchReport.write(reviewed)
 	print("[实战陪练] 已独立复核旧批次；原始文件未覆盖")

@@ -14,14 +14,38 @@ var aiming := false
 var reloading := false
 
 var _reload_spin := 0.0
+var _target_feedback: Dictionary = {}
+var _hit_feedback: Dictionary = {}
+var _feedback_remaining := 0.0
+var _feedback_label: Label
 
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_feedback_label = Label.new()
+	_feedback_label.name = "TargetFeedback"
+	_feedback_label.add_theme_font_size_override("font_size", 15)
+	_feedback_label.add_theme_constant_override("outline_size", 5)
+	_feedback_label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.04, 0.9))
+	add_child(_feedback_label)
+
+func set_target_feedback(feedback: Dictionary) -> void:
+	_target_feedback = feedback.duplicate()
+
+func flash_target_feedback(feedback: Dictionary) -> void:
+	if feedback.is_empty(): return
+	_hit_feedback = feedback.duplicate()
+	_feedback_remaining = 0.8
 
 
 func _process(delta: float) -> void:
+	_feedback_remaining = maxf(_feedback_remaining - delta, 0.0)
+	var feedback: Dictionary = _hit_feedback if _feedback_remaining > 0.0 else _target_feedback
+	_feedback_label.visible = not feedback.is_empty()
+	_feedback_label.text = String(feedback.get("text", ""))
+	_feedback_label.modulate = feedback.get("color", Color.WHITE)
+	_feedback_label.position = get_aim_center() + Vector2(17, 20)
 	if reloading:
 		_reload_spin = fmod(_reload_spin + delta * TAU * 1.15, TAU)
 	elif not is_zero_approx(_reload_spin):
@@ -35,6 +59,7 @@ func _draw() -> void:
 	var color := UiThemeUtil.COLOR_AMMO if reloading else UiThemeUtil.COLOR_TITLE
 	if aiming:
 		color = UiThemeUtil.COLOR_ACCENT
+	if not _target_feedback.is_empty(): color = _target_feedback.get("color", color)
 	draw_circle(center, 1.2, color, true, -1, true)
 	if not extent.is_zero_approx() or reloading:
 		var directions: Array[Vector2] = [Vector2.UP, Vector2.DOWN, Vector2.LEFT, Vector2.RIGHT]

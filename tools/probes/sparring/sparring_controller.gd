@@ -125,7 +125,35 @@ func step(player: CharacterBody3D, boss: Node3D, delta: float) -> Dictionary:
 	var weapon: Node = player.get("_weapon") as Node
 	if weapon != null and not aiming and int(weapon.get("_ammo")) <= 0:
 		output.activity = "reload"
+	if String(profile.strategy) == "break_priority":
+		_break_decision(player, output, in_warning, distance)
 	return output
+
+func _break_decision(player: Node3D, output: Dictionary, in_warning: bool, distance: float) -> void:
+	var cues: Dictionary = _last_seen.get("break_cues", {})
+	if cues.is_empty():
+		return # 其他敌人仍走通用预警／射击，不能套泰坦私有状态。
+	output.held.aim = false
+	output.just.grenade = false
+	output.just.skill = false
+	output.aim_point = cues.body
+	output.activity = "body_fire"
+	if bool(profile.use_sniper) and bool(cues.red_crystal) and not bool(cues.guard_visible) and not bool(cues.fallen_pose) and not in_warning and distance > 5.0:
+		var weapon: Node = player.get("_weapon")
+		if weapon != null and int(weapon.get("_sniper_ammo")) > 0 and float(weapon.get("_sniper_reload_timer")) <= 0.0:
+			output.held.aim = true
+			output.aim_point = cues.crystal
+			output.activity = "crystal_aim"
+			# 限速转向之外，需实际把相机转近目标才扣扳机；仍不查询命中答案。
+			var camera: Camera3D = player.get("camera")
+			output.held.shoot = (-camera.global_basis.z).angle_to(Vector3(cues.crystal) - camera.global_position) <= deg_to_rad(maxf(0.5, float(profile.aim_error_degrees) * 1.5))
+	elif bool(cues.guard_visible):
+		output.activity = "guard_body_fire"
+	elif bool(cues.fallen_pose):
+		output.activity = "reward_fire"
+	elif bool(_last_seen.get("mud_shield", false)) and bool(profile.use_grenade) and not in_warning and distance <= 18.0 and distance > 5.0:
+		output.just.grenade = player.call("can_throw_grenade")
+		output.activity = "shield_grenade"
 
 func _observe(player: Node3D, boss: Node3D) -> Dictionary:
 	var result := {"time": elapsed, "target_visible": false, "warning": {}, "visible_count": 0}
@@ -143,6 +171,7 @@ func _observe(player: Node3D, boss: Node3D) -> Dictionary:
 				result.position = candidate.global_position
 				result.core = point
 				result.mud_shield = Adapter.public_shield(candidate)
+				result.break_cues = Adapter.public_break_cues(candidate)
 				result["target_id"] = String(candidate.get_meta(&"sparring_actor_id", "target"))
 		var warning := _public_warning(player, camera, candidate)
 		if not warning.is_empty() and (result.warning.is_empty() or published_contains(warning, player.global_position)):

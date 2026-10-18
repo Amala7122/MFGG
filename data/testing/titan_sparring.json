@@ -13,7 +13,7 @@
     "orbit": {
       "title": "持续绕射",
       "strategy": "orbit",
-      "reaction_seconds": 0.30,
+      "reaction_seconds": 0.3,
       "aim_error_degrees": 1.5,
       "turn_degrees_per_second": 110.0,
       "preferred_distance": 15.0,
@@ -51,6 +51,48 @@
       "use_q": false,
       "use_sniper": true,
       "adapt_to_visible_range": false
+    },
+    "body_control": {
+      "title": "预警绕射·不破解",
+      "strategy": "reactive",
+      "reaction_seconds": 0.24,
+      "aim_error_degrees": 1.0,
+      "turn_degrees_per_second": 125.0,
+      "preferred_distance": 12.0,
+      "dodge_progress": 0.58,
+      "greed_seconds": 0.0,
+      "use_grenade": false,
+      "use_q": false,
+      "use_sniper": false,
+      "adapt_to_visible_range": true
+    },
+    "break_priority": {
+      "title": "破解优先",
+      "strategy": "break_priority",
+      "reaction_seconds": 0.24,
+      "aim_error_degrees": 1.0,
+      "turn_degrees_per_second": 125.0,
+      "preferred_distance": 12.0,
+      "dodge_progress": 0.58,
+      "greed_seconds": 0.0,
+      "use_grenade": true,
+      "use_q": false,
+      "use_sniper": true,
+      "adapt_to_visible_range": true
+    },
+    "break_delayed": {
+      "title": "破解·迟反应与偏瞄",
+      "strategy": "break_priority",
+      "reaction_seconds": 0.48,
+      "aim_error_degrees": 2.5,
+      "turn_degrees_per_second": 90.0,
+      "preferred_distance": 12.0,
+      "dodge_progress": 0.72,
+      "greed_seconds": 0.14,
+      "use_grenade": true,
+      "use_q": false,
+      "use_sniper": true,
+      "adapt_to_visible_range": true
     }
   }
 }

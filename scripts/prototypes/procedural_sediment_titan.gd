@@ -2,6 +2,7 @@ class_name ProceduralSedimentTitan
 extends CharacterBody3D
 
 signal died(enemy: Node3D)
+signal crystal_broken(enemy: Node3D)
 
 const HealthUtil := preload("res://scripts/health_util.gd")
 const Nav := preload("res://scripts/nav_steering.gd")
@@ -38,7 +39,7 @@ const WaveDirector := preload("res://scripts/wave_director.gd")
 var _crowd := Crowd.new()
 var _brain := Brain.new()
 
-enum State { SPAWN, IDLE, CHASE, ATK_SLAM, ATK_SWEEP, CAST_SHIELD, DEAD, LEAP_WINDUP, LEAP_AIR, LEAP_RECOVERY, JUMP_ATTACK, GROUP_REST }
+enum State { SPAWN, IDLE, CHASE, ATK_SLAM, ATK_SWEEP, CAST_SHIELD, DEAD, LEAP_WINDUP, LEAP_AIR, LEAP_RECOVERY, JUMP_ATTACK, GROUP_REST, REWARD_LOWER, REWARD_HOLD, REWARD_RISE, REWARD_LANDING, ATK_THRUST }
 var current_state: State = State.SPAWN
 
 var max_hp: float
@@ -100,6 +101,11 @@ var right_leg_pivot: Node3D
 var destructible_parts: Array[MeshInstance3D] = []
 var anim_clock := 0.0
 var attack_cooldown := 0.0
+var _bullet_hitstop_remaining := 0.0
+var _heavy_recovery_scale := 1.0
+var _leap_followup_armed := false
+var _leap_link_gap := 0.0
+var _thrust_windup := 0.0
 ## 仅保留出土/转阶段准备等待及旧调试入口；招式频率由 _brain 分别管理。
 var _active_skill := ""
 var _hit_landed := false
@@ -143,6 +149,28 @@ var _opening_leap_pending := false
 var _heavy_window := false
 var _heavy_recovering := false
 var _group_rest_remaining := 0.0
+var _shield_hits := 0
+var _shield_explosions: Dictionary = {}
+var _reward_kind := ""
+var _pending_reward := ""
+var _reward_elapsed := 0.0
+var _reward_durations: Dictionary = {}
+var _pending_rage := false
+var _shield_cracks: Array[MeshInstance3D] = []
+var _crystal_hits := 0
+var _crystal_shots: Dictionary = {}
+var _crystal_guard_remaining := 0.0
+var _crystal_break_pending := false
+var _crystal_clock := 0.0
+var _crystal_guard: Area3D
+var _crystal_guard_visual: MeshInstance3D
+var _reward_body_area: Area3D
+var _reward_head_area: Area3D
+var _weapon_regions := preload("res://scripts/weapon_hit_regions.gd").new()
+var _crystal_hint: Label3D
+var _last_weapon_feedback: Dictionary = {}
+var _break_hud_timer := 0.0
+var _reward_damage_multiplier := 1.0
 const STANDING_VISUAL_Y := -1.6
 const LEAP_LANDING_CLEARANCE := 0.04
 const LEAP_LANDING_CONTACT_DEPTH := 0.12
@@ -156,7 +184,7 @@ func _ready() -> void:
 		queue_free()
 		return
 	_crowd.setup(self, _tuning, PROFILE_ID)
-	_tuning = _crowd.varied_values(_tuning, ["move_speed"], ["slam_damage", "sweep_damage", "leap_damage"],
+	_tuning = _crowd.varied_values(_tuning, ["move_speed"], ["slam_damage", "sweep_damage", "leap_damage", "thrust_damage"],
 		["slam_windup", "slam_swing", "slam_sink_time", "slam_hold", "slam_recovery", "slam_cooldown",
 		"sweep_windup", "sweep_swing", "sweep_recovery", "sweep_cooldown",
 		"leap_windup", "leap_landing_hold", "leap_recovery", "leap_cooldown"])
@@ -173,6 +201,10 @@ func _ready() -> void:
 	# 原稿模型正面为 +Z，项目攻击和转向统一为 -Z。
 	visual_root.rotation.y = PI
 	_setup_collision()
+	_setup_crystal_guard()
+	_setup_reward_hitboxes()
+	for part: MeshInstance3D in destructible_parts:
+		_weapon_regions.add_part(self, part, "crystal" if part == core_mesh else "body")
 	_steering.setup(self, 1.4, 3.4)
 	_steering.spatial.bind(_tuning, {"remaining": _spatial_remaining, "consume": _spatial_consume, "can_attack": _spatial_can_attack, "attack_pose": _spatial_attack_pose, "break_action": _spatial_break_action})
 	_setup_telegraphs()
@@ -243,10 +275,29 @@ func _p(key: String) -> float:
 
 
 func _physics_process(delta: float) -> void:
-	_player_separation.step(self, current_state == State.LEAP_AIR)
+	_bullet_hitstop_remaining = maxf(_bullet_hitstop_remaining - delta, 0.0)
+	_player_separation.step(self, current_state in [State.LEAP_AIR, State.REWARD_LANDING])
 	if has_meta(&"combat_recorder"):
 		_sparring_trace = {"engine_frame": Engine.get_physics_frames(), "branch": "locomotion", "desired": [0.0, 0.0, 0.0]}
 	if current_state == State.DEAD:
+		return
+	_tick_crystal(delta)
+	_break_hud_timer -= delta
+	if _break_hud_timer <= 0.0:
+		_break_hud_timer = 0.1
+		_update_crystal_hint()
+		_publish_formal_boss_health()
+	if current_state == State.REWARD_LANDING:
+		velocity.x = 0.0
+		velocity.z = 0.0
+		velocity.y -= _p("gravity") * delta
+		GroundMovement.move(self, delta, false)
+		_head_collision.position = to_local(core_mesh.global_position)
+		if is_on_floor():
+			_start_reward(_pending_reward)
+		return
+	if not _reward_kind.is_empty():
+		_tick_reward(delta)
 		return
 	if _grenade_pause.step(delta, current_state not in [State.SPAWN, State.LEAP_AIR, State.JUMP_ATTACK], _action_tween):
 		if not _sparring_trace.is_empty():
@@ -263,7 +314,8 @@ func _physics_process(delta: float) -> void:
 	anim_clock += delta * _crowd.gait_multiplier
 	# 自转不再依赖待机动画，追击和攻击过程中也持续旋转。
 	core_mesh.rotate_y(deg_to_rad(_p("crystal_spin_speed")) * delta * (rage_spin_multiplier if is_enraged else 1.0))
-	_core_light.light_energy = (1.2 if is_enraged else 0.4) * (1.0 + sin(anim_clock * 9.0) * 0.12)
+	if not (is_enraged and bool(_tuning.crystal_break_enabled)):
+		_core_light.light_energy = (1.2 if is_enraged else 0.4) * (1.0 + sin(anim_clock * 9.0) * 0.12)
 	_update_mud_shield(delta)
 	attack_cooldown = maxf(attack_cooldown - delta, 0.0)
 	if current_state == State.GROUP_REST:
@@ -358,7 +410,7 @@ func _physics_process(delta: float) -> void:
 	velocity.y = -0.5 if is_on_floor() and velocity.y <= 0.0 else velocity.y - _p("gravity") * delta
 	GroundMovement.move(self, delta, current_state != State.JUMP_ATTACK)
 	if current_state == State.JUMP_ATTACK:
-		if not _jump_environment_spent and _jump_melee.in_strike_window(delta):
+		if _pending_reward.is_empty() and not _jump_environment_spent and _jump_melee.in_strike_window(delta):
 			_jump_environment_spent = true
 			var spec := _normal_attack_spec()
 			_attack_area.prepare(global_transform, {"kind": "sector", "radius": spec.reach,
@@ -366,10 +418,13 @@ func _physics_process(delta: float) -> void:
 			_attack_area.lock()
 			if _attack_area.strike():
 				Destruction.shape_impact(_attack_area, _p("normal_break_power"))
-		if _jump_melee.advance(delta):
+		if _jump_melee.advance(delta) and _pending_reward.is_empty():
 			Telemetry.hurt_player(_attack_target, _p("normal_attack_damage") * _damage_scale, global_position, 1.0, Telemetry.source_info(self, "泰坦跳跃普攻"))
 		if _jump_melee.finished():
-			_finish_action(_p("normal_attack_interval"))
+			if not _pending_reward.is_empty():
+				_start_reward(_pending_reward)
+			else:
+				_finish_action(_p("normal_attack_interval"))
 
 
 func _sparring_rejected(reason: String) -> bool:
@@ -391,7 +446,11 @@ func get_sparring_diagnostic() -> Dictionary:
 		"target_alive": _target_alive(), "attack_cooldown": attack_cooldown, "decision_timer": _decision_timer,
 		"cooldowns": _brain.cooldowns.duplicate(), "approach_remaining": _brain.approach_remaining,
 		"active_skill": _active_skill, "rhythm": _brain.rhythm_snapshot(),
+		"break_reward": get_break_reward_status(),
 		"heavy_window": _heavy_window, "heavy_recovering": _heavy_recovering, "group_rest_remaining": _group_rest_remaining,
+		"heavy_recovery_scale_snapshot": _heavy_recovery_scale,
+		"landing_followup_armed": _leap_followup_armed, "landing_link_gap_snapshot": _leap_link_gap,
+		"bullet_hitstop_remaining": _bullet_hitstop_remaining,
 		"contacts": contacts, "navigation": _steering.get_sparring_diagnostic(),
 		"motion": get_meta(&"sparring_motion", {}),
 		"physics_enabled": is_physics_processing(), "process_enabled": is_processing(), "process_mode": process_mode, "time_scale": Engine.time_scale,
@@ -424,6 +483,8 @@ func _reset_pose() -> void:
 
 
 func _stop_action() -> void:
+	_leap_followup_armed = false
+	_heavy_recovery_scale = 1.0
 	_breach_target = null
 	if is_instance_valid(_sweep_fx):
 		_sweep_fx.call("stop_motion")
@@ -502,14 +563,18 @@ func _select_attack(distance: float) -> void:
 				_sparring_decision["sweep_geometry_valid"] = can_sweep
 			if can_sweep:
 				candidates.sweep = 1.3
+		if bool(_tuning.thrust_enabled) and AttackArea.candidate_can_hit(self, global_transform, _thrust_spec(), target):
+			candidates.thrust = 2.5
 	if not _leap_plan.is_empty() and _steering.spatial.permits_channel(&"leap"):
 		candidates.leap = 2.0
 	if _brain.rhythm_enabled():
 		# 合法性由上面的地形／射程检查决定；只约束攻势，不强迫无落点跃击。
 		if _brain.needs_heavy(is_enraged):
 			candidates.erase("sweep")
+			candidates.erase("thrust")
 		elif candidates.has("sweep") and _brain.available("sweep"):
 			candidates.sweep = 4.0
+
 	var skill := _brain.choose(candidates)
 	if not _sparring_decision.is_empty():
 		_sparring_decision["candidates"] = candidates.duplicate()
@@ -525,6 +590,7 @@ func _select_attack(distance: float) -> void:
 		"slam": trigger_slam_attack()
 		"sweep": trigger_sweep_attack()
 		"leap": trigger_leap_attack()
+		"thrust": trigger_thrust_attack()
 
 
 func _track_melee_attack(delta: float) -> void:
@@ -706,10 +772,15 @@ func trigger_leap_attack() -> bool:
 		return _sparring_rejected("leap_cooldown_or_reserved_channel")
 	# 选招候选可能已经过时；在显示任何效果之前确认最终可执行计划。
 	var plan := _plan_leap()
-	if plan.is_empty() or not _begin_attack(State.LEAP_WINDUP, true):
+	var link := bool(_tuning.leap_followup_enabled) and bool(_tuning.thrust_enabled) and _brain.rhythm_enabled() and not _brain.needs_heavy(is_enraged) and _brain.available("thrust")
+	if plan.is_empty() or not _begin_attack(State.LEAP_WINDUP, not link):
 		if has_meta(&"combat_recorder") and plan.is_empty():
 			_sparring_decision["begin_rejected"] = "leap_plan:" + _leap_plan_failure
 		return false
+	_leap_followup_armed = link
+	_leap_link_gap = _p("rage_leap_link_gap" if is_enraged else "leap_link_gap")
+	# 开场承诺时快照；中途半血不会缩短原本的收势／衔接。
+	_heavy_recovery_scale = _p("rage_heavy_recovery_scale") if is_enraged else 1.0
 	_steering.spatial.permit_landing(plan.landing, &"jump", plan.breakable)
 	_leap_plan = plan
 	_leap_elapsed = 0.0
@@ -797,6 +868,9 @@ func _update_leap_air(delta: float) -> void:
 
 
 func _land_leap(valid: bool) -> void:
+	if not _pending_reward.is_empty():
+		_start_reward(_pending_reward)
+		return
 	_air_debris.emitting = false
 	_flight_shadow.visible = false
 	current_state = State.LEAP_RECOVERY
@@ -821,16 +895,49 @@ func _land_leap(valid: bool) -> void:
 	torso_pivot.position.y = 1.12
 	torso_pivot.rotation_degrees.x = 22.0
 	right_arm_pivot.rotation_degrees.x = 65.0
-	_recover_leap_pose(_p("leap_landing_hold"))
+	if valid and _leap_followup_armed and _can_landing_thrust():
+		_action_tween.tween_property(torso_pivot, "position:y", 1.8, _leap_link_gap)
+		_action_tween.parallel().tween_property(torso_pivot, "rotation", Vector3.ZERO, _leap_link_gap)
+		_action_tween.tween_callback(_finish_leap_link)
+	else:
+		# 落点失败、墙后或目标已离开：不跨地形强接，完整收招结束本组。
+		_heavy_window = _brain.rhythm_enabled()
+		_heavy_recovering = _heavy_window
+		_leap_followup_armed = false
+		_recover_leap_pose(_p("leap_landing_hold") * _heavy_recovery_scale)
+
+
+func _can_landing_thrust() -> bool:
+	if not _target_alive() or not is_on_floor() or not _brain.available("thrust"):
+		return false
+	var offset := target.global_position - global_position
+	var pose := Transform3D(Basis(Vector3.UP, atan2(-offset.x, -offset.z)), global_position)
+	return AttackArea.unobstructed(self, global_position, target.global_position) and AttackArea.candidate_can_hit(self, pose, _thrust_spec(), target)
+
+
+func _finish_leap_link() -> void:
+	if current_state != State.LEAP_RECOVERY or not _pending_reward.is_empty() or not _reward_kind.is_empty():
+		return
+	var can_link := _leap_followup_armed and _can_landing_thrust()
+	_leap_followup_armed = false
+	_finish_action(0.0)
+	if can_link:
+		_selection_reason = "landing_followup"
+		if trigger_thrust_attack(true):
+			return
+	_brain.finish_group("landing_link_unavailable")
+	current_state = State.GROUP_REST
+	_group_rest_remaining = _p("offense_failed_rest")
 
 
 func _recover_leap_pose(hold: float) -> void:
+	var recovery := _p("leap_recovery") * _heavy_recovery_scale
 	if hold > 0.0:
 		_action_tween.tween_interval(hold)
-	_action_tween.tween_property(torso_pivot, "position:y", 1.8, _p("leap_recovery")).set_trans(Tween.TRANS_BACK)
-	_action_tween.parallel().tween_property(torso_pivot, "rotation", Vector3.ZERO, _p("leap_recovery"))
+	_action_tween.tween_property(torso_pivot, "position:y", 1.8, recovery).set_trans(Tween.TRANS_BACK)
+	_action_tween.parallel().tween_property(torso_pivot, "rotation", Vector3.ZERO, recovery)
 	for joint in [right_arm_pivot, left_arm_pivot, left_leg_pivot, right_leg_pivot]:
-		_action_tween.parallel().tween_property(joint, "rotation", Vector3.ZERO, _p("leap_recovery"))
+		_action_tween.parallel().tween_property(joint, "rotation", Vector3.ZERO, recovery)
 	_action_tween.tween_callback(_finish_action.bind(0.0))
 
 
@@ -1040,15 +1147,33 @@ func _build_mud_shield() -> void:
 		plate.position = Vector3(cos(angle) * 1.62, 0.28 if index % 2 == 0 else -0.28, sin(angle) * 1.62)
 		plate.rotation = Vector3(0.12 if index % 2 == 0 else -0.12, -angle, 0)
 		mud_shield_visual.add_child(plate)
+	# 明亮裂纹分两级显示，随盾旋转；主动卸盾仅隐藏，不清进度。
+	for index in range(6):
+		var crack := MeshInstance3D.new()
+		crack.name = "ShieldCrack%d" % index
+		var crack_mesh := BoxMesh.new()
+		crack_mesh.size = Vector3(0.035, 0.46, 0.07)
+		crack.mesh = crack_mesh
+		var crack_mat := StandardMaterial3D.new()
+		crack_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		crack_mat.albedo_color = Color(1, 0.67, 0.19)
+		crack.material_override = crack_mat
+		var plate_index: int = [0, 3, 6, 1, 4, 7][index]
+		var angle := float(plate_index) * TAU / 8.0
+		crack.position = Vector3(cos(angle) * 1.75, 0.28 if plate_index % 2 == 0 else -0.28, sin(angle) * 1.75)
+		crack.rotation = Vector3(0.35 if index % 2 == 0 else -0.4, -angle, 0)
+		crack.visible = false
+		mud_shield_visual.add_child(crack)
+		_shield_cracks.append(crack)
 
 
 func _update_mud_shield(delta: float) -> void:
-	if is_enraged or _heavy_window:
+	if is_enraged or (_heavy_window and bool(_tuning.heavy_sheds_shield)) or not _reward_kind.is_empty() or not _pending_reward.is_empty():
 		if has_mud_shield:
 			_remove_mud_shield()
 		return
 	if _brain.rhythm_enabled():
-		# 常规施压常驻，重招完整收势结束后才允许重建。主动卸盾不算破盾奖励。
+		# 正式前半全攻势常驻；仅破盾长奖励和狂暴允许解除。旧卸盾方案兼容。
 		if has_mud_shield:
 			mud_shield_visual.rotate_y(delta * _p("mud_shield_spin"))
 		elif current_state in [State.IDLE, State.CHASE]:
@@ -1095,7 +1220,7 @@ func _finish_shield_cast() -> void:
 
 
 func _activate_mud_shield(force := false) -> void:
-	if is_enraged or _heavy_window or current_state == State.DEAD or not bool(_tuning.mud_shield_enabled) or has_mud_shield:
+	if is_enraged or (_heavy_window and bool(_tuning.heavy_sheds_shield)) or not _reward_kind.is_empty() or not _pending_reward.is_empty() or current_state == State.DEAD or not bool(_tuning.mud_shield_enabled) or has_mud_shield:
 		return
 	if not force and (is_enraged or current_state not in [State.IDLE, State.CHASE, State.CAST_SHIELD]):
 		return
@@ -1105,6 +1230,178 @@ func _activate_mud_shield(force := false) -> void:
 	mud_shield_visual.visible = true
 	_update_health_label()
 
+
+func get_break_reward_status() -> Dictionary:
+	return {"shield_hits": _shield_hits, "shield_required": int(_tuning.shield_grenade_hits),
+		"kind": _reward_kind, "pending": _pending_reward, "state": current_state,
+		"elapsed": _reward_elapsed, "durations": _reward_durations.duplicate(), "rage_pending": _pending_rage,
+		"crystal_hits": _crystal_hits, "crystal_required": int(_tuning.crystal_sniper_hits),
+		"crystal_guard_remaining": _crystal_guard_remaining, "crystal_break_pending": _crystal_break_pending}
+
+func receive_grenade_contact(amount: float, explosion_id: int, context: Dictionary) -> void:
+	var earned := false
+	if bool(_tuning.shield_break_enabled) and has_mud_shield and not is_enraged and _reward_kind.is_empty() and _pending_reward.is_empty():
+		if _shield_explosions.has(explosion_id):
+			return
+		_shield_explosions[explosion_id] = true
+		_shield_hits += 1
+		earned = _shield_hits >= int(_tuning.shield_grenade_hits)
+		if earned:
+			_pending_reward = "kneel" # 先锁定已挣得奖励，第三炸跨半血也不吞掉。
+		_update_shield_cracks()
+		_reward_feedback("泥盾 %d/%d" % [_shield_hits, int(_tuning.shield_grenade_hits)], Color(1, 0.65, 0.2))
+	Telemetry.hurt_enemy(self, amount, context)
+	if earned and current_state != State.DEAD:
+		_request_reward("kneel")
+
+func _update_shield_cracks() -> void:
+	for index in range(_shield_cracks.size()):
+		_shield_cracks[index].visible = _shield_hits > 0 and index < _shield_hits * 3
+
+func _request_reward(kind: String) -> void:
+	if current_state == State.DEAD or not _reward_kind.is_empty():
+		return
+	_pending_reward = kind
+	_remove_mud_shield()
+	_attack_area.cancel()
+	_grenade_pause = preload("res://scripts/grenade_action_pause.gd").new()
+	if current_state in [State.LEAP_AIR, State.JUMP_ATTACK]:
+		return # 保留真实飞行与落点计划；接地入口会接管，不再伤人。
+	_start_reward(kind)
+
+func _start_reward(kind: String) -> void:
+	if not is_on_floor():
+		# 被侧墙／天花板阻挡的空中动作也先真实落地，再开始任何过渡与有效奖励。
+		_air_debris.emitting = false
+		_flight_shadow.visible = false
+		_stop_action()
+		_pending_reward = kind
+		current_state = State.REWARD_LANDING
+		collision_mask = 1
+		velocity = Vector3(0, minf(velocity.y, 0), 0)
+		_player_separation.begin(self)
+		return
+	_stop_action()
+	_pending_reward = ""
+	_reward_kind = kind
+	_reward_elapsed = 0.0
+	var prefix := "down" if kind == "down" else "kneel"
+	_reward_durations = {"lower": _p(prefix + "_lower_seconds"), "hold": _p(prefix + "_hold_seconds"), "rise": _p(prefix + "_rise_seconds")}
+	_reward_damage_multiplier = _p("down_damage_multiplier") if kind == "down" else 1.0
+	if kind == "down":
+		_crystal_guard_remaining = 0.0
+		_set_crystal_guard(false)
+		_set_reward_hitboxes(true)
+	_brain.finish_group("crystal_broken" if kind == "down" else "shield_broken")
+	current_state = State.REWARD_LOWER
+	velocity = Vector3.ZERO
+	_push_velocity = Vector3.ZERO
+	_reward_feedback("晶体击碎 · 倒地" if kind == "down" else "破盾 · 跪地", Color(1, 0.8, 0.25))
+
+func _tick_reward(delta: float) -> void:
+	_reward_elapsed += delta
+	var duration := float(_reward_durations.lower if current_state == State.REWARD_LOWER else _reward_durations.hold if current_state == State.REWARD_HOLD else _reward_durations.rise)
+	var blend := clampf(_reward_elapsed / maxf(duration, 0.001), 0.0, 1.0)
+	if current_state == State.REWARD_HOLD:
+		blend = 1.0
+	elif current_state == State.REWARD_RISE:
+		blend = 1.0 - blend
+	_sample_reward_pose(blend)
+	velocity.x = 0.0
+	velocity.z = 0.0
+	velocity.y = -0.5 if is_on_floor() and velocity.y <= 0.0 else velocity.y - _p("gravity") * delta
+	GroundMovement.move(self, delta, false)
+	_head_collision.position = to_local(core_mesh.global_position)
+	if _reward_elapsed + 0.000001 < duration:
+		return
+	_reward_elapsed = 0.0
+	if current_state == State.REWARD_LOWER:
+		current_state = State.REWARD_HOLD
+	elif current_state == State.REWARD_HOLD:
+		current_state = State.REWARD_RISE
+	else:
+		var was_down := _reward_kind == "down"
+		_reward_kind = ""
+		if was_down:
+			_crystal_hits = 0
+			_crystal_shots.clear()
+			_crystal_break_pending = false
+			_set_reward_hitboxes(false)
+			visual_root.rotation.x = 0.0
+			visual_root.position.y = STANDING_VISUAL_Y
+			_reward_feedback("晶体重聚 · 开放", Color(1, 0.55, 0.3))
+		_shield_hits = 0
+		_shield_explosions.clear()
+		_update_shield_cracks()
+		_reset_pose()
+		current_state = State.IDLE
+		if _pending_rage:
+			_pending_rage = false
+			_trigger_rage()
+		elif not is_enraged:
+			_activate_mud_shield()
+
+func _setup_reward_hitboxes() -> void:
+	_reward_body_area = _make_reward_area(torso_pivot, "FallenBody", CylinderShape3D.new())
+	var body_shape := (_reward_body_area.get_child(0) as CollisionShape3D).shape as CylinderShape3D
+	body_shape.radius = 1.25
+	body_shape.height = 2.3
+	_reward_head_area = _make_reward_area(core_mesh, "FallenCrystal", SphereShape3D.new())
+	((_reward_head_area.get_child(0) as CollisionShape3D).shape as SphereShape3D).radius = 0.5
+
+func _make_reward_area(parent: Node3D, title: String, shape: Shape3D) -> Area3D:
+	var area := Area3D.new()
+	area.name = title
+	area.collision_layer = 0
+	area.collision_mask = 0
+	area.monitoring = false
+	area.set_meta(&"damage_receiver", get_instance_id())
+	area.set_meta(&"hit_region", "body")
+	var collision := CollisionShape3D.new()
+	collision.shape = shape
+	area.add_child(collision)
+	parent.add_child(area)
+	return area
+
+func _set_reward_hitboxes(active: bool) -> void:
+	# 身体实体继续对世界接地；倒地命中区域独立跟随表现，均解析回唯一Boss。
+	collision_layer = 0 if active else 4
+	_reward_body_area.collision_layer = 4 if active else 0
+	_reward_head_area.collision_layer = 4 if active else 0
+
+func _sample_reward_pose(blend: float) -> void:
+	if _reward_kind == "down":
+		visual_root.rotation.x = 1.35 * blend
+		visual_root.position.y = STANDING_VISUAL_Y + 0.8 * blend
+		torso_pivot.position.y = 1.8
+		torso_pivot.rotation = Vector3.ZERO
+		right_arm_pivot.rotation.x = -0.3 * blend
+		left_arm_pivot.rotation.x = -0.3 * blend
+		left_leg_pivot.rotation.x = -0.15 * blend
+		right_leg_pivot.rotation.x = 0.15 * blend
+		return
+	torso_pivot.position.y = lerpf(1.8, 0.95, blend)
+	torso_pivot.rotation.x = deg_to_rad(30.0) * blend
+	right_arm_pivot.rotation.x = deg_to_rad(65.0) * blend
+	left_arm_pivot.rotation.x = deg_to_rad(-20.0) * blend
+	left_leg_pivot.rotation.x = deg_to_rad(-65.0) * blend
+	right_leg_pivot.rotation.x = deg_to_rad(60.0) * blend
+
+func _reward_feedback(text: String, color: Color) -> void:
+	var scene := get_tree().current_scene
+	if scene != null:
+		var notice := Label3D.new()
+		notice.text = text
+		notice.font_size = 42
+		notice.pixel_size = 0.012
+		notice.modulate = color
+		notice.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		scene.add_child(notice)
+		notice.global_position = core_mesh.global_position + Vector3.UP
+		var fade := notice.create_tween()
+		fade.tween_property(notice, "position:y", notice.position.y + 0.8, 0.8)
+		fade.parallel().tween_property(notice, "modulate:a", 0.0, 0.8)
+		fade.tween_callback(notice.queue_free)
 
 func _remove_mud_shield() -> void:
 	has_mud_shield = false
@@ -1279,7 +1576,7 @@ func _begin_attack(next_state: State, heavy := false, combat := true) -> bool:
 		return _sparring_rejected("state_or_attack_cooldown")
 	if combat and not heavy and _brain.needs_heavy(is_enraged):
 		return _sparring_rejected("group_requires_heavy")
-	var skill := "leap" if next_state == State.LEAP_WINDUP else "slam" if next_state == State.ATK_SLAM else "sweep"
+	var skill := "leap" if next_state == State.LEAP_WINDUP else "slam" if next_state == State.ATK_SLAM else "thrust" if next_state == State.ATK_THRUST else "sweep"
 	if not _brain.available(skill) or not _steering.spatial.permits_channel(StringName(skill)):
 		return _sparring_rejected("skill_cooldown_or_reserved_channel")
 	_stop_action()
@@ -1290,14 +1587,17 @@ func _begin_attack(next_state: State, heavy := false, combat := true) -> bool:
 	_attack_target = target
 	_active_skill = skill
 	_heavy_window = heavy and _brain.rhythm_enabled()
+	# 半血和运行调参不能缩短已经公布的窗口；只在下一记重招开始时快照。
+	_heavy_recovery_scale = _p("rage_heavy_recovery_scale") if is_enraged and _heavy_window and next_state != State.ATK_THRUST else 1.0
 	_heavy_recovering = false
-	if _heavy_window:
+	if _heavy_window and bool(_tuning.heavy_sheds_shield):
 		_remove_mud_shield()
 	if combat:
 		_brain.commit_offense(is_enraged, _heavy_window)
 	_hit_landed = false
 	_attack_elapsed = 0.0
 	_brain.started(skill, _selection_reason, global_position.distance_to(target.global_position) if _target_alive() else 0.0)
+	_brain.history[-1]["heavy_recovery_scale"] = _heavy_recovery_scale
 	if _target_alive():
 		var direction := target.global_position - global_position
 		direction.y = 0.0
@@ -1336,6 +1636,44 @@ func _sweep_spec() -> Dictionary:
 		"angle": _p("sweep_angle"), "height": 2.5 * size,
 		"stable_tracking_surface": true,
 		"exclude_bodies": Destruction.breakable_rids(self, _p("sweep_break_power"))}
+
+
+func _thrust_spec() -> Dictionary:
+	return {"kind": "rect", "offset": 0.0, "width": _p("thrust_width") * _crowd.size_multiplier,
+		"length": _p("thrust_distance") * attack_range_scale * _crowd.size_multiplier,
+		"height": 2.5 * _crowd.size_multiplier, "stable_tracking_surface": true}
+
+
+func trigger_thrust_attack(landing_finisher := false) -> bool:
+	if not bool(_tuning.thrust_enabled) or not _begin_attack(State.ATK_THRUST, landing_finisher):
+		return false
+	_thrust_windup = _p("rage_thrust_windup" if is_enraged else "thrust_windup")
+	# 狙击抬头时地面可能出屏；高音短蓄力与跃击低音蓄力区分，提示独立第二击。
+	Audio.play_at_priority("titan_charge", global_position, -6.0, 1.6)
+	_attack_area.prepare(global_transform, _thrust_spec(), _p("thrust_damage") * _damage_scale, _thrust_windup + _p("thrust_swing"))
+	# 完整线形预警出现就锁方向；不在玩家翻滚冷却中追踪补正。
+	_attack_area.lock()
+	_action_tween.tween_property(right_arm_pivot, "rotation_degrees:x", -65.0, _thrust_windup)
+	_action_tween.parallel().tween_property(torso_pivot, "rotation_degrees:x", -10.0, _thrust_windup)
+	_action_tween.tween_property(right_forearm, "position:z", 2.3, _p("thrust_swing"))
+	_action_tween.parallel().tween_property(right_arm_pivot, "rotation_degrees:x", -90.0, _p("thrust_swing"))
+	_action_tween.tween_callback(_execute_thrust_impact)
+	_action_tween.tween_property(right_forearm, "position:z", 0.0, _p("thrust_recovery"))
+	_action_tween.parallel().tween_property(right_arm_pivot, "rotation", Vector3.ZERO, _p("thrust_recovery"))
+	_action_tween.parallel().tween_property(torso_pivot, "rotation", Vector3.ZERO, _p("thrust_recovery"))
+	_action_tween.tween_callback(_finish_action.bind(0.0))
+	return true
+
+
+func _execute_thrust_impact() -> void:
+	if current_state != State.ATK_THRUST or not _attack_area.strike():
+		return
+	_hurt_target(_attack_area.damage, "泰坦远距震拳")
+	var spec := _attack_area.shape.duplicate(true)
+	spec["surface"] = _attack_area.get_surface()
+	MeleeEffect.spawn(get_tree().current_scene, _attack_area.global_transform, spec, _crowd.size_multiplier, false, 0.16, _p("ground_shake_strength") * 0.4)
+	_attack_area.recover()
+	_heavy_recovering = _heavy_window
 
 
 func _spatial_can_attack() -> bool:
@@ -1395,13 +1733,13 @@ func trigger_slam_attack(obstacle: Node3D = null) -> void:
 	_action_tween.parallel().tween_property(torso_pivot, "rotation_degrees:x", 20.0, _p("slam_swing"))
 	_action_tween.parallel().tween_property(torso_pivot, "rotation_degrees:y", -80.0, _p("slam_swing"))
 	_action_tween.tween_callback(_execute_slam_impact)
-	_action_tween.tween_property(right_forearm, "position:y", -0.4, _p("slam_sink_time")).set_trans(Tween.TRANS_LINEAR)
-	_action_tween.tween_interval(_p("slam_hold"))
-	_action_tween.tween_property(torso_pivot, "position:y", 1.8, _p("slam_recovery")).set_trans(Tween.TRANS_BACK)
-	_action_tween.parallel().tween_property(right_arm_pivot, "rotation_degrees:x", 0.0, _p("slam_recovery"))
-	_action_tween.parallel().tween_property(right_forearm, "position:y", -0.3, _p("slam_recovery"))
-	_action_tween.parallel().tween_property(torso_pivot, "rotation_degrees:x", 0.0, _p("slam_recovery"))
-	_action_tween.parallel().tween_property(torso_pivot, "rotation_degrees:y", 0.0, _p("slam_recovery"))
+	_action_tween.tween_property(right_forearm, "position:y", -0.4, _p("slam_sink_time") * _heavy_recovery_scale).set_trans(Tween.TRANS_LINEAR)
+	_action_tween.tween_interval(_p("slam_hold") * _heavy_recovery_scale)
+	_action_tween.tween_property(torso_pivot, "position:y", 1.8, _p("slam_recovery") * _heavy_recovery_scale).set_trans(Tween.TRANS_BACK)
+	_action_tween.parallel().tween_property(right_arm_pivot, "rotation_degrees:x", 0.0, _p("slam_recovery") * _heavy_recovery_scale)
+	_action_tween.parallel().tween_property(right_forearm, "position:y", -0.3, _p("slam_recovery") * _heavy_recovery_scale)
+	_action_tween.parallel().tween_property(torso_pivot, "rotation_degrees:x", 0.0, _p("slam_recovery") * _heavy_recovery_scale)
+	_action_tween.parallel().tween_property(torso_pivot, "rotation_degrees:y", 0.0, _p("slam_recovery") * _heavy_recovery_scale)
 	_action_tween.tween_callback(_finish_action.bind(_p("slam_cooldown")))
 
 
@@ -1551,6 +1889,151 @@ func _finish_action(cooldown: float) -> void:
 		_activate_mud_shield()
 
 
+func get_hit_region(shape_index: int) -> String:
+	if shape_index < 0:
+		return "body"
+	var owner_id := shape_find_owner(shape_index)
+	return "crystal" if shape_owner_get_owner(owner_id) == _head_collision else "body"
+
+func get_projectile_exclusions() -> Array[RID]:
+	var result: Array[RID] = [get_rid()]
+	result.append_array(_weapon_regions.exclusions())
+	if is_instance_valid(_crystal_guard):
+		result.append(_crystal_guard.get_rid())
+	if is_instance_valid(_reward_body_area):
+		result.append(_reward_body_area.get_rid())
+		result.append(_reward_head_area.get_rid())
+	return result
+
+func get_weapon_query_exclusions() -> Array[RID]:
+	# 保留世界移动和手雷接触体；仅玩家武器改用可见部件。
+	return [get_rid(), _reward_body_area.get_rid(), _reward_head_area.get_rid()]
+
+func blocks_weapon_hit(context: Dictionary) -> bool:
+	return bool(_tuning.crystal_break_enabled) and is_enraged and _crystal_guard_remaining > 0.000001 and String(context.get("hit_region", "body")) in ["crystal", "crystal_guard"]
+
+func get_weapon_aim_feedback(context: Dictionary) -> Dictionary:
+	if not bool(_tuning.crystal_break_enabled) or not is_enraged or current_state == State.DEAD:
+		return {}
+	var progress := "%d/%d" % [_crystal_hits, int(_tuning.crystal_sniper_hits)]
+	if not _reward_kind.is_empty() or not _pending_reward.is_empty():
+		return {"kind": "reward", "text": "倒地输出 ×2" if _reward_kind == "down" and current_state == State.REWARD_HOLD else "起身中 · 普通伤害" if current_state == State.REWARD_RISE else "倒地中" if _reward_kind == "down" or _pending_reward == "down" else "跪地中", "color": Color(1, 0.85, 0.35)}
+	if blocks_weapon_hit(context):
+		return {"kind": "protected", "text": "晶体保护 %.1fs · 射击身体" % _crystal_guard_remaining, "color": Color(0.3, 0.85, 1)}
+	if String(context.get("hit_region", "body")) == "crystal":
+		return {"kind": "crystal", "text": "晶体 %s · 狙击可破击" % progress if context.get("weapon_kind") == "sniper" else "晶体 %s · 需狙击破击" % progress, "color": Color(1, 0.82, 0.25)}
+	return {"kind": "body", "text": "身体 · 不累计破击", "color": Color(0.8, 0.85, 0.88)}
+
+func get_weapon_hit_feedback(context: Dictionary) -> Dictionary:
+	return _last_weapon_feedback.duplicate() if _last_weapon_feedback.has("text") and _last_weapon_feedback.get("shot_id", "") == context.get("shot_id", "") else {}
+
+func _save_weapon_feedback(context: Dictionary, kind: String, text: String, color: Color) -> void:
+	_last_weapon_feedback = {"shot_id": context.get("shot_id", ""), "kind": kind, "text": text, "color": color}
+
+func take_weapon_hit(amount: float, _position: Vector3, _headshot: bool, context: Dictionary) -> void:
+	if blocks_weapon_hit(context):
+		_save_weapon_feedback(context, "protected", "护罩拦截 · 不累计破击", Color(0.3, 0.85, 1))
+		# 持续扫射仍即时反馈，但不让重复浮字淹没晶体；准星与局部状态常驻。
+		return
+	var eligible: bool = bool(_tuning.crystal_break_enabled) and is_enraged and _reward_kind.is_empty() and _pending_reward.is_empty() and not _crystal_break_pending and String(context.get("weapon_kind", "")) == "sniper" and String(context.get("hit_region", "body")) == "crystal"
+	var shot_id := String(context.get("shot_id", ""))
+	if eligible and not shot_id.is_empty() and _crystal_shots.has(shot_id):
+		return
+	var feedback := get_weapon_aim_feedback(context)
+	_last_weapon_feedback = feedback.duplicate()
+	_last_weapon_feedback["shot_id"] = shot_id
+	if feedback.get("kind") == "body":
+		_last_weapon_feedback["text"] = "身体命中 · 不累计破击"
+	elif feedback.get("kind") == "crystal" and context.get("weapon_kind") != "sniper":
+		_last_weapon_feedback["text"] = "命中晶体 · 需狙击破击"
+	elif feedback.get("kind") == "reward" and _reward_kind == "down" and current_state == State.REWARD_HOLD:
+		_last_weapon_feedback["text"] = "倒地命中 ×2" # 描述这一枪，起身后不误称仍在倍伤窗口。
+	take_damage(amount)
+	if current_state == State.DEAD:
+		_save_weapon_feedback(context, "defeated", "击败首领", Color(1, 0.85, 0.35))
+	if current_state == State.DEAD or not eligible or shot_id.is_empty():
+		return
+	_crystal_shots[shot_id] = true
+	_crystal_hits += 1
+	_save_weapon_feedback(context, "break", "晶体破击 %d/%d" % [_crystal_hits, int(_tuning.crystal_sniper_hits)], Color(1, 0.82, 0.25))
+	_reward_feedback("晶体破击 %d/%d" % [_crystal_hits, int(_tuning.crystal_sniper_hits)], Color(1, 0.75, 0.25))
+	Audio.play_at("hit_metal", core_mesh.global_position, -5.0)
+	CombatFX.spawn_impact(get_tree().current_scene, core_mesh.global_position, Vector3.UP, Color(1, 0.45, 0.1), 1.5)
+	if _crystal_hits >= int(_tuning.crystal_sniper_hits):
+		_crystal_break_pending = true
+		crystal_broken.emit(self)
+		if bool(_tuning.down_reward_enabled):
+			_request_reward("down")
+	else:
+		_crystal_guard_remaining = _p("crystal_guard_seconds")
+		_set_crystal_guard(true)
+	_update_crystal_hint()
+	_publish_formal_boss_health() # 进度与局部提示同次更新，不等待下一次10Hz刷新。
+
+func _setup_crystal_guard() -> void:
+	_crystal_guard = Area3D.new()
+	_crystal_guard.name = "CrystalGuard"
+	_crystal_guard.collision_layer = 0
+	_crystal_guard.collision_mask = 0
+	_crystal_guard.monitoring = false
+	_crystal_guard.set_meta(&"damage_receiver", get_instance_id())
+	_crystal_guard.set_meta(&"hit_region", "crystal_guard")
+	core_mesh.add_child(_crystal_guard)
+	var shape := CollisionShape3D.new()
+	var sphere := SphereShape3D.new()
+	sphere.radius = 0.65
+	shape.shape = sphere
+	_crystal_guard.add_child(shape)
+	_crystal_guard_visual = MeshInstance3D.new()
+	var mesh := SphereMesh.new()
+	mesh.radius = 0.65
+	mesh.height = 1.3
+	_crystal_guard_visual.mesh = mesh
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = Color(0.12, 0.7, 1, 0.28)
+	_crystal_guard_visual.material_override = mat
+	_crystal_guard_visual.visible = false
+	_crystal_guard.add_child(_crystal_guard_visual)
+	_crystal_hint = Label3D.new()
+	_crystal_hint.name = "CrystalStatus"
+	_crystal_hint.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	_crystal_hint.font_size = 26
+	_crystal_hint.outline_size = 6
+	_crystal_hint.pixel_size = 0.005
+	_crystal_hint.no_depth_test = false
+	_crystal_hint.visible = false
+	add_child(_crystal_hint)
+
+func _update_crystal_hint() -> void:
+	if not is_instance_valid(_crystal_hint): return
+	_crystal_hint.visible = bool(_tuning.crystal_break_enabled) and is_enraged and current_state != State.DEAD
+	if not _crystal_hint.visible: return
+	_crystal_hint.position = to_local(core_mesh.global_position + Vector3.UP * 1.2 * _crowd.size_multiplier)
+	var feedback := get_weapon_aim_feedback({"hit_region": "crystal", "weapon_kind": "sniper"})
+	_crystal_hint.text = "晶体 %d/%d\n%s" % [_crystal_hits, int(_tuning.crystal_sniper_hits), "保护 %.1fs · 射击身体" % _crystal_guard_remaining if _crystal_guard_remaining > 0.0 else "狙击红色晶体" if feedback.get("kind") == "crystal" else feedback.get("text", "")]
+	_crystal_hint.modulate = feedback.get("color", Color.WHITE)
+
+func _set_crystal_guard(active: bool) -> void:
+	_crystal_guard.collision_layer = 4 if active else 0
+	_crystal_guard_visual.visible = active
+
+func _tick_crystal(delta: float) -> void:
+	if not bool(_tuning.crystal_break_enabled) or not is_enraged:
+		return
+	_crystal_clock += delta
+	if _crystal_guard_remaining > 0.0:
+		_crystal_guard_remaining = maxf(_crystal_guard_remaining - delta, 0.0)
+		if _crystal_guard_remaining <= 0.000001:
+			_crystal_guard_remaining = 0.0
+			_set_crystal_guard(false)
+			_reward_feedback("晶体开放", Color(0.7, 1, 1))
+	var strength := maxf(1.0 - float(_crystal_hits) / float(_tuning.crystal_sniper_hits), 0.15)
+	var flash := (0.55 + 0.45 * pow(0.5 + 0.5 * sin(_crystal_clock * TAU * 1.8), 6.0)) * strength
+	(core_mesh.material_override as StandardMaterial3D).emission_energy_multiplier = _p("crystal_flash_strength") * flash
+	_core_light.light_energy = 0.4 + flash * 1.8
+
 func take_damage_at(amount: float, _hit_position: Vector3, _headshot: bool) -> void:
 	# 晶体只是阶段标识，不再叠加旧的 2.5 倍弱点奖励。
 	take_damage(amount)
@@ -1559,7 +2042,8 @@ func take_damage_at(amount: float, _hit_position: Vector3, _headshot: bool) -> v
 func take_damage(amount: float, _hit_part: Node = null) -> void:
 	if current_state == State.DEAD or amount <= 0.0:
 		return
-	var final_damage := amount * (rage_incoming_multiplier if is_enraged else 1.0)
+	var state_multiplier := _reward_damage_multiplier if _reward_kind == "down" and current_state == State.REWARD_HOLD else rage_incoming_multiplier if is_enraged else 1.0
+	var final_damage := amount * state_multiplier
 	if has_mud_shield:
 		final_damage *= 1.0 - shield_reduction
 	_apply_damage(final_damage)
@@ -1592,6 +2076,9 @@ func _apply_damage(amount: float) -> void:
 func _trigger_rage() -> void:
 	if not bool(_tuning.rage_enabled) or is_enraged or current_state == State.DEAD:
 		return
+	if not _reward_kind.is_empty() or not _pending_reward.is_empty():
+		_pending_rage = true
+		return
 	is_enraged = true
 	_remove_mud_shield()
 	var mat := core_mesh.material_override as StandardMaterial3D
@@ -1614,7 +2101,20 @@ func _trigger_rage() -> void:
 	_update_health_label()
 
 
+func apply_hitstop(seconds: float) -> void:
+	# 复用既有局部暂停契约，不能关闭整个Boss物理导致晶体罩和长奖励停表。
+	# 普通枪的表现顿帧与E的战术硬直分开；只限制狂暴阶段连续枪击拖慢动作。
+	if is_enraged and bool(_tuning.rage_shot_movement_armor) and current_state in [State.IDLE, State.CHASE]:
+		return
+	if is_enraged and _bullet_hitstop_remaining > 0.0:
+		return
+	if is_enraged:
+		_bullet_hitstop_remaining = _p("rage_bullet_hitstop_interval")
+	apply_grenade_stagger(seconds)
+
 func apply_grenade_stagger(seconds: float) -> void:
+	if not _reward_kind.is_empty() or not _pending_reward.is_empty():
+		return
 	if current_state != State.DEAD:
 		_grenade_pause.request(seconds, current_state in [State.SPAWN, State.LEAP_AIR, State.JUMP_ATTACK], _action_tween)
 
@@ -1622,7 +2122,7 @@ func grenade_stagger_active() -> bool:
 	return current_state != State.DEAD and _grenade_pause.remaining > 0.0
 
 func apply_push(direction: Vector3, force: float) -> void:
-	if current_state == State.DEAD:
+	if current_state == State.DEAD or not _reward_kind.is_empty() or not _pending_reward.is_empty():
 		return
 	# 巨型敌人仅承受 15% 击退，Q 使用现有范围伤害与击退。
 	_push_velocity = Vector3(direction.x, 0, direction.z).normalized() * maxf(force, 0.0) * _p("push_multiplier")
@@ -1637,8 +2137,20 @@ func _publish_formal_boss_health() -> void:
 	if not _formal_boss or current_state == State.DEAD:
 		return
 	_formal_boss_bar_active = true
-	EventBus.emit_boss_updated(true, _formal_boss_title, current_hp, max_hp)
+	EventBus.emit_boss_updated(true, _formal_boss_title + _break_status_caption(), current_hp, max_hp)
 
+
+func _break_status_caption() -> String:
+	if not _reward_kind.is_empty():
+		var prefix := "倒地" if _reward_kind == "down" else "跪地"
+		if current_state == State.REWARD_HOLD:
+			return " · %s破绽 %.1fs%s" % [prefix, maxf(float(_reward_durations.hold) - _reward_elapsed, 0), " ×2" if _reward_kind == "down" else ""]
+		return " · " + prefix + ("起身" if current_state == State.REWARD_RISE else "失衡")
+	if is_enraged and bool(_tuning.crystal_break_enabled):
+		return " · 晶体 %d/%d · %s" % [_crystal_hits, int(_tuning.crystal_sniper_hits), "保护 %.1fs" % _crystal_guard_remaining if _crystal_guard_remaining > 0 else "开放"]
+	if has_mud_shield and bool(_tuning.shield_break_enabled):
+		return " · 泥盾 %d/%d" % [_shield_hits, int(_tuning.shield_grenade_hits)]
+	return " · 卸盾收势" if _heavy_recovering else ""
 
 func _hide_formal_boss_health() -> void:
 	if not _formal_boss_bar_active:
@@ -1671,6 +2183,10 @@ func trigger_death_scatter() -> void:
 	if current_state == State.DEAD:
 		return
 	current_state = State.DEAD
+	_set_crystal_guard(false)
+	_set_reward_hitboxes(false)
+	_weapon_regions.disable()
+	if is_instance_valid(_crystal_hint): _crystal_hint.visible = false
 	current_hp = 0.0
 	_hide_formal_boss_health()
 	died.emit(self)

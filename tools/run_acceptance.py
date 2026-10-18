@@ -18,12 +18,17 @@ from artifact_paths import create_run
 CORE_TESTS = (
     "test_scene_dependencies",
     "test_audio_file_bank",
+    "test_audio_synth_variants",
     "test_stability_contracts",
     "test_lowpoly_mesh",
     "test_runtime_world_visibility",
     "test_player_hitscan",
     "test_player_spread",
     "test_skill_charges",
+    "test_player_melee",
+    "test_player_support_visuals",
+    "test_sketch_filter",
+    "test_greybox",
     "test_combat_feedback",
     "test_combat_reactions",
     "test_ground_juice",
@@ -32,6 +37,7 @@ CORE_TESTS = (
     "test_sediment_titan_boss",
     "test_sediment_titan_boss_lab",
     "test_titan_sparring",
+    "test_sparring_cycles",
     "test_sparring_diagnostics",
     "test_combat_sparring",
     "test_combat_sparring_handoff",
@@ -41,6 +47,12 @@ CORE_TESTS = (
     "test_grenade_hit_stagger",
     "test_grenade_reserve",
     "test_titan_offense_rhythm",
+    "test_titan_pressure",
+    "test_titan_followup",
+    "test_titan_shield_break",
+    "test_titan_crystal_protection",
+    "test_titan_crystal_targeting",
+    "test_titan_down_reward",
     "test_sparring_phase_entry",
     "test_player_boss_ground_safety",
     "test_heavy_response",
@@ -53,7 +65,7 @@ CORE_TESTS = (
     "test_upgrade_effects",
     "test_cinematic_flow_lifecycle",
 )
-GRAPHICS_ONLY = {"test_cloud_shadow_rendering", "test_weather_visual_regressions"}
+GRAPHICS_ONLY = {"test_cloud_shadow_rendering", "test_weather_visual_regressions", "test_titan_break_visuals"}
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 ENGINE_ERROR = re.compile(r"^\s*(?:SCRIPT ERROR|ERROR):", re.IGNORECASE)
 ENGINE_WARNING = re.compile(r"^\s*WARNING:", re.IGNORECASE)

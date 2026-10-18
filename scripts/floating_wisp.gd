@@ -15,6 +15,7 @@ const AudioUtil := preload("res://scripts/audio_manager.gd")
 const ConfigUtil := preload("res://scripts/game_config.gd")
 const CombatFXUtil := preload("res://scripts/combat_fx.gd")
 const TerrainFieldUtil := preload("res://scripts/terrain_field.gd")
+const VisualSettings := preload("res://scripts/player_support_settings.gd")
 
 var enabled := true
 var base_damage := 9.0
@@ -22,7 +23,9 @@ var fire_rate := 1.35
 var attack_range := 22.0
 var blind_spot_angle := 65.0
 var projectile_speed := 42.0
-var spirit_color := Color(0.25, 0.88, 1.0, 1.0)
+var spirit_color := Color(0.10, 0.96, 1.0, 1.0)
+var visual_parameters: Dictionary = {}
+var drone_scale := 2.0
 var ceasefire_min_enemies := 1
 
 var _player: CharacterBody3D = null
@@ -36,6 +39,7 @@ var _model_pivot: Node3D = null
 var _drone_body: Node3D = null
 var _weapon_mount: Node3D = null
 var _sensor_eye: MeshInstance3D = null
+var _halo_ring: MeshInstance3D = null
 var _left_thruster: Node3D = null
 var _right_thruster: Node3D = null
 var _left_plume: CPUParticles3D = null
@@ -47,6 +51,8 @@ var _barrel_l: MeshInstance3D = null
 var _barrel_r: MeshInstance3D = null
 var _current_target: Node3D = null
 var _recoil_offset := 0.0
+var _shot_flash := 0.0
+var visual_preview_mode := -1 # -1=真实状态；0/1只覆盖预览外观，不授予赐福。
 
 
 func setup(player: CharacterBody3D, camera: Camera3D = null) -> void:
@@ -63,7 +69,8 @@ func setup(player: CharacterBody3D, camera: Camera3D = null) -> void:
 	projectile_speed = maxf(ConfigUtil.get_float("wisp.projectile_speed", 42.0), 10.0)
 	ceasefire_min_enemies = maxi(ConfigUtil.get_int("wisp.ceasefire_min_enemies", 1), 0)
 
-	var col_arr: Array = ConfigUtil.get_float_array("wisp.color", [0.25, 0.88, 1.0, 1.0])
+	visual_parameters = VisualSettings.load_values()
+	var col_arr: Array = ConfigUtil.get_float_array("wisp.color", [0.10, 0.96, 1.0, 1.0])
 	if col_arr.size() >= 3:
 		spirit_color = Color(float(col_arr[0]), float(col_arr[1]), float(col_arr[2]), float(col_arr[3]) if col_arr.size() > 3 else 1.0)
 
@@ -77,31 +84,64 @@ func setup(player: CharacterBody3D, camera: Camera3D = null) -> void:
 	if is_instance_valid(_player):
 		var p_pos: Vector3 = _player.global_position if _player.is_inside_tree() else _player.position
 		if is_inside_tree():
-			global_position = p_pos + Vector3(-0.85, 1.65, 0.25)
+			global_position = p_pos + _follow_offset(false)
 		else:
-			position = p_pos + Vector3(-0.85, 1.65, 0.25)
+			position = p_pos + _follow_offset(false)
 
 	_setup_visuals()
+	configure_visuals(visual_parameters)
 
 
 func apply_overclock() -> void:
 	_overclock_mult = 1.4
 	attack_range *= 1.3
 	base_damage += 4.0
-	if is_instance_valid(_light):
-		_light.light_energy = 1.35
-	if is_instance_valid(_lens_material):
-		_lens_material.emission_energy_multiplier = 5.2
-	if is_instance_valid(_glow_material):
-		_glow_material.albedo_color = spirit_color * 1.35
+	_update_visual_state(0.0)
 	if is_instance_valid(_left_thruster):
 		_left_thruster.scale = Vector3.ONE * 1.15
 	if is_instance_valid(_right_thruster):
 		_right_thruster.scale = Vector3.ONE * 1.15
 	if is_instance_valid(_left_plume):
-		_left_plume.amount = 16
+		_left_plume.amount = 18
 	if is_instance_valid(_right_plume):
-		_right_plume.amount = 16
+		_right_plume.amount = 18
+
+
+func configure_visuals(values: Dictionary) -> void:
+	var valid := VisualSettings.validate(values)
+	if valid.is_empty():
+		return
+	visual_parameters = valid
+	drone_scale = float(valid.wisp_scale)
+	if is_instance_valid(_model_pivot):
+		_model_pivot.scale = Vector3.ONE * drone_scale
+	_update_visual_state(0.0)
+
+
+func _follow_offset(aiming: bool) -> Vector3:
+	var prefix := "wisp_ads_" if aiming else "wisp_offset_"
+	return Vector3(visual_parameters[prefix + "x"], visual_parameters[prefix + "y"], visual_parameters[prefix + "z"])
+
+
+func set_visual_preview(mode: int) -> void:
+	visual_preview_mode = clampi(mode, -1, 1)
+	_update_visual_state(0.0)
+
+
+func _update_visual_state(delta: float) -> void:
+	if visual_parameters.is_empty():
+		return
+	_shot_flash = maxf(_shot_flash - delta * 5.0, 0.0)
+	var overclocked := visual_preview_mode == 1 if visual_preview_mode >= 0 else _overclock_mult > 1.0
+	if is_instance_valid(_lens_material):
+		var lens: float = visual_parameters.wisp_locked_lens if is_instance_valid(_current_target) else visual_parameters.wisp_lens_energy
+		_lens_material.emission_energy_multiplier = maxf(lens, float(visual_parameters.wisp_overclock_lens)) if overclocked else lens
+	if is_instance_valid(_glow_material):
+		_glow_material.albedo_color = spirit_color * float(visual_parameters.wisp_overclock_glow if overclocked else visual_parameters.wisp_glow)
+	if is_instance_valid(_light):
+		var energy: float = visual_parameters.wisp_overclock_light if overclocked else visual_parameters.wisp_light_energy
+		_light.light_energy = energy + _shot_flash * 1.45
+		_light.omni_range = float(visual_parameters.wisp_light_range)
 
 
 func _setup_visuals() -> void:
@@ -115,23 +155,23 @@ func _setup_visuals() -> void:
 	_model_pivot.add_child(_drone_body)
 
 	# --- 材质调色板 ---
-	# 1. 战术暗钛主框架（哑光高金属感）
+	# 1. 旧版改进的深钛蓝主框架
 	var dark_metal_mat := StandardMaterial3D.new()
-	dark_metal_mat.albedo_color = Color(0.14, 0.16, 0.19)
-	dark_metal_mat.metallic = 0.88
-	dark_metal_mat.roughness = 0.32
+	dark_metal_mat.albedo_color = Color(0.18, 0.32, 0.52)
+	dark_metal_mat.metallic = 0.85
+	dark_metal_mat.roughness = 0.26
 
-	# 2. 复合装甲强化板（高对比军规灰蓝复合材料）
+	# 2. 极地白陶瓷复合装甲
 	var armor_plate_mat := StandardMaterial3D.new()
-	armor_plate_mat.albedo_color = Color(0.32, 0.36, 0.42)
-	armor_plate_mat.metallic = 0.70
-	armor_plate_mat.roughness = 0.38
+	armor_plate_mat.albedo_color = Color(0.95, 0.97, 1.0)
+	armor_plate_mat.metallic = 0.30
+	armor_plate_mat.roughness = 0.22
 
 	# 3. 机械黑合金部件（铰链、导轨、炮管、排气护罩）
 	var black_alloy_mat := StandardMaterial3D.new()
-	black_alloy_mat.albedo_color = Color(0.08, 0.08, 0.09)
-	black_alloy_mat.metallic = 0.95
-	black_alloy_mat.roughness = 0.22
+	black_alloy_mat.albedo_color = Color(0.10, 0.12, 0.15)
+	black_alloy_mat.metallic = 0.92
+	black_alloy_mat.roughness = 0.20
 
 	# 4. 战术能量与离子自发光材质
 	_glow_material = StandardMaterial3D.new()
@@ -140,7 +180,7 @@ func _setup_visuals() -> void:
 
 	# 5. 光学传感器透镜材质（高发光强透镜感）
 	_lens_material = StandardMaterial3D.new()
-	_lens_material.albedo_color = Color(0.92, 0.98, 1.0)
+	_lens_material.albedo_color = Color(0.95, 1.0, 1.0)
 	_lens_material.emission_enabled = true
 	_lens_material.emission = spirit_color
 	_lens_material.emission_energy_multiplier = 3.6
@@ -215,10 +255,10 @@ func _setup_visuals() -> void:
 	_sensor_eye = MeshInstance3D.new()
 	_sensor_eye.name = "EyeLens"
 	var lens_geo := SphereMesh.new()
-	lens_geo.radius = 0.024
-	lens_geo.height = 0.040
-	lens_geo.radial_segments = 12
-	lens_geo.rings = 6
+	lens_geo.radius = 0.034
+	lens_geo.height = 0.052
+	lens_geo.radial_segments = 14
+	lens_geo.rings = 7
 	_sensor_eye.mesh = lens_geo
 	_sensor_eye.material_override = _lens_material
 	_sensor_eye.position = Vector3(0.0, 0.0, -0.008)
@@ -228,8 +268,8 @@ func _setup_visuals() -> void:
 	for side in [-1.0, 1.0]:
 		var sub_lens := MeshInstance3D.new()
 		var sub_geo := SphereMesh.new()
-		sub_geo.radius = 0.007
-		sub_geo.height = 0.014
+		sub_geo.radius = 0.009
+		sub_geo.height = 0.018
 		sub_lens.mesh = sub_geo
 		sub_lens.material_override = _glow_material
 		sub_lens.position = Vector3(side * 0.032, -0.008, -0.002)
@@ -275,7 +315,20 @@ func _setup_visuals() -> void:
 	_right_thruster = _build_thruster_pod(1.0, dark_metal_mat, armor_plate_mat, black_alloy_mat)
 	_drone_body.add_child(_right_thruster)
 
-	# --- 5. 战术探照照明与护航光晕 ---
+	# --- 5. 旧版全息守护光环 ---
+	_halo_ring = MeshInstance3D.new()
+	_halo_ring.name = "HaloRing"
+	var halo := TorusMesh.new()
+	halo.inner_radius = 0.17
+	halo.outer_radius = 0.19
+	halo.rings = 24
+	halo.ring_segments = 6
+	_halo_ring.mesh = halo
+	_halo_ring.material_override = _glow_material
+	_halo_ring.position = Vector3(0.0, 0.02, 0.01)
+	_halo_ring.rotation_degrees = Vector3(25, 0, 0)
+	_drone_body.add_child(_halo_ring)
+	# --- 6. 战术探照照明与护航光晕 ---
 	_light = OmniLight3D.new()
 	_light.name = "DroneLight"
 	_light.light_color = spirit_color
@@ -411,6 +464,7 @@ func _physics_process(delta: float) -> void:
 
 	# 3. 视野盲区雷达索敌与高频射击判定
 	_update_targeting_and_combat(delta)
+	_update_visual_state(delta)
 
 
 func _update_follow_movement(delta: float) -> void:
@@ -438,7 +492,7 @@ func _update_follow_movement(delta: float) -> void:
 
 	var is_aiming: bool = (_player.get("_aiming") == true)
 	# 瞄准（ADS）时适当向外和向上避让，确保护航视野一览无遗且绝不挡准星
-	var offset := Vector3(-1.15, 1.85, 0.45) if is_aiming else Vector3(-0.85, 1.65, 0.25)
+	var offset := _follow_offset(is_aiming)
 	var player_pos: Vector3 = _player.global_position if _player.is_inside_tree() else _player.position
 	var target_pos: Vector3 = player_pos + horiz_basis * offset
 
@@ -507,6 +561,9 @@ func _update_idle_animation(delta: float) -> void:
 		_weapon_mount.position.z = move_toward(_weapon_mount.position.z, -0.05, delta * 0.28)
 	if _recoil_offset > 0.0001:
 		_recoil_offset = move_toward(_recoil_offset, 0.0, delta * 0.08)
+	if is_instance_valid(_halo_ring):
+		_halo_ring.rotation.y += delta * float(visual_parameters.wisp_halo_speed)
+		_halo_ring.rotation.x = deg_to_rad(25.0) + sin(_time * 2.2) * 0.12
 
 
 func _update_targeting_and_combat(delta: float) -> void:
@@ -570,8 +627,6 @@ func _update_targeting_and_combat(delta: float) -> void:
 	# 战场停火守则：仅剩 1 个（或配置阈值）敌人时，浮游卫士停火，把终结机会和特写留给玩家
 	if ceasefire_min_enemies > 0 and living_enemies.size() <= ceasefire_min_enemies:
 		_current_target = null
-		if is_instance_valid(_lens_material):
-			_lens_material.emission_energy_multiplier = 3.6
 		var sweep_side := cam_right * (sin(_time * 1.1) * 0.32)
 		var rear_dir := (-cam_fwd + sweep_side).normalized()
 		if not rear_dir.is_zero_approx():
@@ -640,17 +695,11 @@ func _update_targeting_and_combat(delta: float) -> void:
 			var aim_weight := 1.0 - exp(-16.0 * delta)
 			_model_pivot.quaternion = _model_pivot.quaternion.slerp(target_quat, aim_weight)
 
-		# 锁定目标时传感器高光增强
-		if is_instance_valid(_lens_material):
-			_lens_material.emission_energy_multiplier = 4.8
-
 		if _attack_cooldown <= 0.0:
 			_attack_cooldown = 1.0 / (fire_rate * _overclock_mult)
 			_fire_spirit_dart(best_target)
 	else:
 		_current_target = null
-		if is_instance_valid(_lens_material):
-			_lens_material.emission_energy_multiplier = 3.6
 		# 无盲区敌人时，无人机在后方两侧平缓警戒巡视（扇面扫描，侧向依据相机坐标系，不随世界坐标偏转）
 		var sweep_side := cam_right * (sin(_time * 1.1) * 0.32)
 		var rear_dir := (-cam_fwd + sweep_side).normalized()
@@ -673,10 +722,7 @@ func _fire_spirit_dart(target: Node3D) -> void:
 		_weapon_mount.position.z = -0.025 # 向后弹退
 	_recoil_offset = 0.016
 
-	if is_instance_valid(_light):
-		_light.light_energy = 2.4
-		var light_tween := create_tween()
-		light_tween.tween_property(_light, "light_energy", 0.95, 0.20)
+	_shot_flash = 1.0 # 仅视觉脉冲，回落到当前普通 / 超频默认，不遗留旧 Tween 写值。
 
 	var my_pos := global_position if is_inside_tree() else position
 	AudioUtil.play_at("wisp_shot", my_pos, -2.5, randf_range(1.10, 1.28))

@@ -137,13 +137,23 @@ static func resolve_hit(
 	)
 
 
+static func damage_receiver(collider: Object) -> Node:
+	var node := collider as Node
+	if node != null and node.is_in_group("enemies"):
+		return node
+	if node != null and node.has_meta(&"damage_receiver"):
+		var receiver := instance_from_id(int(node.get_meta(&"damage_receiver"))) as Node
+		if is_instance_valid(receiver) and receiver.is_in_group("enemies"):
+			return receiver
+	return null
+
 ## 只施加伤害，返回是否击杀。
 ## 击杀判定必须放在 take_damage 之后：敌人是在 die() 里 queue_free 的。
 static func apply_damage(
 	collider: Object, amount: float, position: Vector3, headshot: bool, context: Dictionary = {}
 ) -> bool:
-	var target := collider as Node
-	if target == null or not target.is_in_group("enemies"):
+	var target := damage_receiver(collider)
+	if target == null:
 		return false
 	var observing := Telemetry.recorder(target) != null
 	var previous: Variant = target.get_meta(Telemetry.CONTEXT) if observing and target.has_meta(Telemetry.CONTEXT) else null
@@ -154,7 +164,9 @@ static func apply_damage(
 	# 声明了 take_damage_at 的目标可以按命中点细分伤害（Boss 用它判弱点）。
 	# 普通敌人没有这个方法，继续走单一参数那条路 —— 所以这次改动对它们
 	# 是完全透明的，不需要逐个去改 take_damage 的签名。
-	if target.has_method("take_damage_at"):
+	if target.has_method("take_weapon_hit"):
+		target.call("take_weapon_hit", amount, position, headshot, context)
+	elif target.has_method("take_damage_at"):
 		target.call("take_damage_at", amount, position, headshot)
 	elif target.has_method("take_damage"):
 		target.call("take_damage", amount)
