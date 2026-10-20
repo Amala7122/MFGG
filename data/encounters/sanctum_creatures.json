@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "id": "sanctum_six_creatures",
+  "title": "圣所 · 六种小怪与沉积泰坦",
+  "notes": "前三波30/45/60只；同屏最多30只，低于24只快速补充。每波先各投放一只，再按类别与权重补充；三波结束后进入沉积泰坦Boss战。Boss共用实战直战台的公共生成器和圣所关底Boss保存方案。",
+  "spawn": {
+    "mode": "waves",
+    "max_alive": 30,
+    "target_alive": 24,
+    "refill_interval": 0.1,
+    "prepare_seconds": 4.0,
+    "spawn_interval": 0.35,
+    "squad_member_interval": 0.12,
+    "extra_enemies_per_level": 0,
+    "wave_stuck_guard": 120.0,
+    "ranged_ratio": 0.3
+  },
+  "wave": {
+    "count": 3,
+    "base_enemies": 30,
+    "growth_per_wave": 15,
+    "intermission": 6.0,
+    "boss_id": "sediment_titan",
+    "guarantee_roster": true
+  },
+  "lifecycle": {
+    "watchdog_interval": 1.0,
+    "edge_margin": 2.0,
+    "fall_margin": 12.0,
+    "pickup_height": 0.5,
+    "drop_probe_depth": 32.0
+  },
+  "entries": [
+    {
+      "id": "mud_golem",
+      "species": "mud_golem",
+      "title": "泥土傀儡",
+      "kind": "melee",
+      "drop_kind": "melee",
+      "preset": "@active",
+      "min_weapon_level": 1,
+      "weight": 1,
+      "min_player_distance": 14.0,
+      "max_player_distance": 30.0
+    },
+    {
+      "id": "fast_beast",
+      "species": "fast_beast",
+      "title": "迅捷晶兽",
+      "kind": "melee",
+      "drop_kind": "melee",
+      "preset": "@active",
+      "min_weapon_level": 1,
+      "weight": 1.5,
+      "min_player_distance": 14.0,
+      "max_player_distance": 30.0
+    },
+    {
+      "id": "hornet",
+      "species": "hornet",
+      "title": "晶刺蜂",
+      "kind": "ranged",
+      "drop_kind": "ranged",
+      "preset": "@active",
+      "min_weapon_level": 1,
+      "weight": 1,
+      "min_player_distance": 14.0,
+      "max_player_distance": 30.0
+    },
+    {
+      "id": "burst_crawler",
+      "species": "burst_crawler",
+      "title": "爆囊爬兽",
+      "kind": "ranged",
+      "drop_kind": "ranged",
+      "preset": "@active",
+      "min_weapon_level": 1,
+      "weight": 1,
+      "min_player_distance": 14.0,
+      "max_player_distance": 30.0
+    },
+    {
+      "id": "prism_spider",
+      "species": "prism_spider",
+      "title": "棱眼蛛",
+      "kind": "ranged",
+      "drop_kind": "ranged",
+      "preset": "@active",
+      "min_weapon_level": 1,
+      "weight": 0.8,
+      "min_player_distance": 18.0,
+      "max_player_distance": 30.0
+    },
+    {
+      "id": "charge_beetle",
+      "species": "charge_beetle",
+      "title": "裂甲兜虫",
+      "kind": "melee",
+      "drop_kind": "melee",
+      "preset": "@active",
+      "min_weapon_level": 1,
+      "weight": 0.7,
+      "min_player_distance": 14.0,
+      "max_player_distance": 30.0
+    }
+  ]
+}

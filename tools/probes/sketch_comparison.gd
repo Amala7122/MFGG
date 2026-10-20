@@ -87,7 +87,7 @@ func _run() -> void:
 	# 面板用实际正式玩家，不留在暂停状态调用入口。
 	paused = false
 	effect.set_style(0)
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	MouseControl.mode = Input.MOUSE_MODE_CAPTURED
 	effect._sketch_panel.open()
 	await frames(5)
 	if not effect._sketch_panel.opened:

@@ -32,7 +32,7 @@ var last_melee_hits := 0
 func _ready() -> void:
 	_base_camera_offset = _camera.position
 	_base_camera_rotation = _camera.rotation
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	MouseControl.mode = Input.MOUSE_MODE_CAPTURED
 
 
 func _exit_tree() -> void:
@@ -40,7 +40,7 @@ func _exit_tree() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+	if event is InputEventMouseMotion and MouseControl.mode == Input.MOUSE_MODE_CAPTURED:
 		var motion := event as InputEventMouseMotion
 		rotation.y -= motion.relative.x * mouse_sensitivity
 		_camera_pitch.rotation.x = clampf(
@@ -50,10 +50,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.physical_keycode == KEY_F:
 			perform_melee()
 		elif event.physical_keycode == KEY_ESCAPE:
-			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+			MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 	elif event is InputEventMouseButton and event.pressed:
-		if Input.mouse_mode == Input.MOUSE_MODE_VISIBLE:
-			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		if MouseControl.mode == Input.MOUSE_MODE_VISIBLE:
+			MouseControl.mode = Input.MOUSE_MODE_CAPTURED
 
 
 func _physics_process(delta: float) -> void:

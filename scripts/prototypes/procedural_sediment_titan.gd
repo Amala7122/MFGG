@@ -38,8 +38,9 @@ const EventBus := preload("res://scripts/event_bus.gd")
 const WaveDirector := preload("res://scripts/wave_director.gd")
 var _crowd := Crowd.new()
 var _brain := Brain.new()
+var _rage_director := preload("res://scripts/prototypes/titan_rage_director.gd").new()
 
-enum State { SPAWN, IDLE, CHASE, ATK_SLAM, ATK_SWEEP, CAST_SHIELD, DEAD, LEAP_WINDUP, LEAP_AIR, LEAP_RECOVERY, JUMP_ATTACK, GROUP_REST, REWARD_LOWER, REWARD_HOLD, REWARD_RISE, REWARD_LANDING, ATK_THRUST }
+enum State { SPAWN, IDLE, CHASE, ATK_SLAM, ATK_SWEEP, CAST_SHIELD, DEAD, LEAP_WINDUP, LEAP_AIR, LEAP_RECOVERY, JUMP_ATTACK, GROUP_REST, REWARD_LOWER, REWARD_HOLD, REWARD_RISE, REWARD_LANDING, ATK_THRUST, ATK_TRIPLE_SLAM }
 var current_state: State = State.SPAWN
 
 var max_hp: float
@@ -78,7 +79,7 @@ var _armor: float:
 var _damage_scale: float:
 	get: return rage_damage_multiplier if is_enraged else 1.0
 var effective_move_speed: float:
-	get: return move_speed * (rage_speed_multiplier if is_enraged else 1.0)
+	get: return move_speed * (rage_speed_multiplier if is_enraged else 1.0) * (_p("rage_gap_close_speed") if _rage_director.gap_close_active else 1.0)
 var attack_range_scale: float:
 	get: return rage_range_multiplier if is_enraged else 1.0
 var attack_damage: float:
@@ -189,6 +190,7 @@ func _ready() -> void:
 		"sweep_windup", "sweep_swing", "sweep_recovery", "sweep_cooldown",
 		"leap_windup", "leap_landing_hold", "leap_recovery", "leap_cooldown"])
 	_brain.setup(_tuning)
+	_rage_director.setup(self)
 	anim_clock = _crowd.phase
 	max_hp = _p("max_health")
 	for key in ["move_speed", "turn_speed", "slam_damage", "sweep_damage", "shield_reduction", "mud_shield_duration", "mud_shield_interval_min", "mud_shield_interval_max", "rage_health_ratio", "rage_range_multiplier", "rage_damage_multiplier", "rage_speed_multiplier", "rage_incoming_multiplier", "rage_crystal_size", "rage_spin_multiplier"]:
@@ -309,6 +311,7 @@ func _physics_process(delta: float) -> void:
 		return
 	_crowd.tick(delta)
 	_brain.tick(delta)
+	_rage_director.tick(delta)
 	_sample_target_velocity(delta)
 	_decision_timer = maxf(_decision_timer - delta, 0.0)
 	anim_clock += delta * _crowd.gait_multiplier
@@ -327,6 +330,8 @@ func _physics_process(delta: float) -> void:
 		current_state = State.GROUP_REST
 		_group_rest_remaining = _p("offense_failed_rest")
 	_track_melee_attack(delta)
+	if current_state == State.ATK_TRIPLE_SLAM:
+		_rage_director.tick_triple_slam(delta)
 	if current_state == State.LEAP_AIR:
 		if not _sparring_trace.is_empty():
 			_sparring_trace.branch = "leap_air"
@@ -362,7 +367,7 @@ func _physics_process(delta: float) -> void:
 			target = Targeting.nearest_player(self)
 		if _target_alive() and _opening_leap_pending and _decision_timer <= 0.0:
 			# 尚无合法落点时沿正常选招节奏重试，避免每个物理帧做完整弹道扫描。
-			_decision_timer = 0.18
+			# 失败后仍允许本轮普通选招；不能先重置计时，把所有其他技能永久饿死。
 			_selection_reason = "opening_leap"
 			if trigger_leap_attack():
 				_opening_leap_pending = false
@@ -380,6 +385,8 @@ func _physics_process(delta: float) -> void:
 			if attack_cooldown <= 0.0 and _decision_timer <= 0.0:
 				_decision_timer = 0.18
 				_select_attack(distance)
+				if current_state not in [State.IDLE, State.CHASE]:
+					_opening_leap_pending = false
 			if current_state in [State.IDLE, State.CHASE] and not ordinary_range and (routing or distance > _p("near_enter_distance")):
 				_set_locomotion(State.CHASE)
 				desired = _crowd.steer(-global_basis.z * effective_move_speed, target.global_position, delta)
@@ -446,6 +453,7 @@ func get_sparring_diagnostic() -> Dictionary:
 		"target_alive": _target_alive(), "attack_cooldown": attack_cooldown, "decision_timer": _decision_timer,
 		"cooldowns": _brain.cooldowns.duplicate(), "approach_remaining": _brain.approach_remaining,
 		"active_skill": _active_skill, "rhythm": _brain.rhythm_snapshot(),
+		"rage_director": _rage_director.snapshot(),
 		"break_reward": get_break_reward_status(),
 		"heavy_window": _heavy_window, "heavy_recovering": _heavy_recovering, "group_rest_remaining": _group_rest_remaining,
 		"heavy_recovery_scale_snapshot": _heavy_recovery_scale,
@@ -483,6 +491,7 @@ func _reset_pose() -> void:
 
 
 func _stop_action() -> void:
+	_rage_director.clear_triple_slam()
 	_leap_followup_armed = false
 	_heavy_recovery_scale = 1.0
 	_breach_target = null
@@ -527,6 +536,9 @@ func _sample_target_velocity(delta: float) -> void:
 
 
 func _select_attack(distance: float) -> void:
+	if _rage_director.enabled() and not _target_above():
+		_select_directed_rage(distance)
+		return
 	# 高处先判断能否完整落脚；不能上台时用跳跃普攻，不反复释放跃击。
 	var above := _target_above()
 	if has_meta(&"combat_recorder"):
@@ -593,6 +605,28 @@ func _select_attack(distance: float) -> void:
 		"thrust": trigger_thrust_attack()
 
 
+func _select_directed_rage(distance: float) -> void:
+	var choice: String = _rage_director.choose(distance)
+	if has_meta(&"combat_recorder"):
+		_sparring_decision = {"engine_frame":Engine.get_physics_frames(),"distance":distance,"selected":choice,"reason":_rage_director.intent,"candidates":{},"director":true}
+	_selection_reason = _rage_director.intent
+	match choice:
+		"triple_slam":
+			if trigger_triple_slam_attack(): return
+		"sweep":
+			if AttackArea.candidate_can_hit(self,global_transform,_sweep_spec(),target):
+				trigger_sweep_attack()
+		"leap":
+			if trigger_leap_attack(): return
+			_rage_director.leap_failed()
+		"rest":
+			_brain.finish_group("directed_unavailable")
+			_rage_director.interrupt()
+			current_state = State.GROUP_REST
+			_group_rest_remaining = _p("offense_failed_rest")
+	# 未能规划跃击/被遮挡时仍沿既有地面/空间移动，不隔墙出招。
+
+
 func _track_melee_attack(delta: float) -> void:
 	if current_state not in [State.ATK_SLAM, State.ATK_SWEEP] or _attack_area.phase != AttackArea.Phase.PREPARE:
 		return
@@ -628,7 +662,15 @@ func _plan_leap() -> Dictionary:
 		return {}
 	var flight := clampf(distance / _p("leap_travel_speed"), _p("leap_min_flight"), _p("leap_max_flight"))
 	# 在预警出现前完成运动预判、落脚与通道检查，之后不再追踪目标。
-	var aim := target.global_position + (_target_velocity * flight * _p("leap_lead_ratio")).limit_length(_p("leap_lead_limit"))
+	# 新狂暴预判覆盖“起手+飞行”，而非漏掉整段蓄力；仍只用已观察速度，预警后不修正。
+	var horizon := flight+_p("leap_windup") if _rage_director.enabled() else flight
+	var lead_limit := _p("rage_leap_lead_limit") if _rage_director.enabled() else _p("leap_lead_limit")
+	var aim := target.global_position + (_target_velocity * horizon * _p("leap_lead_ratio")).limit_length(lead_limit)
+	# 新选位不能把追不上目标的预测点截成一次注定落后的跳跃：先继续地面接近。
+	# 原型/旧对照仍保留原截断语义；预警出现后的落点固定规则不变。
+	if _rage_director.enabled() and Vector2(aim.x-global_position.x,aim.z-global_position.z).length() > _p("leap_max_distance"):
+		_leap_plan_failure = "predicted_out_of_reach"
+		return {}
 	var flat_aim := Vector3(aim.x - global_position.x, 0.0, aim.z - global_position.z).limit_length(_p("leap_max_distance"))
 	aim.x = global_position.x + flat_aim.x
 	aim.z = global_position.z + flat_aim.z
@@ -687,10 +729,14 @@ func _plan_leap_landing(hit: Dictionary, minimum: float, breakable: Array[RID]) 
 
 
 func _target_above() -> bool:
+	return _target_above_at(global_transform)
+
+
+func _target_above_at(pose: Transform3D) -> bool:
 	if not _target_alive():
 		return false
 	var support := SpatialQuery.support(target)
-	return not support.is_empty() and float(support.position.y) > SpatialQuery.feet(self).y + 0.4
+	return not support.is_empty() and float(support.position.y) > pose.origin.y - float(SpatialQuery.dimensions(self).half_height) + 0.4
 
 
 func _normal_attack_spec() -> Dictionary:
@@ -1262,6 +1308,7 @@ func _request_reward(kind: String) -> void:
 	if current_state == State.DEAD or not _reward_kind.is_empty():
 		return
 	_pending_reward = kind
+	_rage_director.interrupt()
 	_remove_mud_shield()
 	_attack_area.cancel()
 	_grenade_pause = preload("res://scripts/grenade_action_pause.gd").new()
@@ -1576,7 +1623,7 @@ func _begin_attack(next_state: State, heavy := false, combat := true) -> bool:
 		return _sparring_rejected("state_or_attack_cooldown")
 	if combat and not heavy and _brain.needs_heavy(is_enraged):
 		return _sparring_rejected("group_requires_heavy")
-	var skill := "leap" if next_state == State.LEAP_WINDUP else "slam" if next_state == State.ATK_SLAM else "thrust" if next_state == State.ATK_THRUST else "sweep"
+	var skill := "leap" if next_state == State.LEAP_WINDUP else "slam" if next_state == State.ATK_SLAM else "thrust" if next_state == State.ATK_THRUST else "triple_slam" if next_state == State.ATK_TRIPLE_SLAM else "sweep"
 	if not _brain.available(skill) or not _steering.spatial.permits_channel(StringName(skill)):
 		return _sparring_rejected("skill_cooldown_or_reserved_channel")
 	_stop_action()
@@ -1588,7 +1635,7 @@ func _begin_attack(next_state: State, heavy := false, combat := true) -> bool:
 	_active_skill = skill
 	_heavy_window = heavy and _brain.rhythm_enabled()
 	# 半血和运行调参不能缩短已经公布的窗口；只在下一记重招开始时快照。
-	_heavy_recovery_scale = _p("rage_heavy_recovery_scale") if is_enraged and _heavy_window and next_state != State.ATK_THRUST else 1.0
+	_heavy_recovery_scale = _p("rage_heavy_recovery_scale") if is_enraged and _heavy_window and next_state not in [State.ATK_THRUST,State.ATK_TRIPLE_SLAM] else 1.0
 	_heavy_recovering = false
 	if _heavy_window and bool(_tuning.heavy_sheds_shield):
 		_remove_mud_shield()
@@ -1644,6 +1691,31 @@ func _thrust_spec() -> Dictionary:
 		"height": 2.5 * _crowd.size_multiplier, "stable_tracking_surface": true}
 
 
+func trigger_triple_slam_attack() -> bool:
+	if not is_enraged or not bool(_tuning.get("rage_director_enabled",false)) or not _target_alive() or not is_on_floor(): return false
+	var offset: Vector3 = target.global_position-global_position
+	if Vector2(offset.x,offset.z).length() > _p("triple_slam_length")*_crowd.size_multiplier or absf(offset.y) > 4.1: return false
+	if not AttackArea.unobstructed(self,global_position,target.global_position): return false
+	if not _begin_attack(State.ATK_TRIPLE_SLAM,true): return false
+	# 三线共用物理时钟；不用三个异步回调分别结算。
+	_action_tween.kill()
+	_action_tween = null
+	_rage_director.start_triple_slam()
+	_publish_formal_boss_health()
+	return true
+
+
+func get_public_attack_area() -> Node3D:
+	return _rage_director.public_area() if current_state == State.ATK_TRIPLE_SLAM else _attack_area
+
+
+func get_public_attack_areas() -> Array[Node3D]:
+	if current_state == State.ATK_TRIPLE_SLAM: return _rage_director.public_areas()
+	var result: Array[Node3D] = []
+	if is_instance_valid(_attack_area): result.append(_attack_area)
+	return result
+
+
 func trigger_thrust_attack(landing_finisher := false) -> bool:
 	if not bool(_tuning.thrust_enabled) or not _begin_attack(State.ATK_THRUST, landing_finisher):
 		return false
@@ -1683,15 +1755,16 @@ func _spatial_can_attack() -> bool:
 		var distance := Vector2(target.global_position.x - global_position.x, target.global_position.z - global_position.z).length()
 		if (_target_above() or _brain.wants_approach(distance)) and not _plan_leap().is_empty():
 			return true
-	return (JumpMelee.can_start(self, target, _normal_attack_spec()) or
-		(AttackArea.unobstructed(self, global_position, target.global_position) and
-		(AttackArea.candidate_can_hit(self, global_transform, _slam_spec(), target) or
-		AttackArea.candidate_can_hit(self, global_transform, _sweep_spec(), target))))
+	return _spatial_attack_pose(global_transform)
 
 func _spatial_attack_pose(pose: Transform3D) -> bool:
-	return _target_alive() and (JumpMelee.can_start_at(self, target, _normal_attack_spec(), pose) or
-		(AttackArea.unobstructed(self, pose.origin, target.global_position) and
-		(AttackArea.candidate_can_hit(self, pose, _slam_spec(), target) or AttackArea.candidate_can_hit(self, pose, _sweep_spec(), target))))
+	if not _target_alive(): return false
+	# 与实际选招共用高处判定。高处目标不会释放地面重击，不能因此让导航提前交还。
+	if _target_above_at(pose):
+		return JumpMelee.can_start_at(self, target, _normal_attack_spec(), pose)
+	return absf(target.global_position.y - pose.origin.y) <= 2.5 * _crowd.size_multiplier and \
+		AttackArea.unobstructed(self, pose.origin, target.global_position) and \
+		(AttackArea.candidate_can_hit(self, pose, _slam_spec(), target) or AttackArea.candidate_can_hit(self, pose, _sweep_spec(), target))
 
 
 func _spatial_break_action(component: Node3D, point: Vector3, _ability: Resource) -> bool:
@@ -1871,6 +1944,8 @@ func _finish_action(cooldown: float) -> void:
 	_crowd.release_attack()
 	if current_state == State.DEAD:
 		return
+	_rage_director.finished(_active_skill,_heavy_window)
+	_rage_director.clear_triple_slam()
 	if _heavy_window:
 		_brain.finish_group("heavy_recovered")
 	_heavy_window = false
@@ -1887,6 +1962,7 @@ func _finish_action(cooldown: float) -> void:
 	_decision_timer = 0.0
 	if _brain.rhythm_enabled() and not is_enraged:
 		_activate_mud_shield()
+	_publish_formal_boss_health()
 
 
 func get_hit_region(shape_index: int) -> String:
@@ -2147,7 +2223,8 @@ func _break_status_caption() -> String:
 			return " · %s破绽 %.1fs%s" % [prefix, maxf(float(_reward_durations.hold) - _reward_elapsed, 0), " ×2" if _reward_kind == "down" else ""]
 		return " · " + prefix + ("起身" if current_state == State.REWARD_RISE else "失衡")
 	if is_enraged and bool(_tuning.crystal_break_enabled):
-		return " · 晶体 %d/%d · %s" % [_crystal_hits, int(_tuning.crystal_sniper_hits), "保护 %.1fs" % _crystal_guard_remaining if _crystal_guard_remaining > 0 else "开放"]
+		var action := " · 收势" if current_state == State.ATK_TRIPLE_SLAM and _rage_director.triple_struck else " · 三线" if current_state == State.ATK_TRIPLE_SLAM else ""
+		return action+" · 晶体 %d/%d · %s" % [_crystal_hits, int(_tuning.crystal_sniper_hits), "护%.1fs" % _crystal_guard_remaining if _crystal_guard_remaining > 0 else "开放"]
 	if has_mud_shield and bool(_tuning.shield_break_enabled):
 		return " · 泥盾 %d/%d" % [_shield_hits, int(_tuning.shield_grenade_hits)]
 	return " · 卸盾收势" if _heavy_recovering else ""
@@ -2211,6 +2288,7 @@ func trigger_death_scatter() -> void:
 		if part == core_mesh:
 			part.reparent(debris_parent, true)
 			part.add_to_group("sediment_titan_core")
+			part.add_to_group("enemy_death_effect")
 			# 旋转 Tween 绑定到核心自身，主敌人销毁后继续运行。
 			var spin := part.create_tween().set_loops()
 			spin.tween_property(part, "rotation_degrees:y", 360.0, 360.0 / _p("core_death_spin")).as_relative()

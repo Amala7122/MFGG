@@ -32,13 +32,13 @@ func _input(event: InputEvent) -> void:
 func open() -> void:
 	if opened or get_tree().paused or _director._other_modal(): return
 	_saved = Settings.load_values()
-	_mouse = Input.mouse_mode
+	_mouse = MouseControl.mode
 	_was_active = _director.is_active
 	if not _was_active: _director.activate()
 	get_node("/root/GameFlow").set_meta(MODAL,true)
 	opened = true
 	get_tree().paused = true
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 	_build()
 
 func _build() -> void:
@@ -158,7 +158,7 @@ func close() -> void:
 	var flow := get_node_or_null("/root/GameFlow")
 	if flow != null: flow.remove_meta(MODAL)
 	get_tree().paused = false
-	Input.mouse_mode = _mouse
+	MouseControl.mode = _mouse
 	if is_instance_valid(_root): _root.queue_free()
 	if not _was_active and _director.is_active: _director.deactivate()
 	_fields.clear()

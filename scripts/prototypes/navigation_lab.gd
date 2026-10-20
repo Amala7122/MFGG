@@ -91,7 +91,7 @@ const TRAIL_DRAW_POINTS := 60
 const HINT_TEXT := "空格=开始寻路 · 左键=设目标 · 右键=加测量体 · 中键拖动=平移地图 · 滚轮=缩放 · R=重新投放 · F=重置视角"
 
 func _ready() -> void:
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 	_load_ring_defaults()
 	_build_ui()
 	await rebuild_world()

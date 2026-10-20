@@ -34,7 +34,7 @@ static func summarize(samples: Array, inputs: Array, events: Array, end_time: fl
 			if bool(frame.opponents[0].mud_shield): front_shield += dt
 		if state == 9 and previous_state != 9: landing_time = float(frame.time)
 		if reward: landing_time = -1.0
-		if landing_time >= 0.0 and state in [3, 4, 7, 16]:
+		if landing_time >= 0.0 and state in [3, 4, 7, 16, 17]:
 			landing_links.append({"landing_observed_at": landing_time, "next_warning_observed_at": float(frame.time),
 				"gap_seconds_approx": float(frame.time) - landing_time, "next_skill": diagnostic.get("active_skill", "unknown"),
 				"scope": "快照首次观察边界，误差约一个采样间隔；不是精确命中时刻"})

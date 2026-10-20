@@ -85,7 +85,7 @@ func _run() -> void:
 	if DisplayServer.get_name() != "headless":
 		await graphics()
 	# 全局调参面板不可跨换场景遗留暂停，先恢复玩家的真实捕获状态。
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	MouseControl.mode = Input.MOUSE_MODE_CAPTURED
 	root.get_node("GameFlow")._resume_play()
 	effect._sketch_panel.open()
 	check(effect._sketch_panel.opened, "场景退出清理的前置面板实际打开")

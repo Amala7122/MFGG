@@ -1,7 +1,13 @@
 class_name ProceduralMudGolem
 extends CharacterBody3D
 
+signal died(enemy: Node3D)
+const Lifecycle := preload("res://scripts/enemies/enemy_lifecycle.gd")
+const HitFlash := preload("res://scripts/enemies/enemy_hit_flash.gd")
+var _hit_flash: Node
+
 const HealthUtil := preload("res://scripts/health_util.gd")
+const Targeting := preload("res://scripts/targeting.gd")
 const Nav := preload("res://scripts/nav_steering.gd")
 const GroundMovement := preload("res://scripts/ground_movement.gd")
 const SpatialProfile := preload("res://scripts/combat_spatial_profile.gd")
@@ -88,6 +94,10 @@ func _ready() -> void:
 	_health_label.pixel_size = 0.006
 	add_child(_health_label)
 	_update_health_label()
+	_hit_flash = HitFlash.new()
+	_hit_flash.name = "EnemyHitFlash"
+	add_child(_hit_flash)
+	_hit_flash.setup(visual_root, _tuning)
 	_reactions.setup(self, combat_reaction_profile, _collision)
 
 
@@ -101,6 +111,8 @@ func _physics_process(delta: float) -> void:
 		_finish_action()
 	if current_state == State.DEAD:
 		return
+	if ai_enabled and not HealthUtil.is_alive(target):
+		target = Targeting.nearest_player(self)
 	_crowd.tick(delta)
 	anim_clock += delta * _crowd.gait_multiplier
 	_attack_cooldown = maxf(_attack_cooldown - delta, 0.0)
@@ -273,8 +285,8 @@ func _setup_collision() -> void:
 	_collision = CollisionShape3D.new()
 	_collision.name = "CollisionShape3D"
 	var shape := CapsuleShape3D.new()
-	shape.radius = 0.45
-	shape.height = 1.3
+	shape.radius = get_body_dimensions().x * 0.5
+	shape.height = get_body_dimensions().y
 	_collision.shape = shape
 	add_child(_collision)
 
@@ -313,8 +325,7 @@ func trigger_attack(target_pos: Vector3) -> void:
 	_attack_cooldown = attack_interval
 	velocity.x = 0.0
 	velocity.z = 0.0
-	_attack_area.prepare(global_transform, {"kind": "sector", "radius": (attack_distance + _p("attack_reach_extra")) * _crowd.size_multiplier,
-		"angle": _p("attack_angle") * 2.0, "height": 2.0 * _crowd.size_multiplier, "ground_effect": false}, attack_damage * _damage_scale,
+	_attack_area.prepare(global_transform, _attack_spec(), attack_damage * _damage_scale,
 		_p("attack_windup") + _p("attack_swing"))
 	_action_tween = create_tween().set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
 	_action_tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
@@ -342,9 +353,12 @@ func _spatial_can_attack() -> bool:
 	return _spatial_attack_pose(global_transform)
 
 func _spatial_attack_pose(pose: Transform3D) -> bool:
-	return is_instance_valid(target) and AttackArea.candidate_can_hit(self, pose,
-		{"kind": "sector", "radius": (attack_distance + _p("attack_reach_extra")) * _crowd.size_multiplier,
-		"angle": _p("attack_angle") * 2.0, "height": 2.0 * _crowd.size_multiplier, "ground_effect": false}, target)
+	return is_instance_valid(target) and AttackArea.candidate_can_hit(self, pose, _attack_spec(), target)
+
+
+func _attack_spec() -> Dictionary:
+	return {"kind": "sector", "radius": (attack_distance + _p("attack_reach_extra")) * _crowd.size_multiplier,
+		"angle": _p("attack_angle") * 2.0, "height": 2.0 * _crowd.size_multiplier, "ground_effect": false}
 
 
 func apply_grenade_stagger(seconds: float) -> void:
@@ -379,10 +393,13 @@ func take_damage(amount: float) -> void:
 	var before := health
 	health = maxf(health - preload("res://scripts/combat_damage.gd").armored(self, amount, _armor), 0.0)
 	Telemetry.enemy_damaged(self, before)
+	if health < before:
+		_hit_flash.play()
+	if bool(get_meta(&"experiment_invincible", false)):
+		health = maxf(health, 1.0)
 	_update_health_label()
 	if health <= 0.0:
-		if Telemetry.credits_player(self) and is_instance_valid(target) and target.has_method("register_enemy_kill"):
-			target.call("register_enemy_kill", self)
+		Lifecycle.credit_player(self, target)
 		trigger_death_scatter()
 	elif bool(_tuning.stagger_on_damage) and not Telemetry.manages_reaction(self):
 		trigger_hit_stagger(Vector3.ZERO)
@@ -427,6 +444,8 @@ func trigger_death_scatter() -> void:
 		return
 	current_state = State.DEAD
 	health = 0.0
+	_hit_flash.clear()
+	Lifecycle.begin_death(self)
 	_stop_action()
 	_collision.set_deferred("disabled", true)
 	collision_layer = 0
@@ -448,6 +467,7 @@ func trigger_death_scatter() -> void:
 		rb.collision_layer = 0
 		rb.collision_mask = 1
 		debris_parent.add_child(rb)
+		Lifecycle.register_effect(self, rb)
 		# 把世界缩放保留在网格，刚体仅保留位置和旋转，避免物理缩放。
 		rb.global_transform = Transform3D(world_transform.basis.orthonormalized(), world_transform.origin)
 		part.reparent(rb, false)
@@ -468,3 +488,7 @@ func trigger_death_scatter() -> void:
 		lifetime.timeout.connect(rb.queue_free)
 		lifetime.start()
 	queue_free()
+
+
+static func get_body_dimensions(_values: Dictionary = {}) -> Vector3:
+	return Vector3(0.9, 1.3, 0.9)

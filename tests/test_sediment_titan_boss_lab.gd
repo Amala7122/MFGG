@@ -53,9 +53,15 @@ func _run() -> void:
 	await process_frame
 
 	# 再跑一次完整入口，防止只验证了配置却没验证 F6 启动时序与正式导演投放。
+	var display := root.get_node("DisplaySettings")
+	var previous_style: int = display.post_process_style
+	display.post_process_style = 1
+	display._apply_post_process()
 	var runtime_lab := LabScene.instantiate()
 	root.add_child(runtime_lab)
 	current_scene = runtime_lab
+	_check(root.get_node("PostProcess").style == 0 and display.post_process_style == 1,
+		"真实F6直战入口默认基础画面，黑白电视存档不污染挑战且不被覆盖")
 	var boss: Node = null
 	for _frame in range(600):
 		boss = get_first_node_in_group("boss")
@@ -194,9 +200,10 @@ func _run() -> void:
 		_check(not (boss._steering.spatial.status == "relocate" and boss.velocity.length() < 0.05
 			and closest_distance > 8.0), "正式 Boss 不会以无落点状态永久停在远处")
 
-		# 共鸣清场不伤Boss；A4.1 重招承诺窗口与狂暴禁止重建泥盾。
+		# 10月18日用户规则：前半普通重招仍常驻泥盾；奖励与狂暴禁止重建。
 		boss._remove_mud_shield()
-		var shield_allowed: bool = not boss.is_enraged and not boss._heavy_window
+		_check(not bool(boss._tuning.heavy_sheds_shield), "正式直战明确使用前半重招保盾方案")
+		var shield_allowed: bool = not boss.is_enraged and boss._reward_kind.is_empty() and boss._pending_reward.is_empty()
 		var boss_health_before := float(boss.call("get_health"))
 		var resonance := ResonanceScript.new()
 		runtime_lab.add_child(resonance)
@@ -209,7 +216,7 @@ func _run() -> void:
 		_check(resonance_hits == 0 and is_equal_approx(float(boss.call("get_health")), boss_health_before),
 			"范围清场共鸣即使使用极高基础伤害也不会伤害 Boss")
 		_check(bool(boss.has_mud_shield) == shield_allowed and boss.mud_shield_visual.visible == shield_allowed,
-			"共鸣即时响应遵守重招窗口与狂暴无盾边界")
+			"共鸣即时响应遵守前半重招保盾、奖励与狂暴无盾边界")
 		await _verify_live_resonance(runtime_lab, boss, runtime_player)
 
 	if is_instance_valid(boss):
@@ -218,6 +225,9 @@ func _run() -> void:
 	current_scene = null
 	runtime_lab.queue_free()
 	await process_frame
+	_check(root.get_node("PostProcess").style == 1,"真实直战离场恢复场外风格，不把挑战默认写成全局锁定")
+	display.post_process_style = previous_style
+	display._apply_post_process()
 	print("[沉积泰坦 Boss 直战台] failures=", _failures)
 	quit(1 if _failures else 0)
 

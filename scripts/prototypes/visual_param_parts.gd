@@ -4,8 +4,23 @@ extends RefCounted
 ## phase：与时间轴同一套词汇 —— 待机 / 步态 / 蓄力上升 / 定势保持 / 爆发 / 收势回落 / 时间结构 / 外形 / 材质。
 ## 只服务观察，不参与动画计算；节点名必须与三种外形脚本里 pivot() / limb() 建立的名字一致。
 
+const COMBAT_KEYS := ["stagger_on_damage", "acceleration", "aim_line_width", "aim_lock_time", "armor", "attack_damage", "attack_interval", "attack_range", "blast_height", "blast_radius", "charge_distance", "charge_front_reach", "charge_hit_height", "charge_min_range", "charge_speed", "charge_timeout", "contact_damage", "contact_range", "contact_windup", "corpse_lifetime", "crowd_alignment_weight", "crowd_attack_fraction", "crowd_attack_radius", "crowd_cohesion_weight", "crowd_density_brake", "crowd_enabled", "crowd_flank_distance", "crowd_flank_width", "crowd_neighbor_radius", "crowd_response", "crowd_separation_weight", "crowd_speed_limit", "crowd_start_delay", "crowd_surge_period", "crowd_surge_strength", "crowd_sway_period", "crowd_sway_strength", "crowd_wait_speed", "formation_width", "gravity", "hit_flash_duration", "hit_flash_strength", "impact_fx_lifetime", "max_health", "move_speed", "poison_radius", "poison_duration", "poison_damage", "poison_tick_interval", "poison_hit_height", "preferred_distance", "projectile_flight_time", "projectile_gravity", "projectile_lifetime", "projectile_radius", "projectile_speed", "push_multiplier", "retreat_exit_range", "retreat_range", "retreat_speed", "separation_radius", "stagger_duration", "turn_speed", "variation_damage", "variation_enabled", "variation_gait", "variation_phase", "variation_size", "variation_speed", "variation_timing", "wall_recovery"]
+
 const PARTS := {
 	"PrototypeSedimentTitan": {
+		"rage_gap_close_speed": {"parts": ["MainTorso", "LeftLeg", "RightLeg"], "scope": "远距追赶速度倍率", "phase": "仅狂暴远距待机/追击；新实例读取"},
+		"rage_gap_close_burst": {"parts": ["MainTorso", "LeftLeg", "RightLeg"], "scope": "远距追赶持续时间", "phase": "仅狂暴远距待机/追击；新实例读取"},
+		"rage_leap_lead_limit": {"parts": ["MainTorso", "LeftLeg", "RightLeg"], "scope": "新狂暴跃击一次预判位移上限", "phase": "起手规划锁定；预警出现后不追踪"},
+		"rage_director_enabled": {"parts": ["MainTorso", "MassiveFist", "LeftArm", "RightArm"], "scope": "狂暴启用选位/攻势模板", "phase": "狂暴自动选位／三线重击（新实例读取，起手快照）"},
+		"rage_close_distance": {"parts": ["MainTorso", "MassiveFist", "LeftArm", "RightArm"], "scope": "狂暴目标接近距离", "phase": "狂暴自动选位／三线重击（新实例读取，起手快照）"},
+		"rage_close_timeout": {"parts": ["MainTorso", "MassiveFist", "LeftArm", "RightArm"], "scope": "主动接近最长时间", "phase": "狂暴自动选位／三线重击（新实例读取，起手快照）"},
+		"triple_slam_length": {"parts": ["MainTorso", "MassiveFist", "LeftArm", "RightArm"], "scope": "三线重击长度", "phase": "狂暴三线重击（新实例读取，起手快照）"},
+		"triple_slam_width": {"parts": ["MainTorso", "MassiveFist", "LeftArm", "RightArm"], "scope": "单道直线宽度", "phase": "狂暴三线重击（新实例读取，起手快照）"},
+		"triple_slam_spread": {"parts": ["MainTorso", "MassiveFist", "LeftArm", "RightArm"], "scope": "左右重击偏转角", "phase": "狂暴三线重击（新实例读取，起手快照）"},
+		"triple_slam_windup": {"parts": ["MainTorso", "MassiveFist", "LeftArm", "RightArm"], "scope": "三线共同预警", "phase": "狂暴三线重击（新实例读取，起手快照）"},
+		"triple_slam_recovery": {"parts": ["MainTorso", "MassiveFist", "LeftArm", "RightArm"], "scope": "三线落下后收势", "phase": "狂暴三线重击（新实例读取，起手快照）"},
+		"triple_slam_damage": {"parts": ["MainTorso", "MassiveFist", "LeftArm", "RightArm"], "scope": "三线重击伤害", "phase": "狂暴三线重击（新实例读取，起手快照）"},
+		"triple_slam_cooldown": {"parts": ["MainTorso", "MassiveFist", "LeftArm", "RightArm"], "scope": "三线重击冷却", "phase": "狂暴三线重击（新实例读取，起手快照）"},
 		"down_reward_enabled": {"parts": ["MainTorso", "LeftLeg", "RightLeg", "HeadCrystal"], "scope": "全身倒地姿态／可命中区域／最终承伤", "phase": "倒下／有效倒地／起身"},
 		"down_lower_seconds": {"parts": ["MainTorso", "LeftLeg", "RightLeg", "HeadCrystal"], "scope": "全身倒地姿态／可命中区域／最终承伤", "phase": "倒下／有效倒地／起身"},
 		"down_hold_seconds": {"parts": ["MainTorso", "LeftLeg", "RightLeg", "HeadCrystal"], "scope": "全身倒地姿态／可命中区域／最终承伤", "phase": "倒下／有效倒地／起身"},
@@ -204,6 +219,10 @@ const PARTS := {
 static func lookup(profile: String, key: String) -> Dictionary:
 	var table: Dictionary = PARTS.get(profile, {})
 	var entry: Variant = table.get(key, {})
+	if (entry as Dictionary).is_empty() and key in ["hit_flash_duration", "hit_flash_strength"]:
+		return {"parts": [], "phase": "实际受击：短暂闪红；新实例读取"}
+	if (entry as Dictionary).is_empty() and profile in ["VisualBurstCrawler", "VisualPrismSpider", "VisualChargeBeetle"] and COMBAT_KEYS.has(key):
+		return {"parts": ["Body", "VisualRig"], "phase": "真实战斗 / 个体与群体；新实例读取"}
 	return entry if entry is Dictionary else {}
 
 

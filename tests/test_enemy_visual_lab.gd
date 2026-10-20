@@ -40,7 +40,7 @@ func _run() -> void:
 			tip_width = maxf(tip_width, absf(vertex.x + 0.27))
 	_check(tip_width < 0.01 and fang.get_aabb().size.y > 0.25, "Guardian fangs must end in sharp points")
 	print("Guardian geometry: ", guardian_parts.size(), " meshes / ", lab.call("_count_triangles"), " triangles")
-	_check(Input.mouse_mode == Input.MOUSE_MODE_VISIBLE, "Visual Lab must release the mouse")
+	_check(MouseControl.mode == Input.MOUSE_MODE_VISIBLE, "Visual Lab must release the mouse")
 	_check(not paused, "Visual Lab must not be paused by GameFlow")
 	_check(root.get_viewport().get_camera_3d() == lab.get_node("CameraRig/Pitch/Camera3D"), "Visual Lab camera must win over GameFlow menu camera")
 	var head := subject.get_node("GuardianSculpture/BreathingBody/HeadPivot") as Node3D
@@ -61,7 +61,7 @@ func _run() -> void:
 	_check(face.material_override == lab.get("_silhouette_material"), "Silhouette preview must cover generated meshes")
 	lab.call("_unhandled_input", _key(KEY_B))
 	_check(face.material_override != lab.get("_silhouette_material"), "Material preview must restore glaze")
-	for expected_name in ["ProceduralMudGolem", "ProceduralSedimentTitan", "ProceduralFastBeast", "ProceduralHornet", "ProceduralBurstCrawlerVisual", "ProceduralPrismSpiderVisual", "ProceduralChargeBeetleVisual"]:
+	for expected_name in ["ProceduralMudGolem", "ProceduralSedimentTitan", "ProceduralFastBeast", "ProceduralHornet", "ProceduralBurstCrawlerVisual", "ProceduralPrismSpiderVisual", "ProceduralChargeBeetleVisual", "BurstCrawler", "PrismSpider", "ChargeBeetle"]:
 		lab.call("_unhandled_input", _key(KEY_RIGHT))
 		await process_frame
 		subject = lab.get_node("SubjectMount").get_child(lab.get_node("SubjectMount").get_child_count() - 1) as Node3D
@@ -73,7 +73,7 @@ func _run() -> void:
 	await process_frame
 	_check(lab.get_node("SubjectMount").get_child(lab.get_node("SubjectMount").get_child_count() - 1) is ProceduralTombGuardianVisual, "Gallery must wrap to first preview")
 	lab.call("_unhandled_input", _key(KEY_ESCAPE))
-	_check(Input.mouse_mode == Input.MOUSE_MODE_VISIBLE, "Esc must leave the mouse free")
+	_check(MouseControl.mode == Input.MOUSE_MODE_VISIBLE, "Esc must leave the mouse free")
 	if "--capture-guardian" in OS.get_cmdline_user_args():
 		var output_dir := CapturePaths.ensure_dir("tomb_guardian")
 		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(output_dir))

@@ -271,7 +271,9 @@ func _border_inner_point(outer: Vector3, inward: Vector3, center: Vector3) -> Ve
 			if not hit.is_empty():
 				return hit.point
 		width *= 0.5
-	return outer.lerp(center, 0.6)
+	# 扇形角点的固定法线可能落到多边形外；回退也只能走边框宽度。
+	# 按整条长三角形的60%退到中心会把0.28m边框画成数米橙色楔形。
+	return outer.move_toward(center, WARNING_BORDER_WIDTH)
 
 
 func _find_clear_plane(footprint: PackedVector2Array) -> void:

@@ -38,6 +38,12 @@ func _run() -> void:
 	check(capture._opponent_difference([changed_link], [linked]).get("kind") == "attack_link", "相同姿态但后续承诺不同，重放提前定位首次衔接偏离")
 	linked.diagnostic.erase("landing_followup_armed")
 	check(capture._opponent_difference([changed_link], [linked]).is_empty(), "旧记录缺衔接字段不能补造偏离")
+	linked.diagnostic["rage_director"] = {"cycle":1,"triple_struck":false,"intent":"triple_slam","triple_elapsed":.5}
+	changed_link.diagnostic = linked.diagnostic.duplicate(true)
+	changed_link.diagnostic.rage_director.triple_struck = true
+	check(capture._opponent_difference([changed_link],[linked]).get("kind") == "attack_pattern","同位置但三拍进度不同定位首次偏离")
+	linked.diagnostic.erase("rage_director")
+	check(capture._opponent_difference([changed_link],[linked]).is_empty(),"旧录像缺新模板字段不补造偏离")
 	var profile: Dictionary = Settings.resolve({"profile_id": "break_priority"}).profile
 	var invalid := profile.duplicate(true)
 	invalid.boss_experiment = {"max_health": 1}

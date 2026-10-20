@@ -69,7 +69,7 @@ func prepare(world: Node, player: Node3D, titan: Node3D, settings: Dictionary) -
 	_document = Settings.read_document()
 	_build_panel()
 	get_tree().paused = true
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 	if bool(options.autostart):
 		start_run()
 
@@ -133,7 +133,7 @@ func start_run() -> void:
 	running = true
 	get_tree().paused = false
 	_panel.visible = false
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if options.mode == "manual" else Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_CAPTURED if options.mode == "manual" else Input.MOUSE_MODE_VISIBLE
 
 func _physics_process(delta: float) -> void:
 	if running and recorder != null:
@@ -161,7 +161,7 @@ func finish(outcome: String) -> void:
 	_recording_path.text = recorder.directory
 	_last_model_path = recorder.directory.path_join("human_model.json") if FileAccess.file_exists(recorder.directory.path_join("human_model.json")) else ""
 	get_tree().paused = true
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 	_panel.visible = true
 	_status.text = "%s · %s · 受击 %s 次\n%s" % [outcome, result.get("analysis", {}).get("sample_validity", "未核对"), result.get("unblocked_hits", 0), recorder.directory]
 	completed.emit(result)
@@ -172,7 +172,7 @@ func toggle_pause() -> void:
 		return
 	get_tree().paused = not get_tree().paused
 	_panel.visible = get_tree().paused
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if options.mode == "manual" and not get_tree().paused else Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_CAPTURED if options.mode == "manual" and not get_tree().paused else Input.MOUSE_MODE_VISIBLE
 
 func repeat_run() -> void:
 	var next := _read_panel()

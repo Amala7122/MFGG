@@ -35,13 +35,23 @@ static func public_area(actor: Node3D) -> Node3D:
 	# 只适配实际显示的地面预警；不拿远程私有瞄准倒计时伪造可见圆圈。
 	if implementation(actor) not in ["titan", "roster_melee"]:
 		return null
-	var area: Node3D = value(actor, "_attack_area")
+	var area: Node3D = actor.call("get_public_attack_area") if actor.has_method("get_public_attack_area") else value(actor, "_attack_area")
 	if is_instance_valid(area) and not bool(area.get("shape").get("ground_effect", true)):
 		return null
 	return area
 
 static func public_shield(actor: Node3D) -> bool:
 	return bool(value(actor, "has_mud_shield", false)) if implementation(actor) == "titan" else false
+
+static func public_areas(actor: Node3D) -> Array[Node3D]:
+	var result: Array[Node3D] = []
+	if actor.has_method("get_public_attack_areas"):
+		for area: Node3D in actor.call("get_public_attack_areas"):
+			if is_instance_valid(area) and bool(area.get("shape").get("ground_effect",true)): result.append(area)
+	else:
+		var area := public_area(actor)
+		if is_instance_valid(area): result.append(area)
+	return result
 
 static func public_break_cues(actor: Node3D) -> Dictionary:
 	# 决策只看场景中已显示的模型／颜色／罩；不读计数、状态机或剩余计时。
@@ -74,7 +84,7 @@ static func sample(actor: Node3D, id: String) -> Dictionary:
 	var attack := {}
 	if kind == "titan":
 		raw_state = int(value(actor, "current_state", -1))
-		var names := ["emerging", "idle", "chase", "slam", "sweep", "shield", "dead", "leap_windup", "leap_air", "leap_recover", "jump_melee", "group_rest", "reward_lower", "reward_hold", "reward_rise", "reward_landing", "thrust"]
+		var names := ["emerging", "idle", "chase", "slam", "sweep", "shield", "dead", "leap_windup", "leap_air", "leap_recover", "jump_melee", "group_rest", "reward_lower", "reward_hold", "reward_rise", "reward_landing", "thrust", "triple_slam"]
 		state = names[raw_state] if raw_state >= 0 and raw_state < names.size() else "unknown"
 		actionable = raw_state in [1, 2]
 		waiting = not actionable

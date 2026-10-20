@@ -180,7 +180,7 @@ func _ready() -> void:
 	# 只有真正进入游戏才捕获鼠标。启动时 GameFlow 停在主菜单，
 	# 这里如果无条件捕获，菜单按钮就点不动了。
 	if GameFlowUtil.is_playing():
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		MouseControl.mode = Input.MOUSE_MODE_CAPTURED
 	if not camera:
 		camera = get_node_or_null("CameraPivot/Camera3D")
 	if camera:
@@ -388,7 +388,7 @@ func _move_vector() -> Vector2:
 
 ## 开火/瞄准的前置条件：鼠标已捕获（否则在主菜单里点按钮会开枪）。
 func _is_aim_captured() -> bool:
-	return Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	return MouseControl.mode == Input.MOUSE_MODE_CAPTURED
 
 
 func _input(event: InputEvent) -> void:
@@ -409,7 +409,7 @@ func _input(event: InputEvent) -> void:
 		target_pitch -= event.relative.y * sensitivity
 		target_pitch = clamp(target_pitch, deg_to_rad(-70.0), deg_to_rad(65.0))
 	elif event is InputEventMouseButton and event.pressed:
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		MouseControl.mode = Input.MOUSE_MODE_CAPTURED
 
 
 # ---------------------------------------------------------------- 主循环

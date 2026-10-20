@@ -101,7 +101,7 @@ func _ready() -> void:
 	var main_scene: String = ProjectSettings.get_setting("application/run/main_scene", "")
 	if main_scene.begins_with("uid://"):
 		main_scene = ResourceUID.get_id_path(ResourceUID.text_to_id(main_scene))
-	_standalone_scene = is_instance_valid(scene) and scene.scene_file_path != main_scene
+	_standalone_scene = is_instance_valid(scene) and scene.scene_file_path not in [main_scene, "res://scenes/hyrule_field.tscn"]
 	if _standalone_scene:
 		state = State.PLAYING
 		return
@@ -370,7 +370,7 @@ func _enter_menu() -> void:
 	])
 	_present("", Color.WHITE, "")
 	get_tree().paused = true
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 
 
 ## 开始页还未生成玩家，因此用静态镜头展示真实遗迹，而不是空白底色。
@@ -476,7 +476,7 @@ func _enter_display_settings(focus_index: int = 0) -> void:
 		], focus_index)
 	_present("", UiThemeUtil.COLOR_ACCENT, "Enter 切换　·　ESC 返回")
 	get_tree().paused = true
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 
 
 func _on_cycle_display_mode() -> void:
@@ -550,7 +550,7 @@ func return_from_sparring() -> void:
 	state = State.MENU
 	_set_overlay_visible(false)
 	get_tree().paused = false
-	var error := get_tree().change_scene_to_file("res://scenes/hyrule_field.tscn")
+	var error := get_tree().change_scene_to_file(_main_scene_path())
 	if error != OK:
 		push_error("无法返回主菜单：%s" % error)
 		return
@@ -615,7 +615,7 @@ func _resume_play() -> void:
 	state = State.PLAYING
 	_set_overlay_visible(false)
 	get_tree().paused = false
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	MouseControl.mode = Input.MOUSE_MODE_CAPTURED
 	_apply_pending_transition()
 
 
@@ -651,7 +651,7 @@ func _enter_pause() -> void:
 		{"label": "总场次", "value": "%d" % SaveUtil.get_total_runs()},
 	])
 	get_tree().paused = true
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 
 
 func _on_resume() -> void:
@@ -673,7 +673,7 @@ func _on_restart() -> void:
 	state = State.PLAYING
 	get_tree().paused = false
 	_set_overlay_visible(false)
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	MouseControl.mode = Input.MOUSE_MODE_CAPTURED
 	get_tree().reload_current_scene()
 
 
@@ -720,7 +720,7 @@ func _show_game_over(survival: float, kills: int, best_survival: float, best_kil
 		},
 	])
 	get_tree().paused = true
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 
 
 func _preview_game_over() -> void:
@@ -764,7 +764,7 @@ func _enter_stage_cleared(stage: int) -> void:
 		{"label": "武器等级", "value": "LV %d" % RunStateUtil.get_weapon_level()},
 	])
 	get_tree().paused = true
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 
 
 ## 切到下一个竞技场。靠重载场景完成 —— 竞技场几何是确定性生成的，
@@ -784,7 +784,7 @@ func _apply_next_stage(next_id: String) -> void:
 	state = State.PLAYING
 	get_tree().paused = false
 	_set_overlay_visible(false)
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	MouseControl.mode = Input.MOUSE_MODE_CAPTURED
 	get_tree().reload_current_scene()
 
 
@@ -829,7 +829,7 @@ func _input(event: InputEvent) -> void:
 			get_tree().paused = true
 			# 截图时通常还要切到截图工具或其它窗口；暂停后释放鼠标，移出游戏
 			# 窗口即可操作桌面。继续游戏时 _resume_play() 会重新捕获。
-			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+			MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 			get_viewport().set_input_as_handled()
 		elif state == State.PAUSED:
 			_resume_play()
@@ -943,7 +943,7 @@ func _enter_upgrade_pick(picks: Array[Dictionary], wave: int, total_waves: int) 
 	AudioUtil.play("pickup", 2.2, 1.2)
 	AudioUtil.play("ui", 1.0, 0.9)
 	get_tree().paused = true
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 
 
 func _on_pick_upgrade(pick: Dictionary) -> void:
@@ -959,3 +959,8 @@ func _on_pick_upgrade(pick: Dictionary) -> void:
 	RunStateUtil.add_perk(perk_id)
 	EventBusUtil.emit_upgrade_chosen(perk_id)
 	_resume_play()
+
+
+static func _main_scene_path() -> String:
+	var path := String(ProjectSettings.get_setting("application/run/main_scene", ""))
+	return ResourceUID.get_id_path(ResourceUID.text_to_id(path)) if path.begins_with("uid://") else path

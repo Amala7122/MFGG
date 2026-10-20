@@ -248,7 +248,7 @@ func _planner(destination: Node3D, goal_point: Vector3, precise: bool) -> RefCou
 		# 接战候选（5 圈 × 8 方位）必须在精确目标时都生成：实测把它限制在 8 米内会让
 		# 接战链的最长连续零速从 104~133 帧涨到 293~301 帧（敌人找不到可攻击站位，来回摆）。
 		# 它依赖 begin() 已设好的 body / target，因此必须留在 begin() 之后。
-		job.set_attack_goal(_bindings.get("attack_pose", Callable()))
+		job.set_attack_goal(_bindings.get("attack_pose", Callable()), _bindings.get("stance_radii", []))
 	job.landing_allowed = _route_landing_allowed
 	return job
 
@@ -1000,7 +1000,9 @@ func gate_motion(desired: Vector3, delta: float) -> Vector3:
 	var lower := Query.floor_at(_body, feet_ahead, maxf(float(profile.safe_drop), 12.0))
 	if not lower.is_empty() and absf(float(lower.position.y) - feet_ahead.y) <= float(profile.safe_drop) + 0.05:
 		return desired
-	if not lower.is_empty() and Query.ground_connected(_body, here, lower.position, float(profile.safe_drop)):
+	# 大身体的前探较远，当前切平面可能钻进弯曲上坡的地下，单条向下射线会漏地。
+	# 即使远端射线落空，也沿小步逐段确认连续支撑；真正断崖仍会在段内被拒绝。
+	if Query.ground_connected(_body, here, feet_ahead, float(profile.safe_drop)):
 		return desired
 	if not lower.is_empty():
 		var entered := Query.body_on_floor(_body, lower)

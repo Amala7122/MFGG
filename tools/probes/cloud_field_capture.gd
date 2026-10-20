@@ -14,7 +14,7 @@ func _capture() -> void:
 	for _frame in range(30):
 		await process_frame
 	paused = false
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 	var scene := current_scene
 	var weather := scene.get_node("WeatherEnvironment/WeatherSystem")
 	weather.rain_enabled = false

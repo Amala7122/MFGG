@@ -15,6 +15,10 @@ Python 工具共用 `artifact_paths.py`，引擎侧共用 `scripts/artifact_path
 
 ## 自动验收
 
+自动验收与 `run_probe.py --graphics` 均隔离鼠标和窗口焦点：启动器给子进程设置 `RUIN_STAR_AUTOMATION=1`，隔离工程从窗口创建前启用 `no_focus` 并关闭置顶。游戏通过 `MouseControl.mode` 记录瞄准、暂停与面板恢复请求；自动运行时真实系统鼠标始终可见且不受限。子引擎继承该标记。不要通过直接开原工程运行窗口替代统一入口。
+
+手动试玩继续从正常编辑器启动，不设置自动运行标记。手动录像也使用这一入口；自动窗口不接管键鼠。鼠标隔离回归：`python -B tools/run_acceptance.py --tests test_mouse_control --graphics --task automation_mouse`。它同时检查真实图形窗口模式、捕获/限制请求、暂停恢复、代码绕过，以及无头子进程中未设标记时读回原生 Input。无头引擎忽略物理捕获，不能据此认定真人鼠标捕获已验收。
+
 需要 Python 3.10+：
 
 ```powershell
@@ -24,6 +28,8 @@ python -B tools/run_acceptance.py --graphics --tests test_ground_juice test_clou
 ```
 
 `--task` 指定任务名，`--output` 指定项目外父目录，`--godot` 指定引擎，`--timeout` 指定单项秒数上限。启动前检查目录规范。验收创建隔离工程和存档、关闭副本编辑器/MCP 插件，不读取原游戏成绩或修改原游戏方案。截图和日志通过 `--artifact-dir` 汇入同一次运行，副本位于 `tmp/project/`。
+
+Windows 图形自动运行在创建窗口前禁用焦点／置顶，并由 `automation_windows.py` 将本次测试及子进程首次显示的窗口放到用户工作窗口后面。仅作首次层级放置，不反复争夺焦点、不最小化渲染窗口；`summary.json` 的 `background_windows` 保留实际放置及后台顺序证据。编辑器正常手动运行不经过此守卫。
 
 执行器检查 stdout、stderr、引擎日志；任何脚本/资源 ERROR、非零退出、超时、启动失败或缺失日志都使检查失败。WARNING 保留。每轮真实引擎自检故意注入错误，确认门槛生效。
 
@@ -89,3 +95,13 @@ python -B tools/project_hygiene.py restore --manifest <迁移清单绝对路径>
 上述新敌人截图命令末尾加 `--args --motion`，可额外生成每种在 12 米和 24 米的待机、蓄力、释放对照。
 
 新怪死亡截图：`python -B tools/run_probe.py tools/probes/enemy_death_capture.gd --graphics --task enemy_death_capture`，输出活体、死亡预备、爆裂/翻身、抖腿、尸体和时间轴，以及爬兽转身/收甲阶段。
+
+六小怪导航/攻击复盘：`python -B tools/run_probe.py tools/probes/creature_navigation_audit.gd --task creature_navigation --args --strict --formal-routes`。读取当前已保存默认方案，验证扑击/近身/蜂针与俯冲、六种绕矮墙/方岩/球岩，并在圣所真实岩石后逐种验证对真实玩家造成伤害。小场地逐例使用独立导航地图；地图未就绪明确失败，失败保存物理轨迹和即时规划诊断。`--repeat-mud-rock --contact-start`可单独连续复现六次泥偶贴岩起步。对应默认值回归为`test_creature_navigation_and_attacks`。
+
+六种混编与泰坦全流程：`python -B tools/run_probe.py tools/probes/sanctum_creature_trial.gd --graphics --task sanctum_trial --timeout 480`。固定个体与波次随机种子，先30秒观察原生攻击，再用实际枪线、必要时正常接近/有限侧移和边界返场完成当前配置三波（30/45/60只）、选卡、同方案泰坦及死亡后结算。记录逐波峰值、每秒人数、命中和技能。玩家补血、观察阶段固定玩家位置并停自动小精灵、弹药补充均仅用于测试。Boss先核对“圣所关底 Boss”全量参数与360000生命、实际受伤和原生技能，再通过真实take_damage注入测试专用伤害推进狂暴与死亡；报告明确标记该控制，不拿它声称真人击杀时长或难度。输出`reports/trial.json`与截图，任何六种技能缺失、开场未达到目标人数、超过人数上限或未通关均失败。
+
+持续黏液物理检查：`python -B tools/run_acceptance.py --tests test_poison_puddle test_crystal_creature_combat`，覆盖大范围周期伤害、离开/回到范围、不同楼层/跳跃、墙体、暂停/到期与投掷者死亡独立。
+
+泰坦圣所边坡原现场：`python -B tools/run_probe.py tools/probes/titan_sanctum_route.gd --task titan_sanctum_route`，读取实际Boss方案/公共生成器，在原失败坐标观察30秒原生接敌；无实际选招则严格失败，输出位置、门控、原生选招与导航诊断。对应自动测试为`test_titan_sanctum_route`。
+
+测试台会话隔离诊断（T00）：`python -B tools/run_probe.py tools/probes/testing_session_probe.gd --task testing_session`。用实际圣所和已保存泰坦参数，对照场景重建、裸 World3D、受控同进程预览，以及独立进程技能执行／中途终止；输出 `reports/testing_session_probe.json`。负对照必须暴露全树目标、共享资源、全局进度及随机序列串扰，诊断整体通过不代表各候选均可采用。加 `--graphics` 可保存同进程预览的真实震拳画面；子预览始终无头并继承隔离工程和自动标记。它是可复用研究工具，尚非统一测试台、正式草稿协议或预览窗口产品。

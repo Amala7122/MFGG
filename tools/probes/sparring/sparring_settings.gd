@@ -50,8 +50,9 @@ static func validate_cli_flags(flags: Dictionary) -> String:
 	return ""
 
 static func validate_profile(profile: Dictionary) -> String:
-	if String(profile.get("strategy", "")) not in ["orbit", "reactive", "greedy", "break_priority"]:
+	if String(profile.get("strategy", "")) not in ["orbit", "reactive", "greedy", "break_priority", "wiggle", "linear_left", "linear_right", "retreat"]:
 		return "未知策略"
+	if profile.has("fixed_side") and float(profile.fixed_side) not in [-1.0,1.0]: return "固定绕行侧必须为-1或1"
 	var experiment: Variant = profile.get("boss_experiment", {})
 	if not experiment is Dictionary or experiment.keys().any(func(key): return key not in ["down_hold_seconds", "pressure_trial"]):
 		return "未知Boss试验参数"

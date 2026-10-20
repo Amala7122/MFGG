@@ -83,6 +83,8 @@ func _run() -> void:
 		_check(_died, "沉积泰坦死亡发出波次结算所需信号")
 		_check(not is_instance_valid(boss), "死亡演出交接后 Boss 实体退出")
 		_check(not get_nodes_in_group("sediment_titan_core").is_empty(), "死亡核心保留供击杀镜头取景")
+		for core: Node in get_nodes_in_group("sediment_titan_core"):
+			_check(core.is_in_group("enemy_death_effect"), "核心旋转死亡演出也参与结算等待")
 
 	current_scene = null
 	scene.queue_free()

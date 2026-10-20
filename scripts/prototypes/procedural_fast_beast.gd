@@ -1,6 +1,11 @@
 class_name ProceduralFastBeast
 extends CharacterBody3D
 
+signal died(enemy: Node3D)
+const Lifecycle := preload("res://scripts/enemies/enemy_lifecycle.gd")
+const HitFlash := preload("res://scripts/enemies/enemy_hit_flash.gd")
+var _hit_flash: Node
+
 const HealthUtil := preload("res://scripts/health_util.gd")
 const Nav := preload("res://scripts/nav_steering.gd")
 const GroundMovement := preload("res://scripts/ground_movement.gd")
@@ -103,6 +108,10 @@ func _ready() -> void:
 	_health_label.pixel_size = 0.006
 	add_child(_health_label)
 	_update_health_label()
+	_hit_flash = HitFlash.new()
+	_hit_flash.name = "EnemyHitFlash"
+	add_child(_hit_flash)
+	_hit_flash.setup(visual_root, _tuning)
 	_reactions.setup(self, combat_reaction_profile, _collision)
 	_sample_orbit_wait()
 
@@ -186,15 +195,17 @@ func _process_circle_flank(delta: float) -> Vector3:
 	offset.y = 0.0
 	var distance := offset.length()
 	var ordinary_only: bool = not _steering.spatial.permits_channel(&"pounce")
-	if _normal_cooldown <= 0.0 and _normal_check_timer <= 0.0 and distance <= _p("normal_attack_reach") * _crowd.size_multiplier and (_target_above() or ordinary_only):
+	var close_attack := ordinary_only or _target_above() or distance < _p("pounce_min_distance")
+	if _normal_cooldown <= 0.0 and _normal_check_timer <= 0.0 and distance <= _p("normal_attack_reach") * _crowd.size_multiplier and close_attack:
+		if _reactions.defers_attack(): return Vector3.ZERO
 		_normal_check_timer = 0.18
-		if (ordinary_only or not _pounce_landing_ok()) and trigger_jump_attack():
+		if (ordinary_only or distance < _p("pounce_min_distance") or not _pounce_landing_ok()) and trigger_jump_attack():
 			return Vector3.ZERO
 	var above := _target_above()
 	var routing: bool = above or ordinary_only or _steering.needs_route(target.global_position)
 	_look_at_target(delta, _p("turn_speed"))
 	var desired: Vector3
-	if (above or ordinary_only) and JumpMelee.can_start(self, target, _normal_attack_spec()):
+	if close_attack and JumpMelee.can_start(self, target, _normal_attack_spec()):
 		desired = Vector3.ZERO
 	elif routing or distance > _p("circle_outer_distance"):
 		# 场地初始相隔很远，先接近目标，避免切向绕行导致迟迟不能接战。
@@ -212,6 +223,7 @@ func _process_circle_flank(delta: float) -> Vector3:
 	_animate_trot(anim_clock, desired.length() / maxf(move_speed, 0.001))
 	if state_timer >= _orbit_wait and _attack_cooldown <= 0.0 and is_on_floor():
 		if distance >= _p("pounce_min_distance") and distance <= _p("pounce_max_distance"):
+			if _reactions.defers_attack(): return Vector3.ZERO
 			trigger_pounce()
 			if current_state == State.POUNCE_WINDUP:
 				desired = Vector3.ZERO
@@ -339,14 +351,17 @@ func _spatial_consume(channel: StringName, duration: float) -> void:
 func _spatial_can_attack() -> bool:
 	if not _target_alive():
 		return false
-	if (_target_above() or not _steering.spatial.permits_channel(&"pounce")) and JumpMelee.can_start(self, target, _normal_attack_spec()):
-		return true
 	var distance := Vector2(target.global_position.x - global_position.x, target.global_position.z - global_position.z).length()
-	return _steering.spatial.permits_channel(&"pounce") and distance >= _p("pounce_min_distance") and distance <= _p("pounce_max_distance") and AttackArea.candidate_can_hit(self, global_transform, _pounce_spec(), target)
+	if (_target_above() or not _steering.spatial.permits_channel(&"pounce") or distance < _p("pounce_min_distance")) and JumpMelee.can_start(self, target, _normal_attack_spec()):
+		return true
+	return _steering.spatial.permits_channel(&"pounce") and distance >= _p("pounce_min_distance") and distance <= _p("pounce_max_distance") and AttackArea.candidate_can_hit(self, global_transform, _pounce_spec(), target) and _pounce_landing_ok()
 
 
 func _normal_attack_spec() -> Dictionary:
-	return {"reach": _p("normal_attack_reach") * _crowd.size_multiplier, "height": _p("normal_attack_height") * _crowd.size_multiplier,
+	# 高度判断覆盖目标真实身体，不能只拿玩家中心点与跃起后的中心点比较。
+	# 否则平地近身跳咬在有效挥击窗口内始终越过玩家中心，视觉碰到也算miss。
+	var victim_half := float(SpatialQuery.dimensions(target).half_height) if is_instance_valid(target) else 0.0
+	return {"reach": _p("normal_attack_reach") * _crowd.size_multiplier, "height": _p("normal_attack_height") * _crowd.size_multiplier + victim_half,
 		"jump_speed": _p("normal_jump_speed"), "gravity": _p("gravity")}
 
 func _spatial_attack_pose(pose: Transform3D) -> bool:
@@ -472,10 +487,13 @@ func take_damage(amount: float) -> void:
 	var before := health
 	health = maxf(health - preload("res://scripts/combat_damage.gd").armored(self, amount, _armor), 0.0)
 	Telemetry.enemy_damaged(self, before)
+	if health < before:
+		_hit_flash.play()
+	if bool(get_meta(&"experiment_invincible", false)):
+		health = maxf(health, 1.0)
 	_update_health_label()
 	if health <= 0.0:
-		if Telemetry.credits_player(self) and is_instance_valid(target) and target.has_method("register_enemy_kill"):
-			target.call("register_enemy_kill", self)
+		Lifecycle.credit_player(self, target)
 		trigger_death_shatter()
 		return
 	_flash_crystals()
@@ -732,7 +750,7 @@ func _setup_collision() -> void:
 	_collision.name = "CollisionShape3D"
 	var shape := BoxShape3D.new()
 	# 覆盖正常站姿的躯干与晶角；原稿 0.9 米高的盒子会漏掉上背部射击。
-	shape.size = Vector3(0.9, 1.55, 1.6)
+	shape.size = get_body_dimensions()
 	_collision.shape = shape
 	add_child(_collision)
 
@@ -742,6 +760,8 @@ func trigger_death_shatter() -> void:
 		return
 	current_state = State.DEAD
 	health = 0.0
+	_hit_flash.clear()
+	Lifecycle.begin_death(self)
 	_stop_action()
 	if _flash_tween != null and _flash_tween.is_valid():
 		_flash_tween.kill()
@@ -767,6 +787,7 @@ func trigger_death_shatter() -> void:
 		rb.collision_layer = 0
 		rb.collision_mask = 1
 		debris_parent.add_child(rb)
+		Lifecycle.register_effect(self, rb)
 		rb.global_transform = Transform3D(world_transform.basis.orthonormalized(), world_transform.origin)
 		part.reparent(rb, false)
 		var mesh_scale := world_transform.basis.get_scale().abs()
@@ -788,3 +809,7 @@ func trigger_death_shatter() -> void:
 		lifetime.timeout.connect(rb.queue_free)
 		lifetime.start()
 	queue_free()
+
+
+static func get_body_dimensions(_values: Dictionary = {}) -> Vector3:
+	return Vector3(0.9, 1.55, 1.6)

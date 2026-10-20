@@ -25,6 +25,9 @@ var _warmup_resources: Array[Resource] = []
 func _enter_tree() -> void:
 	if not Engine.is_editor_hint():
 		process_mode = Node.PROCESS_MODE_ALWAYS
+		var display := get_node_or_null("/root/DisplaySettings")
+		if display != null:
+			display.begin_scene_style(self)
 		# 根节点要在暂停时接收 F5，但正式世界不能继承 ALWAYS，否则准备遮罩下
 		# 的暂停不会冻结玩家、敌人和技能 Tween。
 		for child in get_children():

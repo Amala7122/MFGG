@@ -221,6 +221,39 @@ static func reload_saved() -> void:
 	_saved.clear()
 
 
+static func fingerprint(id: String, values: Dictionary) -> String:
+	# JSON 数字往返可能由 int 变 float；签名按 schema 归一，忽略字典插入顺序。
+	var canonical := {}
+	for key: String in defaults(id):
+		var value: Variant = values.get(key)
+		canonical[key] = value if value is bool else float(value) if value is int or value is float else value
+	return JSON.stringify({"profile": id, "values": canonical}, "", true).sha256_text()
+
+
+static func schema_fingerprint(id: String) -> String:
+	return FileAccess.get_sha256(PROFILE_PATHS[id]) if PROFILE_PATHS.has(id) else ""
+
+
+static func saved_fingerprint(id: String, name: String, fresh := false) -> String:
+	if fresh:
+		_saved.erase(id)
+	return fingerprint(id, preset_values(id, name)) if preset_names(id).has(name) else ""
+
+
+static func save_candidate(id: String, name: String, values: Dictionary,
+		overwrite := false, expected_fingerprint := "") -> bool:
+	# 面板的新保存入口：刷新磁盘、检查同名冲突，永不顺带改变 active。
+	_saved.erase(id)
+	var exists := preset_names(id).has(name.strip_edges())
+	if exists and not overwrite:
+		last_error = "同名方案已存在：请另存新名称，或明确确认覆盖。"
+		return false
+	if exists and (expected_fingerprint.is_empty() or saved_fingerprint(id, name) != expected_fingerprint):
+		last_error = "方案已被其他入口修改，未覆盖；草稿已保留，请重新载入或另存。"
+		return false
+	return save_preset(id, name, values, false)
+
+
 static func set_active_preset(id: String, name: String) -> bool:
 	if not preset_names(id).has(name):
 		last_error = "找不到方案：" + name

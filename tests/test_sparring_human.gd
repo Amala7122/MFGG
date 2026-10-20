@@ -41,6 +41,11 @@ func _logic() -> void:
 	_check(summary.origin == "synthetic_input_contract" and absf(summary.movement.horizontal_path_m - 599.0 / 60) < 0.01, "区分来源，并用实际位置而非移动键估路程")
 	_check(absf(float(summary.response.eligible_dodge_request_delay_seconds.p50) - 0.3) < 0.001, "响应定义为公开预警到请求的间隔，保留其明确单位")
 	var model := Human.fit(report, frames, {"complete_contract": true})
+	var paused_turns := frames.duplicate(true)
+	for index in range(paused_turns.size()):
+		paused_turns[index].move = [1.0 if index < 100 or index >= 400 else -1.0 if index >= 200 and index < 300 else 0.0,0.0]
+	var turns_summary := Human.summarize(report,paused_turns,[])
+	_check(turns_summary.movement.lateral_input_side_changes == 2 and turns_summary.movement.direction_reversals == 0,"隔松键左右换边与相邻帧急反转分别计数，不能漏记真人往返")
 	_check(Human.model_problem(model).is_empty(), "新版录制可生成结构有效的情境模型")
 	_check(model.validation.split == "last_quarter_time_block_with_1s_gap" and not model.validation.independent_session, "时间块留出不能冒充独立真人局验证")
 	for chunk: Dictionary in model.chunks:
@@ -106,7 +111,7 @@ func _run() -> void:
 			for pair: Array in [[45, "dodge"], [110, "grenade"], [180, "skill"], [250, "reload"], [320, "jump"]]:
 				if index == int(pair[0]):
 					Input.action_press(String(pair[1]))
-			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if index >= 200 and index < 240 else Input.MOUSE_MODE_CAPTURED
+			MouseControl.mode = Input.MOUSE_MODE_VISIBLE if index >= 200 and index < 240 else Input.MOUSE_MODE_CAPTURED
 			var event := InputEventMouseMotion.new()
 			event.relative = Vector2(0.2, 0)
 			session.actor.call("_input", event)

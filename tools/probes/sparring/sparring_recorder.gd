@@ -137,6 +137,9 @@ func record_enemy_attack(enemy: Node, attack: String) -> void:
 	if accepting():
 		_event("enemy_attack", {"subject_id": String(enemy.get_meta(&"sparring_actor_id", "")), "attack": attack})
 
+func record_enemy_beat(actor: Node, attack: String, beat: int, total: int) -> void:
+	_event("enemy_attack_beat",{"subject_id":String(actor.get_meta(&"sparring_actor_id","unknown")),"attack":attack,"beat":beat,"total":total})
+
 func record_input(actor: Node, control: Dictionary, delta: float) -> void:
 	if not accepting() or _inputs == null:
 		return
@@ -403,6 +406,9 @@ func finish(outcome: String) -> Dictionary:
 		"limitations": ["测试策略不是玩家群体分布", "时长只记录，不用于质量评分", "读取已发布预警几何，不读取未公布选招或未来命中时间", "自定义遭遇和指定配装不等于完整四波流程，配装以实际快照为准", "脚本策略不能证明手感或反馈满意"],
 		"directory": directory}
 	var harness := {}
+	report.gameplay_sha256["res://scripts/prototypes/titan_rage_director.gd"] = FileAccess.get_sha256("res://scripts/prototypes/titan_rage_director.gd")
+	report.gameplay_sha256["res://shaders/enemy_attack_fill.gdshader"] = FileAccess.get_sha256("res://shaders/enemy_attack_fill.gdshader")
+	report.gameplay_sha256["res://scripts/prototypes/titan_melee_effect.gd"] = FileAccess.get_sha256("res://scripts/prototypes/titan_melee_effect.gd")
 	for path in ["res://tools/probes/sparring/sparring_boss_trials.gd", "res://tools/probes/sparring/sparring_pressure_analysis.gd"]:
 		harness[path] = FileAccess.get_sha256(path)
 	for path in ["res://data/testing/titan_sparring.json", "res://scripts/prototypes/titan_sparring_lab.gd", "res://tools/probes/titan_sparring.gd",

@@ -189,6 +189,7 @@ func _trial(options: Dictionary) -> void:
 		var captured_action := false
 		var captured_sweep := false
 		var captured_thrust := false
+		var captured_lines := false
 		var captured_group_recovery := false
 		while ready_session.result.is_empty() and ready_session.running:
 			await process_frame
@@ -196,6 +197,9 @@ func _trial(options: Dictionary) -> void:
 				captured_action = true
 				await _screenshot("action_" + String(options.profile_id))
 			if _capture and is_instance_valid(ready_session.boss) and ready_session.boss.has_method("get_break_reward_status"):
+				if not captured_lines and int(ready_session.boss.current_state) == 17:
+					captured_lines = true
+					await _screenshot("pressure_triple_slam_"+String(options.profile_id))
 				if not captured_thrust and int(ready_session.boss.current_state) == 16:
 					captured_thrust = true
 					await _screenshot("pressure_thrust_" + String(options.profile_id))

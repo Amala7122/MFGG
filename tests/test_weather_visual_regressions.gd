@@ -21,7 +21,7 @@ func _run() -> void:
 	for _frame in range(30):
 		await process_frame
 	paused = true
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 	DisplayServer.window_set_size(Vector2i(1920, 1080))
 	root.size = Vector2i(1920, 1080)
 	for canvas in root.find_children("*", "CanvasLayer", true, false):

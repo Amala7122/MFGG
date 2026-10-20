@@ -98,7 +98,7 @@ func _fixture() -> void:
 	_player.set_physics_process(false)
 	_player._wisp.set_process(false)
 	_player._wisp.set_physics_process(false)
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 	var rig := Node3D.new()
 	rig.position = Vector3(0, 0.6, 0)
 	_player.add_child(rig)
@@ -449,7 +449,7 @@ func _loaded_player() -> void:
 	_player.set_physics_process(false)
 	_player._wisp.set_process(false)
 	_player._wisp.set_physics_process(false)
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 
 
 func _timewarp() -> void:

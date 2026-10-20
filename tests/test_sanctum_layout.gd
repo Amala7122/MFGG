@@ -120,7 +120,7 @@ func _verify_decor(scene: Node3D, builder: Node3D) -> void:
 		_report["checked_decor_objects"] = checked
 
 func _capture(scene: Node3D) -> void:
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 	DisplayServer.window_set_size(Vector2i(1600, 1000))
 	root.size = Vector2i(1600, 1000)
 	for canvas in root.find_children("*", "CanvasLayer", true, false):

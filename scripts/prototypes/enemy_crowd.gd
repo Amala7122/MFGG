@@ -1,6 +1,7 @@
 extends RefCounted
 
 const HealthUtil := preload("res://scripts/health_util.gd")
+const Layout := preload("res://scripts/testing/enemy_parameter_layout.gd")
 ## 个体差异与软群体转向。空间快照每个物理帧只建立一次，邻居按格子查询。
 ## 无敌人实体碰撞；寻路/技能仍由敌人自己的状态机决定。
 
@@ -8,6 +9,7 @@ const CELL_SIZE := 4.0 # 空间索引的实现尺寸，不是避让距离。
 static var _snapshots: Dictionary = {}
 var _body: CharacterBody3D
 var _settings: Dictionary
+var _profile := ""
 var _rng := RandomNumberGenerator.new()
 var speed_multiplier := 1.0
 var damage_multiplier := 1.0
@@ -27,6 +29,7 @@ var _vertical_correction := 0.0
 func setup(body: CharacterBody3D, values: Dictionary, family: String) -> void:
 	_body = body
 	_settings = values.duplicate(true)
+	_profile = family
 	_rng.randomize()
 	if body.has_meta(&"crowd_seed"):
 		_rng.seed = int(body.get_meta(&"crowd_seed"))
@@ -45,6 +48,8 @@ func setup(body: CharacterBody3D, values: Dictionary, family: String) -> void:
 		if bool(_settings.variation_phase):
 			phase = _rng.randf_range(0.0, TAU)
 	size_multiplier = base_size * random_size
+	for key: String in Layout.CROWD_WORLD:
+		if _settings.has(key): _settings[key] = float(_settings[key]) * size_multiplier
 	gait_multiplier *= speed_multiplier / size_multiplier
 	_lane = _rng.randf_range(-1.0, 1.0)
 	_wave_phase = _rng.randf_range(0.0, TAU)
@@ -72,7 +77,7 @@ func _sample(key: String) -> float:
 
 
 func varied_values(values: Dictionary, speeds: Array, damage: Array, times: Array) -> Dictionary:
-	var result := values.duplicate(true)
+	var result := Layout.scaled_runtime(_profile, values, size_multiplier)
 	for key in speeds:
 		result[key] = float(result[key]) * speed_multiplier
 	for key in damage:

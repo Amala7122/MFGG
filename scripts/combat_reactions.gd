@@ -47,6 +47,15 @@ func owns_motion() -> bool:
 	return mode != Mode.NONE
 
 
+func defers_attack() -> bool:
+	if profile == null or profile.warning_response != Profile.WarningResponse.EVADE:
+		return false
+	# 新攻击起手前补一次感知。周期扫描与反应延迟期间可以继续走动，
+	# 但不能刚看见危险就跳起进攻，随后因攻击状态拒绝交回撤离。
+	_scan_threat(true)
+	return _active_threat()
+
+
 func allow_normal_stagger() -> bool:
 	# 撤离没有额外霸体；玩家受击可打断撤离。坠地 / 冲击恢复期间保持移动归属。
 	if mode == Mode.EVADE:

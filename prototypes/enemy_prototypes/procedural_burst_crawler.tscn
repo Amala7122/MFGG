@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/enemies/burst_crawler.gd" id="1"]
+
+[node name="BurstCrawler" type="CharacterBody3D"]
+script = ExtResource("1")

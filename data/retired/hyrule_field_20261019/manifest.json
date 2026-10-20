@@ -1,0 +1,14 @@
+{
+  "date": "2026-10-19",
+  "status": "retired; original scene remains runnable",
+  "scene": "res://scenes/hyrule_field.tscn",
+  "files": {
+    "scenes/hyrule_field.tscn": "20b70aee33d2a0d3663889a101e768d8a171775d1a22efee6bb402d38e9461d2",
+    "data/game_config.json": "726749f219b7a8e7d6fc5cb629303168841eb109ddbe6ffa6d080e1601860bfa"
+  },
+  "restore": "Restore these two files from this directory and set application/run/main_scene to res://scenes/hyrule_field.tscn. Shared scripts and assets remain in the project.",
+  "copies": {
+    "scenes/hyrule_field.tscn": "hyrule_field.tscn.snapshot",
+    "data/game_config.json": "game_config.json"
+  }
+}

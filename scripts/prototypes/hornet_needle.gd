@@ -14,6 +14,8 @@ func _physics_process(delta: float) -> void:
 	var query := PhysicsRayQueryParameters3D.create(global_position, destination, 3)
 	query.hit_from_inside = true
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	for observer: Node in get_tree().get_nodes_in_group("attack_inspection_observers"):
+		observer.record_segment(get_instance_id(), global_position, hit.position if not hit.is_empty() else destination, int(source_info.get("inspection_actor_id", 0)))
 	if not hit.is_empty():
 		global_position = hit.position
 		var actor := hit.collider as Node

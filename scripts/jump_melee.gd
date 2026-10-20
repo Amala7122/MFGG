@@ -30,7 +30,10 @@ static func can_start_at(body: CharacterBody3D, target: Node3D, spec: Dictionary
 	if not SpatialQuery.motion_clear(body, raised, Vector3.UP * apex):
 		return false
 	for i in range(5):
-		var point := pose.origin + Vector3.UP * apex * (0.55 + i * 0.1)
+		# 只检查真实挥击窗口内能到达的高度；不能拿起跳早段的低高度
+		# 证明一个只会在最高点挥空的攻击可以命中。
+		var phase := 0.35 + float(i) / 4.0 * 0.3
+		var point := pose.origin + Vector3.UP * apex * 4.0 * phase * (1.0 - phase)
 		if absf(target.global_position.y - point.y) <= float(spec.height) and _clear(body, point, target.global_position):
 			return true
 	return false

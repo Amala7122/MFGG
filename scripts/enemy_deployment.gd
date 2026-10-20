@@ -13,12 +13,14 @@ var _random: RandomNumberGenerator
 var _squads: Array[Dictionary] = []
 var _index := 0
 var _last_angle := 0.0
+var _spawn_cfg: Dictionary = {}
 
 
-func configure(owner: Node, arena: Dictionary, random: RandomNumberGenerator) -> void:
+func configure(owner: Node, arena: Dictionary, random: RandomNumberGenerator, spawn: Dictionary = {}) -> void:
 	_owner = owner
 	_arena = arena
 	_random = random
+	_spawn_cfg = Config.get_dictionary("spawn") if spawn.is_empty() else spawn
 	_last_angle = _random.randf() * TAU
 
 
@@ -61,9 +63,9 @@ func commit_spawn() -> float:
 	if _index < _squads.size():
 		_squads[_index].spawned += 1
 		if int(_squads[_index].spawned) < int(_squads[_index].count):
-			return maxf(Config.get_float("spawn.squad_member_interval", 0.25), 0.05)
+			return maxf(float(_spawn_cfg.get("squad_member_interval", 0.25)), 0.05)
 		_index += 1
-	return maxf(Config.get_float("spawn.spawn_interval", 0.85), 0.05)
+	return maxf(float(_spawn_cfg.get("spawn_interval", 0.85)), 0.05)
 
 
 func select_single(entry: Dictionary, anchors: Array) -> Dictionary:
@@ -75,7 +77,7 @@ func select_single(entry: Dictionary, anchors: Array) -> Dictionary:
 	var maximum: float = bounds.y
 	_last_angle = fposmod(_last_angle + _random.randf_range(1.15, 2.7), TAU)
 	var visible_fallback: Dictionary = {}
-	var attempts := maxi(Config.get_int("spawn.attempts", 24), 1)
+	var attempts := maxi(int(_spawn_cfg.get("attempts", 24)), 1)
 	for attempt in range(attempts):
 		var player := players[(_index + attempt) % players.size()] as Node3D
 		var angle := _last_angle + attempt * 0.65
@@ -143,6 +145,11 @@ func validate(candidate: Vector3, entry: Dictionary) -> Dictionary:
 	capsule.height = height
 	var query := PhysicsShapeQueryParameters3D.new()
 	query.shape = capsule
+	if entry.get("body_dimensions") is Vector3:
+		var box := BoxShape3D.new()
+		box.size = (entry.body_dimensions as Vector3) * scale + Vector3(0.24, 0.0, 0.24)
+		query.shape = box
+		height = box.size.y
 	query.transform = Transform3D(Basis.IDENTITY, point + Vector3.UP * (height * 0.5 + 0.10))
 	query.collision_mask = 5
 	if not world.direct_space_state.intersect_shape(query, 1).is_empty():

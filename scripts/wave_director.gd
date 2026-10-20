@@ -85,6 +85,10 @@ var _arena: Dictionary = {}
 var _wave_cfg: Dictionary = {}
 var _spawn_cfg: Dictionary = {}
 var _roster: Array = []
+## Empty preserves the retired scene's original configuration.
+@export_file("*.json") var encounter_path := ""
+var _encounter: Dictionary = {}
+var _pending_clear: Dictionary = {}
 var _anchors: Array = []
 var _alive: Array = []
 var _player: Node3D
@@ -101,6 +105,15 @@ var _deployment := DeploymentScript.new()
 func _ready() -> void:
 	instance = self
 	_spawn_cfg = ConfigUtil.get_dictionary("spawn")
+	if not encounter_path.is_empty():
+		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(encounter_path))
+		if not parsed is Dictionary or int(parsed.get("version", 0)) != 1:
+			push_error("Invalid encounter configuration: " + encounter_path)
+			set_process(false)
+			return
+		_encounter = parsed
+		_spawn_cfg = _spawn_cfg.duplicate(true)
+		_spawn_cfg.merge(_encounter.get("spawn", {}), true)
 	if String(_spawn_cfg.get("mode", "waves")) != "waves":
 		# 明确保留的退路：endless 模式下本节点不介入。
 		_state = State.OFFLINE
@@ -111,6 +124,8 @@ func _ready() -> void:
 	var raw: Variant = _arena.get("wave", null)
 	if raw is Dictionary:
 		_wave_cfg = raw as Dictionary
+	if not _encounter.is_empty():
+		_wave_cfg = _encounter.get("wave", {}).duplicate(true)
 	if _wave_cfg.is_empty():
 		# 竞技场没配 wave 段 → 不接管，避免"以为在跑波次其实一波都不出"。
 		_state = State.OFFLINE
@@ -121,6 +136,8 @@ func _ready() -> void:
 	# 用 get_dictionary 再取 entries：game_config.gd 只提供类型化访问器
 	# （get_float_array 之类要求元素全是数字），而图鉴是字典数组。
 	var roster_root := ConfigUtil.get_dictionary("enemy_roster")
+	if not _encounter.is_empty():
+		roster_root = _encounter
 	var raw_entries: Variant = roster_root.get("entries", null)
 	_roster = raw_entries as Array if raw_entries is Array else []
 	if _roster.is_empty():
@@ -128,14 +145,28 @@ func _ready() -> void:
 		set_process(false)
 		push_warning("[波次] enemy_roster.entries 为空，波次推进器休眠")
 		return
-	_stuck_guard = maxf(ConfigUtil.get_float("spawn.wave_stuck_guard", DEFAULT_STUCK_GUARD), 5.0)
+	_stuck_guard = maxf(float(_spawn_cfg.get("wave_stuck_guard", DEFAULT_STUCK_GUARD)), 5.0)
 	_spawner = get_parent().get_node_or_null("EnemySpawner")
 	if _spawner == null:
 		push_error("[波次] 找不到 EnemySpawner，本波不会出怪")
+	if not _encounter.is_empty() and _spawner != null:
+		var prepared: Array = []
+		for entry: Dictionary in _roster:
+			if not entry.has("species"):
+				push_error("新战斗编排必须明确指定 species，不允许回退到旧机器人")
+				set_process(false)
+				return
+			var resolved: Dictionary = _spawner.call("prepare_entry", entry)
+			if resolved.is_empty():
+				set_process(false)
+				return
+			resolved["lifecycle"] = _encounter.get("lifecycle", {}).duplicate(true)
+			prepared.append(resolved)
+		_roster = prepared
 	_boss_id = String(_wave_cfg.get("boss_id", ""))
 	_random.randomize()
 	_build_anchors()
-	_deployment.configure(self, _arena, _random)
+	_deployment.configure(self, _arena, _random, _spawn_cfg)
 	EventBusUtil.subscribe_weapon_level_changed(_on_weapon_level_changed)
 	# 玩家死亡后不该继续推进波次 —— 否则结算面板背后还在刷怪。
 	EventBusUtil.subscribe_player_died(_on_player_died)
@@ -179,7 +210,7 @@ func start_boss_direct(trial_seed: int = 0) -> bool:
 		return true
 	if trial_seed != 0:
 		_random.seed = trial_seed
-		_deployment.configure(self, _arena, _random)
+		_deployment.configure(self, _arena, _random, _spawn_cfg)
 	_started = true
 	_wave = _total_waves
 	_spawn_budget = 0
@@ -206,6 +237,7 @@ func _exit_tree() -> void:
 
 
 func _cancel_clear_cinematic() -> void:
+	_pending_clear.clear()
 	if is_instance_valid(_clear_cinematic):
 		_clear_cinematic.call("restore_and_destroy")
 	_clear_cinematic = null
@@ -238,6 +270,9 @@ func _process(delta: float) -> void:
 		return
 	# 特写结束并选完赐福之后才继续波间倒数，不能在慢镜头背后开下一波。
 	if is_instance_valid(_clear_cinematic) and not _clear_cinematic.is_queued_for_deletion():
+		return
+	if not _pending_clear.is_empty():
+		_try_complete_clear()
 		return
 	_publish_timer -= delta
 	_stuck += delta
@@ -336,7 +371,7 @@ func _advance() -> void:
 func _enter_prepare(first: bool) -> void:
 	_state = State.PREPARE
 	_wave = 0
-	_timer = maxf(ConfigUtil.get_float("spawn.prepare_seconds", 4.0), 0.0) if first else 0.5
+	_timer = maxf(float(_spawn_cfg.get("prepare_seconds", 4.0)), 0.0) if first else 0.5
 	_stuck = 0.0
 	_publish()
 
@@ -411,10 +446,26 @@ func _on_clear_cinematic_finished(is_boss: bool, cleared_wave: int, total_waves:
 	_clear_cinematic = null
 	if not GameFlowUtil.is_playing():
 		return
-	if is_boss:
-		EventBusUtil.emit_stage_cleared(stage)
+	_pending_clear = {"boss": is_boss, "wave": cleared_wave, "total": total_waves, "stage": stage}
+	set_process(true)
+	_try_complete_clear()
+
+
+func _try_complete_clear() -> void:
+	if _pending_clear.is_empty() or not GameFlowUtil.is_playing():
+		return
+	# Death effects use game time; a real-time slow-motion camera may finish first.
+	var scene := get_tree().current_scene
+	for effect: Node in get_tree().get_nodes_in_group("enemy_death_effect"):
+		if is_instance_valid(scene) and scene.is_ancestor_of(effect) and not effect.is_queued_for_deletion():
+			return
+	var request := _pending_clear.duplicate()
+	_pending_clear.clear()
+	if bool(request.boss):
+		set_process(false)
+		EventBusUtil.emit_stage_cleared(int(request.stage))
 	else:
-		EventBusUtil.emit_upgrade_pick_requested(cleared_wave, total_waves)
+		EventBusUtil.emit_upgrade_pick_requested(int(request.wave), int(request.total))
 
 
 func _start_boss() -> void:
@@ -540,6 +591,8 @@ func _make_enemy(entry: Dictionary, position: Vector3) -> Node3D:
 ## 而不是"权重表上的均匀随机"。现在 ratio 决定 kind，weight 决定组内具体是哪一条。
 ## arena 没配就用 spawn.ranged_ratio 兜底，两者都没配（<0）才退回纯权重抽。
 func _pick_entry() -> Dictionary:
+	if bool(_wave_cfg.get("guarantee_roster", false)) and _wave_spawned < _roster.size():
+		return _roster[_wave_spawned]
 	var ranged_ratio := _ranged_ratio()
 	if ranged_ratio < 0.0:
 		return _pick_weighted(_roster)
@@ -562,6 +615,8 @@ func _pick_entry() -> Dictionary:
 ## 本图的远程占比。arena.enemy_mix.ranged_ratio 优先，其次 spawn.ranged_ratio；
 ## 都没有则返回 -1，表示"不按比例、纯权重抽"。
 func _ranged_ratio() -> float:
+	if not _encounter.is_empty():
+		return clampf(float(_spawn_cfg.get("ranged_ratio", 0.3)), 0.0, 1.0)
 	var mix: Variant = _arena.get("enemy_mix", null)
 	if mix is Dictionary:
 		var value: Variant = (mix as Dictionary).get("ranged_ratio", null)

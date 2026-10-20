@@ -42,7 +42,7 @@ def main() -> int:
                          ["--editor", "--import"], max(args.timeout, 240), False)]
     if results[0]["passed"]:
         # 实战 NPC 有真实毫秒限流；无头不应等于加速模拟。机制快测须显式请求 fast。
-        sparring = script.stem in {"combat_sparring", "titan_sparring", "sparring_human_check"}
+        sparring = script.stem in {"combat_sparring", "titan_sparring", "sparring_human_check", "titan_rage_movement"}
         fast = "--pacing=fast" in args.args
         pacing = ["--max-fps", "60"] if sparring and not fast else ["--fixed-fps", "60"]
         command = [*pacing, "--script", "res://" + script.relative_to(project).as_posix(),

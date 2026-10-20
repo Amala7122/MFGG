@@ -1,6 +1,11 @@
 class_name ProceduralHornet
 extends CharacterBody3D
 
+signal died(enemy: Node3D)
+const Lifecycle := preload("res://scripts/enemies/enemy_lifecycle.gd")
+const HitFlash := preload("res://scripts/enemies/enemy_hit_flash.gd")
+var _hit_flash: Node
+
 const HealthUtil := preload("res://scripts/health_util.gd")
 ## 三针盘旋、锁向俯冲与触地解体；全部战斗数值来自独立配置。
 const Tuning := preload("res://scripts/prototypes/enemy_tuning.gd")
@@ -104,6 +109,10 @@ func _ready() -> void:
 	_health_label.pixel_size = 0.006
 	add_child(_health_label)
 	_update_health_label()
+	_hit_flash = HitFlash.new()
+	_hit_flash.name = "EnemyHitFlash"
+	add_child(_hit_flash)
+	_hit_flash.setup(visual_root, _tuning)
 	_reactions.setup(self, combat_reaction_profile, _collision)
 	_air.setup(self, combat_spatial_profile, _tuning, _air_attack_pose)
 
@@ -391,10 +400,13 @@ func take_damage(amount: float, hit_dir := Vector3.ZERO) -> void:
 	var before := health
 	health = maxf(health - preload("res://scripts/combat_damage.gd").armored(self, amount, _armor), 0.0)
 	Telemetry.enemy_damaged(self, before)
+	if health < before:
+		_hit_flash.play()
+	if bool(get_meta(&"experiment_invincible", false)):
+		health = maxf(health, 1.0)
 	_update_health_label()
 	if health <= 0.0:
-		if Telemetry.credits_player(self) and is_instance_valid(target) and target.has_method("register_enemy_kill"):
-			target.call("register_enemy_kill", self)
+		Lifecycle.credit_player(self, target)
 		trigger_death_fall()
 		return
 	var direction := hit_dir.normalized() if not hit_dir.is_zero_approx() else global_basis.z
@@ -473,8 +485,13 @@ func _animate_hover_idle() -> void:
 
 
 func trigger_death_fall() -> void:
+	if current_state == State.DEAD:
+		return
+	health = 0.0
 	_crowd.release_attack()
 	_set_state(State.DEAD)
+	_hit_flash.clear()
+	Lifecycle.begin_death(self)
 	_collision.set_deferred("disabled", true)
 	for wing in wings:
 		wing.queue_free()
@@ -486,6 +503,7 @@ func trigger_death_fall() -> void:
 	body.collision_layer = 0
 	body.collision_mask = 1
 	get_tree().current_scene.add_child(body)
+	Lifecycle.register_effect(self, body)
 	body.global_transform = Transform3D(global_basis.orthonormalized(), thorax_node.global_position)
 	visual_root.reparent(body, true)
 	for part in breakable_parts:
@@ -686,3 +704,7 @@ func _create_part(part_name: String, mesh: Mesh, mat: Material, parent: Node3D) 
 	breakable_parts.append(mi)
 	return mi
 
+
+
+static func get_body_dimensions(values: Dictionary = {}) -> Vector3:
+	return Vector3.ONE * float(values.get("collision_radius", 0.75)) * 2.0

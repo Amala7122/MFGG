@@ -11,6 +11,8 @@ const GaitUtil := preload("res://scripts/enemy_gait.gd")
 const BallisticsUtil := preload("res://scripts/ballistics.gd")
 const BossUtil := preload("res://scripts/boss.gd")
 const EnemyTuningUtil := preload("res://scripts/prototypes/enemy_tuning.gd")
+const CreatureCatalog := preload("res://scripts/enemies/creature_catalog.gd")
+const CreatureLifecycle := preload("res://scripts/enemies/enemy_lifecycle.gd")
 
 const RANGED_ENEMY_SCENE: PackedScene = preload("res://scenes/ranged_enemy.tscn")
 const MELEE_ENEMY_SCENE: PackedScene = preload("res://scenes/melee_enemy.tscn")
@@ -67,10 +69,38 @@ func _build(info: Dictionary, position: Vector3) -> Node:
 		node = _build_boss(info)
 	else:
 		node = _build_enemy(info, position)
+	if node == null:
+		return null
 	# 生成目标是父节点（Enemies 容器）。它与本节点同在场景原点，
 	# 所以下面的局部坐标就等于世界坐标。
 	get_parent().add_child(node)
+	if bool(node.get_meta(&"formal_boss", false)):
+		# 出土期间也有明确目标，保证提前受伤/击杀归属，不依赖首次AI选招才绑定。
+		node.set("target", preload("res://scripts/targeting.gd").nearest_player(node))
+	if bool(node.get_meta(&"formal_enemy", false)):
+		_place_creature(node, position)
 	return node
+
+
+## 选点与实例化共用解析结果，避免落点按小体型检查、进树后又放大。
+func prepare_entry(entry: Dictionary) -> Dictionary:
+	return CreatureCatalog.prepare(entry) if entry.has("species") else entry.duplicate(true)
+
+
+func _place_creature(body: CharacterBody3D, ground: Vector3) -> void:
+	var entry: Dictionary = body.get_meta(&"enemy_entry")
+	body.target = preload("res://scripts/targeting.gd").nearest_player(body)
+	var dimensions: Vector3 = body.get_script().get_body_dimensions(entry.tuning)
+	var height := dimensions.y * body.scale.y * 0.5 + 0.15
+	if body.has_method("get_spawn_height"):
+		# 空中单位仍需合法地面投放区，但出生高度使用其自身飞行参数。
+		height = maxf(height, float(body.get_spawn_height(0.0)))
+	body.global_position = ground + Vector3.UP * height
+	var lifecycle := CreatureLifecycle.new()
+	lifecycle.name = "EnemyLifecycle"
+	lifecycle.spawn_position = body.global_position
+	lifecycle.settings = entry.get("lifecycle", {}).duplicate(true)
+	body.add_child(lifecycle)
 
 
 ## 【必须延后配置数值与外观】
@@ -80,6 +110,12 @@ func _build(info: Dictionary, position: Vector3) -> Node:
 ## "Invalid assignment of property ... on a base object of type 'Nil'"。
 ## 用 call_deferred 把配置推到本帧稍后（那时节点已完全就绪）再执行。
 func _build_enemy(info: Dictionary, position: Vector3) -> Node:
+	var entry: Dictionary = info.get("entry", {})
+	if entry.has("species"):
+		var creature := CreatureCatalog.instantiate(entry)
+		if creature != null:
+			creature.position = position + Vector3.UP * _stand_clearance
+		return creature
 	var kind := String(info.get("kind", "melee"))
 	var scene := RANGED_ENEMY_SCENE if kind == "ranged" else MELEE_ENEMY_SCENE
 	var enemy := scene.instantiate() as Node3D

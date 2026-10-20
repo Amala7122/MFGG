@@ -29,6 +29,9 @@ var window_resolution := DEFAULT_RESOLUTION
 var ui_scale := 1.0
 var render_scale := 1.0
 var post_process_style := 0
+## 独立挑战只覆盖本场景初始画面，不覆盖用户保存的全局风格。
+var _scene_style_owner := 0
+var _scene_style := -1
 
 
 func _ready() -> void:
@@ -119,7 +122,32 @@ func _apply_render_scale() -> void:
 func _apply_post_process() -> void:
 	var effect := get_node_or_null("/root/PostProcess")
 	if effect != null:
-		effect.call("set_style", post_process_style)
+		# 直接启动主场景时_enter_tree可先于autoload的_ready；材质尚未构建。
+		# 就绪后读取最新有效风格，不把启动瞬间的旧值排进延迟队列。
+		if not effect.is_node_ready():
+			if not effect.ready.is_connected(_apply_post_process):
+				effect.ready.connect(_apply_post_process, CONNECT_ONE_SHOT)
+			return
+		effect.call("set_style", effective_post_process_style())
+
+
+func begin_scene_style(owner: Node, value: int = 0) -> void:
+	_scene_style_owner = owner.get_instance_id()
+	_scene_style = clampi(value, 0, POST_PROCESS_LABELS.size() - 1)
+	owner.tree_exiting.connect(_end_scene_style.bind(_scene_style_owner), CONNECT_ONE_SHOT)
+	_apply_post_process()
+
+
+func _end_scene_style(owner_id: int) -> void:
+	if owner_id != _scene_style_owner:
+		return
+	_scene_style_owner = 0
+	_scene_style = -1
+	_apply_post_process()
+
+
+func effective_post_process_style() -> int:
+	return _scene_style if _scene_style >= 0 else post_process_style
 
 
 func cycle_display_mode() -> void:
@@ -151,13 +179,12 @@ func cycle_render_scale() -> void:
 
 
 func cycle_post_process_style() -> void:
-	post_process_style = (post_process_style + 1) % POST_PROCESS_LABELS.size()
-	_save_settings()
-	_apply_post_process()
+	select_post_process_style((effective_post_process_style() + 1) % POST_PROCESS_LABELS.size())
 
 
 func select_post_process_style(value: int) -> void:
 	post_process_style = clampi(value, 0, POST_PROCESS_LABELS.size() - 1)
+	_scene_style = -1
 	_save_settings()
 	_apply_post_process()
 
@@ -179,7 +206,7 @@ func render_scale_label() -> String:
 
 
 func post_process_label() -> String:
-	return POST_PROCESS_LABELS[post_process_style]
+	return POST_PROCESS_LABELS[effective_post_process_style()]
 
 
 func _ui_scale_index(value: float) -> int:

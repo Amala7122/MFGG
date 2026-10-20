@@ -27,6 +27,7 @@ var _pending_pose: Transform3D
 
 func _ready() -> void:
 	name = "AttackArea"
+	add_to_group("enemy_attack_debug_areas")
 	top_level = true
 	_mesh = MeshInstance3D.new()
 	_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -57,6 +58,9 @@ func prepare(pose: Transform3D, spec: Dictionary, amount: float, countdown_durat
 	_countdown_duration = maxf(countdown_duration, 0.0)
 	_countdown_elapsed = 0.0
 	_material.set_shader_parameter("locked_phase", 0.0)
+	var solid_footprint := bool(shape.get("solid_footprint", false))
+	_material.set_shader_parameter("solid_footprint", solid_footprint)
+	(_border.material_override as ShaderMaterial).set_shader_parameter("solid_footprint", solid_footprint)
 	_material.set_shader_parameter("radial_fill", String(shape.kind) in ["circle", "sector"])
 	_material.set_shader_parameter("radius", float(shape.get("radius", 1.0)))
 	var cap_radius := float(shape.get("radius", 0.0)) if String(shape.kind) == "capsule" else 0.0
@@ -232,6 +236,8 @@ static func unobstructed(context: Node3D, from: Vector3, to: Vector3) -> bool:
 static func candidate_can_hit(context: Node3D, pose: Transform3D, spec: Dictionary, actor: Node3D) -> bool:
 	if not is_instance_valid(actor):
 		return false
+	# spec已经是世界尺寸，和prepare()同样只保留朝向，不能再乘角色体型。
+	pose = pose.orthonormalized()
 	var p := pose.affine_inverse() * actor.global_position
 	if absf(p.y) > float(spec.get("height", 2.5)):
 		return false

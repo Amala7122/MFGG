@@ -4,6 +4,292 @@
   "title": "爆囊爬兽 · 外形预览",
   "groups": [
     {
+      "title": "战斗基础（新实例读取）",
+      "fields": [
+        {
+          "key": "max_health",
+          "label": "最大生命",
+          "value": 110,
+          "min": 1,
+          "max": 5000,
+          "step": 1,
+          "unit": "",
+          "tip": "运行参数在新实例读取；保存方案可复用。"
+        },
+        {
+          "key": "armor",
+          "label": "护甲减伤",
+          "value": 0.1,
+          "min": 0,
+          "max": 0.85,
+          "step": 0.01,
+          "unit": "",
+          "tip": "运行参数在新实例读取；保存方案可复用。"
+        },
+        {
+          "key": "move_speed",
+          "label": "移动速度",
+          "value": 2.6,
+          "min": 0.2,
+          "max": 12,
+          "step": 0.1,
+          "unit": "米/秒",
+          "tip": "运行参数在新实例读取；保存方案可复用。"
+        },
+        {
+          "key": "attack_damage",
+          "label": "技能伤害",
+          "value": 22,
+          "min": 1,
+          "max": 500,
+          "step": 1,
+          "unit": "",
+          "tip": "运行参数在新实例读取；保存方案可复用。"
+        },
+        {
+          "key": "acceleration",
+          "label": "移动加速度",
+          "value": 14,
+          "min": 1,
+          "max": 100,
+          "step": 1,
+          "unit": "",
+          "tip": "运行参数在新实例读取；保存方案可复用。"
+        },
+        {
+          "key": "turn_speed",
+          "label": "转向速度",
+          "value": 4,
+          "min": 0.2,
+          "max": 15,
+          "step": 0.1,
+          "unit": "弧度/秒",
+          "tip": "运行参数在新实例读取；保存方案可复用。"
+        },
+        {
+          "key": "gravity",
+          "label": "重力",
+          "value": 22,
+          "min": 1,
+          "max": 50,
+          "step": 1,
+          "unit": "",
+          "tip": "运行参数在新实例读取；保存方案可复用。"
+        },
+        {
+          "key": "stagger_duration",
+          "label": "普通受击硬直",
+          "value": 0.18,
+          "min": 0,
+          "max": 2,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": "运行参数在新实例读取；保存方案可复用。"
+        },
+        {
+          "key": "push_multiplier",
+          "label": "击退响应",
+          "value": 0.8,
+          "min": 0,
+          "max": 3,
+          "step": 0.05,
+          "unit": "",
+          "tip": "运行参数在新实例读取；保存方案可复用。"
+        },
+        {
+          "key": "separation_radius",
+          "label": "同伴避让距离",
+          "value": 2.4,
+          "min": 0.2,
+          "max": 8,
+          "step": 0.1,
+          "unit": "米",
+          "tip": "运行参数在新实例读取；保存方案可复用。"
+        },
+        {
+          "key": "formation_width",
+          "label": "实验场队列间距",
+          "value": 4,
+          "min": 1,
+          "max": 12,
+          "step": 0.1,
+          "unit": "米",
+          "tip": "运行参数在新实例读取；保存方案可复用。"
+        },
+        {
+          "key": "corpse_lifetime",
+          "label": "死亡结束后残留",
+          "value": 2,
+          "min": 0,
+          "max": 15,
+          "step": 0.1,
+          "unit": "秒",
+          "tip": "运行参数在新实例读取；保存方案可复用。"
+        },
+        {
+          "key": "stagger_on_damage",
+          "label": "普通命中打断动作",
+          "value": true,
+          "tip": "关闭时普通枪弹仍闪红/扣血；手雷、Q和重击反应仍可打断。"
+        }
+      ]
+    },
+    {
+      "title": "战斗技能（新实例读取）",
+      "fields": [
+        {
+          "key": "projectile_flight_time",
+          "label": "投囊飞行时间",
+          "value": 1.1,
+          "min": 0.3,
+          "max": 3,
+          "step": 0.05,
+          "unit": "秒",
+          "tip": "运行参数在新实例读取；保存方案可复用。"
+        },
+        {
+          "key": "projectile_gravity",
+          "label": "投囊重力",
+          "value": 18,
+          "min": 1,
+          "max": 50,
+          "step": 1,
+          "unit": "米/秒²",
+          "tip": "运行参数在新实例读取；保存方案可复用。"
+        },
+        {
+          "key": "projectile_radius",
+          "label": "爆囊半径",
+          "value": 0.24,
+          "min": 0.05,
+          "max": 0.6,
+          "step": 0.01,
+          "unit": "米",
+          "tip": "运行参数在新实例读取；保存方案可复用。"
+        },
+        {
+          "key": "blast_radius",
+          "label": "爆炸半径",
+          "value": 2.3,
+          "min": 0.5,
+          "max": 6,
+          "step": 0.1,
+          "unit": "米",
+          "tip": "运行参数在新实例读取；保存方案可复用。"
+        },
+        {
+          "key": "blast_height",
+          "label": "爆炸有效高度",
+          "value": 2.5,
+          "min": 0.5,
+          "max": 6,
+          "step": 0.1,
+          "unit": "米",
+          "tip": "运行参数在新实例读取；保存方案可复用。"
+        },
+        {
+          "key": "projectile_lifetime",
+          "label": "投射物超时",
+          "value": 6,
+          "min": 2,
+          "max": 15,
+          "step": 0.1,
+          "unit": "秒",
+          "tip": "运行参数在新实例读取；保存方案可复用。"
+        },
+        {
+          "key": "impact_fx_lifetime",
+          "label": "黏液消退表现时长",
+          "value": 1.4,
+          "min": 0.1,
+          "max": 5,
+          "step": 0.1,
+          "unit": "秒",
+          "tip": "毒池结束前的消退时间；不改变毒池实际持续时间。"
+        }
+      ]
+    },
+    {
+      "title": "毒弹落地黏液（新实例读取）",
+      "fields": [
+        {
+          "key": "poison_radius",
+          "label": "毒池半径",
+          "value": 4.0,
+          "min": 0.5,
+          "max": 8.0,
+          "step": 0.1,
+          "unit": "米",
+          "tip": "实际可达贴地范围；墙和落差截断范围，显示与伤害共用地表。"
+        },
+        {
+          "key": "poison_duration",
+          "label": "毒池持续时间",
+          "value": 8.0,
+          "min": 0.0,
+          "max": 30.0,
+          "step": 0.5,
+          "unit": "秒",
+          "tip": "落地后游戏时间；0关闭毒池，暂停冻结。死亡毒液仍仅表现。"
+        },
+        {
+          "key": "poison_damage",
+          "label": "每次毒伤",
+          "value": 6.0,
+          "min": 0.0,
+          "max": 100.0,
+          "step": 1.0,
+          "unit": "点",
+          "tip": "玩家停留时每个周期的伤害；受到个体攻击差异影响。"
+        },
+        {
+          "key": "poison_tick_interval",
+          "label": "毒伤间隔",
+          "value": 1.0,
+          "min": 0.25,
+          "max": 5.0,
+          "step": 0.05,
+          "unit": "秒",
+          "tip": "第一跳也等待该间隔；离开毒池后不再受伤，顿帧不补发积压伤害。"
+        },
+        {
+          "key": "poison_hit_height",
+          "label": "毒池有效高度",
+          "value": 1.6,
+          "min": 1.0,
+          "max": 4.0,
+          "step": 0.1,
+          "unit": "米",
+          "tip": "身体中心距地面高度窗口；不同楼层和隔墙不会中毒。"
+        }
+      ]
+    },
+    {
+      "title": "受击反馈",
+      "fields": [
+        {
+          "key": "hit_flash_duration",
+          "label": "闪红时长",
+          "value": 0.14,
+          "min": 0.03,
+          "max": 0.8,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": "运行参数在新实例读取；保存方案可复用。"
+        },
+        {
+          "key": "hit_flash_strength",
+          "label": "闪红强度",
+          "value": 0.8,
+          "min": 0.1,
+          "max": 1,
+          "step": 0.05,
+          "unit": "比例",
+          "tip": "运行参数在新实例读取；保存方案可复用。"
+        }
+      ]
+    },
+    {
       "title": "死亡表现（无伤害，可重播）",
       "fields": [
         {
@@ -544,6 +830,254 @@
           "max": 4,
           "step": 0.1,
           "unit": "倍"
+        }
+      ]
+    },
+    {
+      "title": "个体差异",
+      "fields": [
+        {
+          "key": "variation_enabled",
+          "label": "启用个体属性差异",
+          "value": true,
+          "tip": "每只出生抽取一次，存活期间固定，不逐帧重抽。"
+        },
+        {
+          "key": "variation_speed",
+          "label": "移动速度浮动",
+          "value": 0.1,
+          "min": 0,
+          "max": 0.5,
+          "step": 0.01,
+          "unit": "±比例",
+          "tip": ""
+        },
+        {
+          "key": "variation_damage",
+          "label": "攻击伤害浮动",
+          "value": 0.1,
+          "min": 0,
+          "max": 0.5,
+          "step": 0.01,
+          "unit": "±比例",
+          "tip": ""
+        },
+        {
+          "key": "variation_size",
+          "label": "体型浮动",
+          "value": 0.08,
+          "min": 0,
+          "max": 0.35,
+          "step": 0.01,
+          "unit": "±比例",
+          "tip": "模型和碰撞同步缩放，血量不因体型随机变化。"
+        },
+        {
+          "key": "variation_timing",
+          "label": "技能节奏浮动",
+          "value": 0.15,
+          "min": 0,
+          "max": 0.5,
+          "step": 0.01,
+          "unit": "±比例",
+          "tip": "各自动作时间使用该个体同一个倍率，保持前后摇规则。"
+        },
+        {
+          "key": "variation_gait",
+          "label": "额外步频浮动",
+          "value": 0.05,
+          "min": 0,
+          "max": 0.3,
+          "step": 0.01,
+          "unit": "±比例",
+          "tip": "步频同时跟随个体移速 / 体型，避免动作整齐。"
+        },
+        {
+          "key": "variation_phase",
+          "label": "错开呼吸与步态相位",
+          "value": true,
+          "tip": ""
+        }
+      ]
+    },
+    {
+      "title": "群体运动",
+      "fields": [
+        {
+          "key": "crowd_enabled",
+          "label": "启用软群体转向",
+          "value": true,
+          "tip": "敌人之间不做实体碰撞；根据邻居位置柔和让路、跟随。"
+        },
+        {
+          "key": "crowd_start_delay",
+          "label": "首次行动延迟上限",
+          "value": 0.9,
+          "min": 0,
+          "max": 5,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "crowd_neighbor_radius",
+          "label": "群体感知半径",
+          "value": 5,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "crowd_separation_weight",
+          "label": "软避让强度",
+          "value": 1.5,
+          "min": 0,
+          "max": 5,
+          "step": 0.05,
+          "unit": "倍",
+          "tip": "避让距离使用基础属性里的同伴避让距离。"
+        },
+        {
+          "key": "crowd_alignment_weight",
+          "label": "邻居方向跟随",
+          "value": 0.1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "unit": "比例",
+          "tip": ""
+        },
+        {
+          "key": "crowd_cohesion_weight",
+          "label": "同类聚拢强度",
+          "value": 0.18,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "unit": "比例",
+          "tip": ""
+        },
+        {
+          "key": "crowd_flank_width",
+          "label": "接近路径发散宽度",
+          "value": 1.6,
+          "min": 0,
+          "max": 12,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "crowd_flank_distance",
+          "label": "路径偏移收束距离",
+          "value": 12,
+          "min": 0.1,
+          "max": 40,
+          "step": 0.1,
+          "unit": "米",
+          "tip": "越接近目标，侧翼目标偏移越小，保证仍能进入攻击距离。"
+        },
+        {
+          "key": "crowd_sway_strength",
+          "label": "路径平滑摆动强度",
+          "value": 0.09,
+          "min": 0,
+          "max": 0.8,
+          "step": 0.01,
+          "unit": "比例",
+          "tip": ""
+        },
+        {
+          "key": "crowd_sway_period",
+          "label": "路径摆动周期",
+          "value": 4.5,
+          "min": 0.1,
+          "max": 20,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "crowd_density_brake",
+          "label": "拥挤时减速强度",
+          "value": 0.25,
+          "min": 0,
+          "max": 2,
+          "step": 0.01,
+          "unit": "倍",
+          "tip": ""
+        },
+        {
+          "key": "crowd_surge_strength",
+          "label": "个体推进起伏",
+          "value": 0.06,
+          "min": 0,
+          "max": 0.5,
+          "step": 0.01,
+          "unit": "±比例",
+          "tip": ""
+        },
+        {
+          "key": "crowd_surge_period",
+          "label": "推进起伏周期",
+          "value": 5,
+          "min": 0.1,
+          "max": 20,
+          "step": 0.01,
+          "unit": "秒",
+          "tip": ""
+        },
+        {
+          "key": "crowd_response",
+          "label": "方向变化响应",
+          "value": 5,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "1/秒",
+          "tip": ""
+        },
+        {
+          "key": "crowd_speed_limit",
+          "label": "群体移动速度上限",
+          "value": 1.15,
+          "min": 1,
+          "max": 2,
+          "step": 0.01,
+          "unit": "倍",
+          "tip": "群体转向修正后的速度不超过个体基础速度乘此倍率。"
+        },
+        {
+          "key": "crowd_attack_fraction",
+          "label": "邻近同类同时攻击比例",
+          "value": 0.55,
+          "min": 0.05,
+          "max": 1,
+          "step": 0.01,
+          "unit": "比例",
+          "tip": "允许多只一起扑击，其他成员继续绕行。单只始终可攻击，1 表示不限制。"
+        },
+        {
+          "key": "crowd_attack_radius",
+          "label": "攻击节奏协调半径",
+          "value": 8,
+          "min": 0.1,
+          "max": 30,
+          "step": 0.1,
+          "unit": "米",
+          "tip": ""
+        },
+        {
+          "key": "crowd_wait_speed",
+          "label": "等待攻击时绕行速度",
+          "value": 0.25,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "unit": "比例",
+          "tip": "占个体基础移速的比例；攻击名额已满时柔和绕行，避免整齐排队。"
         }
       ]
     }

@@ -67,7 +67,7 @@ func _fixture() -> void:
 	_player.set_physics_process(false)
 	_player._wisp.set_process(false)
 	_player._wisp.set_physics_process(false)
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 	await process_frame
 
 

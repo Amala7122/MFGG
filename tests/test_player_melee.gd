@@ -122,13 +122,13 @@ func _run() -> void:
 	await _frames(3)
 	var flow := root.get_node("GameFlow")
 	flow._resume_play()
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	MouseControl.mode = Input.MOUSE_MODE_CAPTURED
 	_player.target_yaw = 0.0
 	_player.target_pitch = 0.0
 	_player.camera_pivot.rotation = Vector3.ZERO
 	await _frames(25)
 	_melee = _player.get_node("PlayerMelee")
-	print("[近战环境] gate=", _melee.can_control(), " mouse=", Input.mouse_mode, " paused=", paused,
+	print("[近战环境] gate=", _melee.can_control(), " mouse=", MouseControl.mode, " paused=", paused,
 		" flow=", flow.state, " dying=", _player._dying, " cine=", _player._cinematic_locked,
 		" rolling=", _player._rolling, " params=", _melee.parameters.size())
 	_check(_melee.can_control(), "测试前置：正式玩家近战控制闸门已开启")
@@ -226,7 +226,7 @@ func _run() -> void:
 	_event(false)
 	_reset()
 	var panel: CanvasLayer = _melee._panel
-	print("[面板前] gate=", _melee.can_control(), " mouse=", Input.mouse_mode, " paused=", paused,
+	print("[面板前] gate=", _melee.can_control(), " mouse=", MouseControl.mode, " paused=", paused,
 		" flow=", flow.state, " dying=", _player._dying, " cine=", _player._cinematic_locked, " rolling=", _player._rolling)
 	panel.open()
 	_check(paused and panel.opened and flow.has_meta(&"player_melee_tuning_modal"), "F7面板暂停战斗并独占关闭输入")

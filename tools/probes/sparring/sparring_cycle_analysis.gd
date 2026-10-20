@@ -7,12 +7,14 @@ static func summarize(events: Array, end_time: float) -> Dictionary:
 		"sniper_shots": 0, "sniper_regions": {}, "protected_shots": 0,
 		"windows": [], "damage_in_reward": 0.0, "damage_outside_reward": 0.0,
 		"reward_share": null, "note": "伤害采用实际扣血，死亡截断的窗口不冒充完整窗口；命中轨迹不等于玩家看懂提示。"}
+	result["published_attack_beats"] = 0
 	var open := {}
 	var first := {}
 	for event: Dictionary in events:
 		var details: Dictionary = event.details
 		var id := String(details.get("subject_id", ""))
 		var now := float(event.time)
+		if event.kind == "enemy_attack_beat": result.published_attack_beats += 1
 		if event.kind == "sniper_trace":
 			result.sniper_shots += 1
 			var region := String(details.region)

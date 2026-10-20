@@ -21,11 +21,16 @@ var _warning_serial := 0
 var _shown_kind := ""
 var _shown_progress := 1.0
 var _warning_gap := true
+var _wiggle_key := ""
+var _wiggle_origin := Vector3.ZERO
+var _wiggle_active := false
+var _fixed_direction := Vector3.ZERO
 
 func setup(values: Dictionary, run_seed: int) -> void:
 	profile = values.duplicate(true)
 	_rng.seed = run_seed + 311
 	_orbit_side = -1.0 if _rng.randf() < 0.5 else 1.0
+	_orbit_side = float(profile.get("fixed_side",_orbit_side))
 
 func step(player: CharacterBody3D, boss: Node3D, delta: float) -> Dictionary:
 	elapsed += delta
@@ -98,7 +103,7 @@ func step(player: CharacterBody3D, boss: Node3D, delta: float) -> Dictionary:
 				if not bool(player.get("_rolling")) and float(player.get("_dodge_cooldown")) <= 0.0:
 					output.just.dodge = true
 	output.move_world = _avoid_wall(player, movement.normalized())
-	if _stuck_timer > 0.7:
+	if _stuck_timer > 0.7 and String(profile.strategy) != "wiggle":
 		_orbit_side *= -1.0
 		_unstick_remaining = 1.0
 		_stuck_timer = 0.0
@@ -118,6 +123,7 @@ func step(player: CharacterBody3D, boss: Node3D, delta: float) -> Dictionary:
 	output.held.shoot = true
 	output.held.aim = aiming
 	output.held.sprint = in_warning
+	if String(profile.strategy) == "orbit" and bool(profile.get("constant_sprint",false)): output.held.sprint = true
 	if bool(profile.use_grenade) and distance <= 18.0 and distance > 5.0 and not in_warning and player.call("can_throw_grenade"):
 		output.just.grenade = true
 	if bool(profile.use_q) and (bool(_last_seen.get("mud_shield", false)) or int(_last_seen.get("visible_count", 0)) >= 2 or distance <= 5.0) and distance <= 9.0 and float(player.get("_skill_cooldown")) <= 0.0 and int(player.get("_skill_charges")) > 0:
@@ -127,6 +133,32 @@ func step(player: CharacterBody3D, boss: Node3D, delta: float) -> Dictionary:
 		output.activity = "reload"
 	if String(profile.strategy) == "break_priority":
 		_break_decision(player, output, in_warning, distance)
+	if String(profile.strategy) == "wiggle":
+		# 反例而非玩家模型：12m附近、看到已公布预警才小幅侧移，离开就停。
+		if not warning.is_empty() and String(warning.key) != _wiggle_key:
+			_wiggle_key = String(warning.key)
+			_wiggle_origin = player.global_position
+			_wiggle_active = true
+			_orbit_side *= -1.0
+		if _wiggle_active and (not in_warning or player.global_position.distance_to(_wiggle_origin) >= 3.0):
+			_wiggle_active = false
+		output.move_world = Vector3.ZERO
+		if distance > preferred+2.0: output.move_world = -away
+		elif distance < preferred-1.0: output.move_world = away
+		if _wiggle_active: output.move_world = away.cross(Vector3.UP)*_orbit_side
+		# 真人反馈是大部分微移，仍会处理跃击/近身圆扫；不能用完全不滚的靶子代替。
+		var circular := not warning.is_empty() and (String(warning.shape.get("kind","")) == "circle" or float(warning.shape.get("angle",0.0)) >= 359.0)
+		output.just.dodge = bool(output.just.get("dodge",false)) and circular
+		output.held.sprint = in_warning and circular
+		output.held.aim = false
+		output.activity = "wiggle_fire"
+	if String(profile.strategy) in ["linear_left","linear_right","retreat"]:
+		if _fixed_direction.is_zero_approx():
+			_fixed_direction = away if profile.strategy == "retreat" else away.cross(Vector3.UP)*(-1.0 if profile.strategy == "linear_left" else 1.0)
+		output.move_world = _avoid_wall(player,_fixed_direction)
+		output.just.dodge = false
+		output.held.sprint = true
+		output.activity = "constant_direction_fire"
 	return output
 
 func _break_decision(player: Node3D, output: Dictionary, in_warning: bool, distance: float) -> void:
@@ -207,22 +239,26 @@ func public_context(player: Node3D, boss: Node3D) -> Dictionary:
 	return context
 
 func _public_warning(player: Node3D, camera: Camera3D, opponent: Node3D) -> Dictionary:
-	var area := Adapter.public_area(opponent)
-	if is_instance_valid(area) and area.visible and int(area.get("phase")) in [1, 2]:
-		# 脚下可见预警也能被发现，不要求预警中心正好在画面中央。
-		var near_point := player.global_position - Vector3.UP * 1.0
-		if (bool(area.call("contains", player.global_position)) and _visible(player, camera, near_point + Vector3.UP * 0.12)) or _visible(player, camera, area.global_position + Vector3.UP * 0.1):
-			var spec: Dictionary = area.get("shape").duplicate(true)
-			var progress := float(area.get("progress"))
-			var kind := String(spec.get("kind", ""))
-			if _warning_gap or kind != _shown_kind or progress < _shown_progress - 0.15:
-				_warning_serial += 1
-			_shown_kind = kind
-			_shown_progress = progress
-			_warning_gap = false
-			var key := "%s:%s:%d" % [String(opponent.get_meta(&"sparring_actor_id", "target")), kind, _warning_serial]
-			return {"key": key, "pose": area.global_transform, "shape": spec, "progress": float(area.get("progress")), "sample": near_point}
-	return {}
+	var regions: Array = []
+	var near_point := player.global_position-Vector3.UP
+	for area: Node3D in Adapter.public_areas(opponent):
+		if not area.visible or int(area.get("phase")) not in [1,2]: continue
+		if (bool(area.call("contains",player.global_position)) and _visible(player,camera,near_point+Vector3.UP*.12)) or _visible(player,camera,area.global_position+Vector3.UP*.1):
+			regions.append({"pose":area.global_transform,"shape":area.get("shape").duplicate(true),"progress":float(area.get("progress"))})
+	if regions.is_empty(): return {}
+	var warning: Dictionary = regions[0].duplicate(true)
+	if regions.size()>1:
+		warning["shape"] = {"kind":"multi_rect"}
+		warning["regions"] = regions
+	var kind := String(warning.shape.get("kind",""))
+	var progress := float(warning.progress)
+	if _warning_gap or kind != _shown_kind or progress < _shown_progress-.15: _warning_serial += 1
+	_shown_kind = kind
+	_shown_progress = progress
+	_warning_gap = false
+	warning["key"] = "%s:%s:%d" % [String(opponent.get_meta(&"sparring_actor_id","target")),kind,_warning_serial]
+	warning["sample"] = near_point
+	return warning
 
 func _visible(player: Node3D, camera: Camera3D, point: Vector3) -> bool:
 	if camera == null:
@@ -236,6 +272,10 @@ func _visible(player: Node3D, camera: Camera3D, point: Vector3) -> bool:
 	return player.get_world_3d().direct_space_state.intersect_ray(query).is_empty()
 
 static func published_contains(warning: Dictionary, point: Vector3) -> bool:
+	if warning.has("regions"):
+		for region: Dictionary in warning.regions:
+			if published_contains(region,point): return true
+		return false
 	var pose: Transform3D = warning.pose
 	var local := pose.affine_inverse() * point
 	var shape: Dictionary = warning.shape
@@ -251,12 +291,29 @@ static func published_contains(warning: Dictionary, point: Vector3) -> bool:
 	return -local.z / flat.length() >= cos(deg_to_rad(float(shape.get("angle", 360.0)) * 0.5))
 
 static func escape_direction(warning: Dictionary, point: Vector3) -> Vector3:
+	if warning.has("regions"):
+		if not published_contains(warning,point): return Vector3.ZERO
+		# 对同时重叠的可见区域求并集出口；不能只躲开第一条又走进另一条。
+		# 有限几何搜索只看已公开范围，墙体仍由正式移动/避墙处理。
+		for step in range(1,25):
+			for ray in range(32):
+				var angle := TAU*float(ray)/32.0
+				var direction := Vector3(cos(angle),0,sin(angle))
+				if not published_contains(warning,point+direction*float(step)*.5): return direction
+		return Vector3.ZERO
 	var pose: Transform3D = warning.pose
 	var local := pose.affine_inverse() * point
 	var shape: Dictionary = warning.shape
 	var direction := Vector3(local.x, 0.0, local.z)
 	if String(shape.get("kind", "")) == "rect":
 		direction = Vector3(1.0 if local.x >= float(shape.get("offset", 0.0)) else -1.0, 0.0, 0.0)
+	elif String(shape.get("kind","")) == "sector" and float(shape.get("angle",360.0)) < 359.0 and direction.length_squared() > .01:
+		# 窄扇优先跨最近角边；不能把所有扇面都当圆形只会向外逃。
+		var angle := atan2(local.x,-local.z)
+		var edge := deg_to_rad(float(shape.angle)*.5)*(1.0 if angle >= 0.0 else -1.0)
+		var edge_distance := absf(edge-angle)*direction.length()
+		if edge_distance < float(shape.radius)-direction.length():
+			direction = Vector3(-local.z,0.0,local.x)*(1.0 if angle >= 0.0 else -1.0)
 	elif direction.length_squared() < 0.01:
 		direction = Vector3.RIGHT
 	var world := pose.basis * direction.normalized()

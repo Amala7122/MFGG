@@ -4,6 +4,137 @@
   "title": "沉积泰坦",
   "groups": [
     {
+      "title": "狂暴选位与三线重击（下轮生效，起手快照）",
+      "fields": [
+        {
+          "key": "rage_director_enabled",
+          "label": "狂暴启用选位/攻势模板",
+          "value": false,
+          "tip": "只影响狂暴自动选招；前半与手动强制招式保持。新实例读取。"
+        },
+        {
+          "key": "rage_close_distance",
+          "label": "狂暴目标接近距离",
+          "value": 5.2,
+          "tip": "模型米×体型；主动接近至此后横扫，限时退出。",
+          "min": 3.0,
+          "max": 8.0,
+          "step": 0.1,
+          "unit": "模型米"
+        },
+        {
+          "key": "rage_close_timeout",
+          "label": "主动接近最长时间",
+          "value": 1.1,
+          "tip": "秒；只在主动接近时累积，手雷硬直和暂停冻结。",
+          "min": 0.3,
+          "max": 3.0,
+          "step": 0.05,
+          "unit": "秒"
+        },
+        {
+          "key": "rage_leap_lead_limit",
+          "label": "新狂暴跃击预判上限",
+          "value": 12.0,
+          "min": 4.0,
+          "max": 20.0,
+          "step": 0.5,
+          "unit": "世界米",
+          "tip": "仅新狂暴；按已观察速度预测蓄力+飞行，限幅一次锁定，出预警后不追踪。新实例读取。"
+        },
+        {
+          "key": "rage_gap_close_speed",
+          "label": "远距追赶速度倍率",
+          "value": 1.8,
+          "min": 1.0,
+          "max": 2.2,
+          "step": 0.05,
+          "unit": "倍",
+          "tip": "仅新狂暴待机/追击且距离超过三线长度85%；不增加攻击伤害，仍沿正式地面/导航移动。"
+        },
+        {
+          "key": "rage_gap_close_burst",
+          "label": "远距追赶持续时间",
+          "value": 1.6,
+          "min": 0.5,
+          "max": 2.5,
+          "step": 0.05,
+          "unit": "秒",
+          "tip": "远距快步每次持续此时长，之后0.4秒普通速度；近身、攻击、硬直、奖励与暂停不计。"
+        },
+        {
+          "key": "triple_slam_length",
+          "label": "三线重击长度",
+          "value": 14.5,
+          "tip": "从Boss脚下向三个方向同时伸展；模型米×体型，起手快照。",
+          "min": 8.0,
+          "max": 20.0,
+          "step": 0.1,
+          "unit": "模型米"
+        },
+        {
+          "key": "triple_slam_width",
+          "label": "单道直线宽度",
+          "value": 2.2,
+          "tip": "单道完整危险宽度；不包含两道之间的空隙。",
+          "min": 1.0,
+          "max": 4.0,
+          "step": 0.1,
+          "unit": "模型米"
+        },
+        {
+          "key": "triple_slam_spread",
+          "label": "左右重击偏转角",
+          "value": 35.0,
+          "tip": "三道同起点，轴为左/中/右；近处重叠，向外展开形成可躲缝隙。",
+          "min": 20.0,
+          "max": 55.0,
+          "step": 1.0,
+          "unit": "度"
+        },
+        {
+          "key": "triple_slam_windup",
+          "label": "三线共同预警",
+          "value": 1.2,
+          "tip": "三道同时铺开并锁向，共同计时后同时落下。",
+          "min": 0.6,
+          "max": 1.6,
+          "step": 0.05,
+          "unit": "秒"
+        },
+        {
+          "key": "triple_slam_recovery",
+          "label": "三线落下后收势",
+          "value": 0.9,
+          "tip": "一次共同命中后完整收势，不追加第二或第三拍。",
+          "min": 0.5,
+          "max": 1.8,
+          "step": 0.05,
+          "unit": "秒"
+        },
+        {
+          "key": "triple_slam_damage",
+          "label": "三线重击伤害",
+          "value": 35.0,
+          "tip": "一次施放最多命中玩家一次；不会因三个范围叠加三倍。",
+          "min": 10.0,
+          "max": 60.0,
+          "step": 1.0,
+          "unit": "点"
+        },
+        {
+          "key": "triple_slam_cooldown",
+          "label": "三线重击冷却",
+          "value": 3.8,
+          "tip": "独立冷却；只在狂暴自动选位模板使用。",
+          "min": 2.0,
+          "max": 8.0,
+          "step": 0.1,
+          "unit": "秒"
+        }
+      ]
+    },
+    {
       "title": "正式泰坦战 · 玩家手雷储备（下次战斗生效）",
       "fields": [
         {

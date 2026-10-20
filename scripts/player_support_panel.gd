@@ -45,14 +45,14 @@ func open() -> void:
 		return
 	_host._melee.cancel()
 	_saved = Settings.load_values()
-	_mouse = Input.mouse_mode
+	_mouse = MouseControl.mode
 	var flow := get_node_or_null("/root/GameFlow")
 	if flow != null:
 		_previous_meta = flow.get_meta(MODAL) if flow.has_meta(MODAL) else null
 		flow.set_meta(MODAL, true)
 	opened = true
 	get_tree().paused = true
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 	_build()
 
 func apply_parameters(values: Dictionary) -> void:
@@ -254,7 +254,7 @@ func close() -> void:
 		else:
 			flow.set_meta(MODAL, _previous_meta)
 	get_tree().paused = false
-	Input.mouse_mode = _mouse
+	MouseControl.mode = _mouse
 	if is_instance_valid(_root):
 		_root.queue_free()
 

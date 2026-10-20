@@ -22,7 +22,7 @@ func run() -> void:
 	await test_hornet_twitch(lab)
 	for index in lab.GALLERY.size():
 		var id := String(lab.GALLERY[index].profile)
-		if not id.begins_with("Visual"):
+		if not id.begins_with("Visual") or String(lab.GALLERY[index].get("observe", "")) != "scrub":
 			continue
 		lab.call("_show_subject", index)
 		await process_frame

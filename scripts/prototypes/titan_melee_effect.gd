@@ -25,6 +25,9 @@ var _strokes: Array = []
 var _ribbon_span := -1.0
 
 static func spawn(host: Node, pose: Transform3D, spec: Dictionary, size: float, sweep: bool, swing := 0.4, shake := 1.0) -> Node3D:
+	# 场景退出的同帧可能仍有动作回调；宿主消失后不再创建纯表现节点。
+	if not is_instance_valid(host) or not host.is_inside_tree() or host.is_queued_for_deletion():
+		return null
 	var active: Array[Node] = []
 	for node in host.get_tree().get_nodes_in_group("titan_melee_effect"):
 		if not node.is_queued_for_deletion():
@@ -78,12 +81,26 @@ func setup(spec: Dictionary, size: float, sweep: bool, swing: float, shake: floa
 		if not bool(spec.get("material_warmup", false)):
 			Audio.play_at("titan_sweep", global_position, -5.0)
 		set_progress(0.0)
+	elif String(spec.get("kind","")) == "sector":
+		radius = float(spec.radius)
+		arc = deg_to_rad(float(spec.angle))
+		if bool(spec.get("compact_impact", false)):
+			# 连拍的范围已经结算，不能再留整片裂纹/尘弧充当假预警。
+			# 保留拳边短促扬尘与草木冲击；不铺地面痕迹。
+			radius = minf(radius, 1.6 * body_size)
+			lifetime = .18
+		_build_fan()
+		_trace.visible = not bool(spec.get("compact_impact", false))
+		_tip = _ground(Vector3(0,0,-radius*.5))
 	else:
 		radius = float(spec.width)
 		_build_slam(spec)
+		if bool(spec.get("compact_impact", false)):
+			_trace.visible = false
+			lifetime = .18
 		var contact := _ground(spec.get("contact", Vector3(float(spec.offset), 0, -minf(float(spec.length) * 0.35, 2.8 * size))))
 		_tip = contact
-		if not bool(spec.get("material_warmup", false)) \
+		if not bool(spec.get("material_warmup", false)) and not bool(spec.get("compact_impact", false)) \
 			and (not _coverage or _coverage.call("allows", to_global(contact))):
 			GroundEffect.spawn(get_tree().current_scene, to_global(contact), float(spec.width) * 0.65, 1.0, false, shake, false, _coverage)
 
@@ -150,6 +167,28 @@ func _physics_process(delta: float) -> void:
 	else:
 		(_trace_material as StandardMaterial3D).albedo_color.a = alpha
 	_ribbon_material.albedo_color.a = 0.46 * clampf((duration + 0.22 - age) / 0.22, 0.0, 1.0) if sweeping else 0.46 * maxf(1.0 - age / 0.4, 0.0)
+
+func _build_fan() -> void:
+	var trace := _surface()
+	var dust := _surface()
+	for ray in range(9):
+		var angle := -arc*.46+arc*.92*float(ray)/8.0
+		var direction := Vector3(sin(angle),0,-cos(angle))
+		var side := direction.cross(Vector3.UP)
+		var previous := direction*radius*.08
+		for step in range(1,7):
+			var next := direction*radius*float(step)/7.0+side*sin(float(step)*2.4)*.1*body_size
+			_segment(trace,previous,next,.055*body_size)
+			previous = next
+	for j in range(16):
+		var a := -arc*.5+arc*float(j)/16.0
+		var b := -arc*.5+arc*float(j+1)/16.0
+		var left := _ground(Vector3(sin(a),0,-cos(a))*radius*.85)
+		var right := _ground(Vector3(sin(b),0,-cos(b))*radius*.85)
+		if not _coverage or (_coverage.call("allows",to_global(left)) and _coverage.call("allows",to_global(right))):
+			_quad(dust,left,right,right+Vector3.UP*.55*body_size,left+Vector3.UP*.55*body_size)
+	_trace.mesh = _coverage.call("paint_strokes",global_transform,_strokes) if _coverage else trace.commit()
+	_ribbon.mesh = dust.commit()
 
 func _build_slam(spec: Dictionary) -> void:
 	var trace := _surface()

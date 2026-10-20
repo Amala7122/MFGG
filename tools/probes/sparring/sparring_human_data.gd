@@ -30,6 +30,8 @@ static func summarize(report: Dictionary, frames: Array, events: Array) -> Dicti
 	var danger_shoot := 0.0
 	var path := 0.0
 	var reversals := 0
+	var lateral_switches := 0
+	var last_lateral_side := 0
 	var toward := 0.0
 	var away_time := 0.0
 	var orbit := 0.0
@@ -49,6 +51,10 @@ static func summarize(report: Dictionary, frames: Array, events: Array) -> Dicti
 		duration += delta
 		var movement := Vector2(float(row.move[0]), float(row.move[1]))
 		var active := movement.length() > 0.15
+		var lateral_side := 1 if movement.x > .15 else -1 if movement.x < -.15 else 0
+		if lateral_side != 0:
+			if last_lateral_side != 0 and lateral_side != last_lateral_side: lateral_switches += 1
+			last_lateral_side = lateral_side
 		moving += delta if active else 0.0
 		shooting += delta if bool(row.held.get("shoot", false)) else 0.0
 		aimed += delta if bool(row.held.get("aim", false)) else 0.0
@@ -135,7 +141,8 @@ static func summarize(report: Dictionary, frames: Array, events: Array) -> Dicti
 		"seconds": duration, "input_frames": frames.size(), "movement": {"input_fraction": moving / seconds,
 			"toward_visible_target_fraction": toward / seconds, "away_from_visible_target_fraction": away_time / seconds,
 			"tangential_visible_target_fraction": orbit / seconds, "moving_input_low_displacement_fraction": blocked_intent / seconds, "path_samples_xz": route,
-			"strafe_fraction": strafing / seconds, "backward_fraction": backing / seconds, "direction_reversals": reversals,
+			"strafe_fraction": strafing / seconds, "backward_fraction": backing / seconds, "direction_reversals": reversals,"lateral_input_side_changes":lateral_switches,
+			"direction_count_definition":"direction_reversals为相邻非零帧向量急反转；lateral_input_side_changes允许中间松键，只记录左右输入换边，不等于世界空间转向",
 			"horizontal_path_m": path if not speeds.is_empty() else null, "speed_mps": distribution(speeds), "occupied_2m_cells": cells.size(),
 			"visible_target_distance_m": distribution(distances), "view_turn_degrees_per_second": distribution(turns)},
 		"attack": {"shoot_held_fraction": shooting / seconds, "aim_held_fraction": aimed / seconds, "moving_fire_fraction": moving_fire / seconds,
@@ -284,7 +291,7 @@ static func write_bundle(output: String, summary: Dictionary, model: Dictionary)
 	if text == null:
 		return false
 	text.store_string("# 真人操作行为分析\n\n来源：%s；采集标签：%s。\n\n%s\n\n" % [summary.origin, str(summary.participant), summary.interpretation])
-	text.store_string("移动意图 %.1f%%；实际水平路程 %s 米；后退 %.1f%%；横移 %.1f%%；方向反转 %d 次。可见目标距离分布 %s。\n\n" % [100.0 * summary.movement.input_fraction, str(summary.movement.horizontal_path_m), 100.0 * summary.movement.backward_fraction, 100.0 * summary.movement.strafe_fraction, summary.movement.direction_reversals, str(summary.movement.visible_target_distance_m)])
+	text.store_string("移动意图 %.1f%%；实际水平路程 %s 米；后退 %.1f%%；横移 %.1f%%；相邻帧急反转 %d 次；左右输入换边（含松键）%s次。可见目标距离分布 %s。\n\n" % [100.0 * summary.movement.input_fraction, str(summary.movement.horizontal_path_m), 100.0 * summary.movement.backward_fraction, 100.0 * summary.movement.strafe_fraction, summary.movement.direction_reversals,str(summary.movement.get("lateral_input_side_changes","旧记录未知")), str(summary.movement.visible_target_distance_m)])
 	text.store_string("开火按住 %.1f%%；瞄准 %.1f%%；移动开火 %.1f%%。动作请求 %s；实际生效／失败 %s；实际攻击释放 %s。\n\n" % [100.0 * summary.attack.shoot_held_fraction, 100.0 * summary.attack.aim_held_fraction, 100.0 * summary.attack.moving_fire_fraction, str(summary.attack.action_requests), str(summary.attack.action_results), str(summary.attack.actual_releases)])
 	text.store_string("响应间隔：%s；未观察到闪避请求 %d 次。%s\n\n" % [str(summary.response.eligible_dodge_request_delay_seconds), summary.response.no_observed_dodge_request, summary.response.definition])
 	text.store_string("输入核对：%s。样本诊断：%s。\n\n模型：%s。未经独立局验证的模型不会进入正常交战平衡统计。固定操作回放、经验模拟与真人样本分别记录；不由有限样本推断全部玩家。\n" % [str(summary.get("input_audit", {})), str(summary.get("sample_analysis", {}).get("sample_validity", "见原报告")), str(model.get("validation", "缺少新版情境／录制过短，不生成模型"))])

@@ -13,9 +13,11 @@ import sys
 import time
 
 from artifact_paths import create_run
+from automation_windows import BackgroundWindows
 
 
 CORE_TESTS = (
+    "test_mouse_control",
     "test_scene_dependencies",
     "test_audio_file_bank",
     "test_audio_synth_variants",
@@ -33,9 +35,18 @@ CORE_TESTS = (
     "test_combat_reactions",
     "test_ground_juice",
     "test_enemy_deployment",
+    "test_sanctum_handoff",
+    "test_crystal_creature_combat",
+    "test_enemy_parameter_contract",
+    "test_poison_puddle",
+    "test_titan_sanctum_route",
+    "test_creature_navigation_and_attacks",
+    "test_enemy_hit_flash",
     "test_enemy_roster",
     "test_sediment_titan_boss",
     "test_sediment_titan_boss_lab",
+    "test_boss_scene_style",
+    "test_boss_scene_cold_start",
     "test_titan_sparring",
     "test_sparring_cycles",
     "test_sparring_diagnostics",
@@ -49,6 +60,8 @@ CORE_TESTS = (
     "test_titan_offense_rhythm",
     "test_titan_pressure",
     "test_titan_followup",
+    "test_titan_rage_director",
+    "test_titan_triple_slam_readability",
     "test_titan_shield_break",
     "test_titan_crystal_protection",
     "test_titan_crystal_targeting",
@@ -95,16 +108,22 @@ def isolate_project(source: Path, destination: Path, run_id: str) -> None:
     config_path = destination / "project.godot"
     config = config_path.read_text(encoding="utf-8-sig")
     user_directory = f"Godot/app_userdata/ruin-star-acceptance-{run_id}"
-    for setting, value in (
-        ("config/use_custom_user_dir", "true"),
-        ("config/custom_user_dir_name", json.dumps(user_directory)),
+    for section, setting, value in (
+        ("application", "config/use_custom_user_dir", "true"),
+        ("application", "config/custom_user_dir_name", json.dumps(user_directory)),
+        # 必须在创建第一个窗口前生效，运行后设 flag 仍可能先抢一次焦点。
+        ("display", "window/size/no_focus", "true"),
+        ("display", "window/size/always_on_top", "false"),
+        ("display", "window/size/mode", "0"),
     ):
         pattern = rf"(?m)^{re.escape(setting)}=.*$"
         replacement = f"{setting}={value}"
         if re.search(pattern, config):
             config = re.sub(pattern, lambda _: replacement, config)
+        elif f"[{section}]" in config:
+            config = config.replace(f"[{section}]", f"[{section}]\n{replacement}", 1)
         else:
-            config = config.replace("[application]", f"[application]\n{replacement}", 1)
+            config += f"\n[{section}]\n{replacement}\n"
     config = re.sub(r"(?m)^(?:MCPRuntimeServer|_mcp_game_helper)=.*\n?", "", config)
     config = re.sub(
         r"(?ms)(\[editor_plugins\]\s*)enabled=.*?$",
@@ -126,10 +145,14 @@ def run_check(godot: Path, project: Path, output: Path, name: str,
     launch_error = None
     stdout = stderr = ""
     exit_code = None
+    background = {"enabled": False, "placements": [], "errors": []}
     creation_flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
     startup_info = None
     # 测试的编辑器缓存和 user:// 都归本次运行，避免写入真实用户目录。
     environment = os.environ.copy()
+    # 逻辑捕获由 MouseControl 记录，绝不限制用户的系统鼠标。
+    # 用环境变量而不是仅传命令行，确保 OS.execute 启动的子引擎也受保护。
+    environment["RUIN_STAR_AUTOMATION"] = "1"
     # 引擎会消费部分启动参数；记录器不能据 OS.get_cmdline_args() 的缺项判 false。
     engine_arguments = arguments[:arguments.index("--")] if "--" in arguments else arguments
     fixed_fps = "unfixed"
@@ -154,12 +177,16 @@ def run_check(godot: Path, project: Path, output: Path, name: str,
             encoding="utf-8", errors="replace", creationflags=creation_flags,
             startupinfo=startup_info, env=environment,
         )
+        windows = BackgroundWindows(process.pid, graphics)
         try:
-            stdout, stderr = process.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            process.kill()
-            stdout, stderr = process.communicate()
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                process.kill()
+                stdout, stderr = process.communicate()
+        finally:
+            background = windows.close()
         exit_code = process.returncode
     except OSError as error:
         launch_error = str(error)
@@ -172,7 +199,7 @@ def run_check(godot: Path, project: Path, output: Path, name: str,
     errors = sorted({line.strip() for line in lines if ENGINE_ERROR.match(line)})
     warnings = sorted({line.strip() for line in lines if ENGINE_WARNING.match(line)})
     passed = (exit_code == 0 and not errors and not timed_out
-              and launch_error is None and engine_log.is_file())
+              and launch_error is None and engine_log.is_file() and not background["errors"])
     return {
         "name": name, "passed": passed, "exit_code": exit_code,
         "timed_out": timed_out, "launch_error": launch_error,
@@ -180,6 +207,8 @@ def run_check(godot: Path, project: Path, output: Path, name: str,
         "engine_errors": errors, "warnings": warnings,
         "seconds": round(time.monotonic() - started, 2),
         "engine_log": str(engine_log), "command": command,
+        "automation_mouse_isolation": True,
+        "background_windows": background,
     }
 
 

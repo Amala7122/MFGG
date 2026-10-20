@@ -201,6 +201,14 @@ static func _opponent_difference(actual: Array, expected: Array) -> Dictionary:
 		if not by_id.has(String(prior.id)):
 			return {"kind": "missing_subject", "subject_id": prior.id}
 		var current: Dictionary = by_id[String(prior.id)]
+		var old_director: Dictionary = prior.get("diagnostic",{}).get("rage_director",{})
+		var new_director: Dictionary = current.get("diagnostic",{}).get("rage_director",{})
+		for key: String in ["cycle","intent","after_sweep","fan_beat","fan_snapshot","triple_struck","triple_snapshot","gap_close_active"]:
+			if old_director.has(key) and old_director[key] != new_director.get(key):
+				return {"kind":"attack_pattern","subject_id":prior.id,"field":key,"expected":old_director[key],"actual":new_director.get(key)}
+		for key: String in ["closing_elapsed","fan_elapsed","triple_elapsed","pursuit_clock"]:
+			if old_director.has(key) and (not new_director.has(key) or absf(float(old_director[key])-float(new_director[key])) > .1):
+				return {"kind":"attack_pattern","subject_id":prior.id,"field":key,"expected":old_director[key],"actual":new_director.get(key)}
 		for key: String in ["landing_followup_armed", "landing_link_gap_snapshot", "heavy_recovery_scale_snapshot"]:
 			var prior_diagnostic: Dictionary = prior.get("diagnostic", {})
 			var current_diagnostic: Dictionary = current.get("diagnostic", {})

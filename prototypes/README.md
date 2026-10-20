@@ -20,15 +20,17 @@
 | `ring_chase_lab/`（保留原路径） | `ring_chase_lab.tscn` | 精确追击压力观察台：256 体追移动标记，WASD/Shift 移动、F 重置视角；单环模型已退役，无 P 键切换；近距/掉队回收仅维持压力，不计为到达目标 |
 | **`spatial_lab/`** ★常用 | `combat_spatial_lab.tscn` | **小型战斗空间测试场**：44×41 米、9 个起点、整组投放、机制验证组（盾卫/狙击/重型反应）、实验场专属便利（共鸣读数、E/Q 无冷却、敌人不死） |
 | `spatial_lab/` | `capability_lab.tscn` | 空间能力：跳障、浅坑返程 / 深坑拒绝、破障、墙顶接战 |
-| `combat_lab/` | `combat_lab.tscn` | **主战斗实验场**：120×90 米大空场、图鉴全兵种、参数面板、循环战斗与统计 |
+| `combat_lab/` | `combat_lab.tscn` | **主战斗实验场**：120×90 米大空场、图鉴全兵种、七种程序化敌人、参数面板、循环战斗与统计；六小怪已进入圣所主场景，此处仍可单种/混编观察调参 |
 | `visual_lab/` | `enemy_visual_lab.tscn` | **敌人视觉实验场**：外形 / 剪影 / 姿态（泥土傀儡、沉积泰坦及尚未正式投放的新外形；大型盾卫已按要求撤出） |
 | `painterly_lab/` | `painterly_style_lab.tscn` | 绘画风格实验（材质、描边、天空） |
 | `weather_lab/` | `weather_lab.tscn`、`sanctum_sky3d_experiment.tscn` | 天气与环境 / 天空 |
-| `enemy_prototypes/` | —（被上面几个台子 `preload`） | 四种程序化敌人场景：泥傀儡 / 沉积泰坦 / 迅捷晶兽 / 晶刺蜂 |
+| `enemy_prototypes/` | —（被上面几个台子 `preload`） | 七种程序化敌人战斗场景：泥傀儡 / 沉积泰坦 / 迅捷晶兽 / 晶刺蜂 / 爆囊爬兽 / 棱眼蛛 / 裂甲兜虫 |
 | `legacy/` | — | 旧实验归档，不再主动开发 |
 
-行为脚本仍按代码职责放在 `scripts/prototypes/`（项目规则：实验场景与行为脚本分开）。
+行为脚本按代码职责放在 `scripts/prototypes/` 与 `scripts/enemies/`，实验场景与行为脚本分开。
 **找不到东西时先回这张表。**
+
+当前敌人参数面板已分离“保存候选／覆盖同名／设为默认”，支持共享草稿、撤销、搜索、精确输入与显式重读；正式 Boss 指定方案单独显示。实际打开方式、生效时机与未接入能力见 [测试台参数草稿与保存](../docs/features/测试台参数草稿与保存.md)。场景路径保持兼容，跨台往返入口尚待后续批次。
 
 已归档（`docs/archive/prototypes_cleanup_20261009/`）：
 - `combat_lab.tscn` —— 只是指向 `combat_lab/combat_lab.tscn` 的转发壳，不是第二个台子；
@@ -47,7 +49,7 @@ prototypes/
 ├─ visual_lab/           纯视觉观察台：造型、轮廓、材质、姿态
 ├─ painterly_lab/        绘画风格实验（材质 / 描边 / 天空）
 ├─ weather_lab/          天空、天气、环境等隔离实验场
-├─ enemy_prototypes/     四种程序化敌人场景（被上面几个台子共用）
+├─ enemy_prototypes/     七种程序化敌人场景（被上面几个台子共用）
 ├─ README.md             本文件（含"哪个台子在哪"索引表）
 ├─ STATUS.md             原型生命周期登记
 └─ legacy/               已归档但仍保留参考价值的旧实验

@@ -21,6 +21,9 @@ const GALLERY := [
 	{"title": "爆囊爬兽 · 外形原型", "scene": preload("res://prototypes/visual_lab/burst_crawler_visual.tscn"), "look_y": 0.95, "distance": 6.5, "yaw": 0.55, "height": 0.0, "profile": "VisualBurstCrawler", "observe": "scrub"},
 	{"title": "棱眼蛛 · 外形原型", "scene": preload("res://prototypes/visual_lab/prism_spider_visual.tscn"), "look_y": 0.8, "distance": 8.0, "yaw": 0.42, "height": 0.0, "profile": "VisualPrismSpider", "observe": "scrub"},
 	{"title": "裂甲兜虫 · 外形原型", "scene": preload("res://prototypes/visual_lab/charge_beetle_visual.tscn"), "look_y": 0.95, "distance": 10.0, "yaw": 0.60, "height": 0.0, "profile": "VisualChargeBeetle", "observe": "scrub"},
+	{"title": "爆囊爬兽 · 战斗实体", "scene": preload("res://prototypes/enemy_prototypes/procedural_burst_crawler.tscn"), "look_y": 1.0, "height": 0.825, "distance": 7, "profile": "VisualBurstCrawler", "observe": "play"},
+	{"title": "棱眼蛛 · 战斗实体", "scene": preload("res://prototypes/enemy_prototypes/procedural_prism_spider.tscn"), "look_y": 1.0, "height": 0.785, "distance": 8, "profile": "VisualPrismSpider", "observe": "play"},
+	{"title": "裂甲兜虫 · 战斗实体", "scene": preload("res://prototypes/enemy_prototypes/procedural_charge_beetle.tscn"), "look_y": 1.0, "height": 0.88, "distance": 10, "profile": "VisualChargeBeetle", "observe": "play"},
 ]
 @export_range(0.001, 0.02, 0.001) var orbit_sensitivity := 0.006
 
@@ -90,12 +93,22 @@ func _ready() -> void:
 	_build_silhouette_material()
 	_build_visual_controls()
 	var initial := 0
+	var requested_form := "visual"
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--visual-form="): requested_form = argument.trim_prefix("--visual-form=")
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--visual-profile="):
-			for i in GALLERY.size():
-				if GALLERY[i].profile == argument.trim_prefix("--visual-profile="):
-					initial = i
+			initial = gallery_index_for(argument.trim_prefix("--visual-profile="), requested_form)
 	_show_subject(initial)
+
+
+static func gallery_index_for(profile: String, form := "visual") -> int:
+	var fallback := -1
+	for i in GALLERY.size():
+		if GALLERY[i].profile != profile: continue
+		if fallback < 0: fallback = i
+		if (form == "visual" and GALLERY[i].observe == "scrub") or (form == "combat" and GALLERY[i].observe == "play"): return i
+	return maxi(fallback, 0)
 
 
 func _exit_tree() -> void:
@@ -104,7 +117,7 @@ func _exit_tree() -> void:
 		_game_flow.visible = _game_flow_visible
 	get_tree().paused = false
 	Engine.time_scale = 1.0
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 
 
 func _process(delta: float) -> void:
@@ -133,7 +146,7 @@ func _enforce_lab_isolation() -> void:
 	if is_instance_valid(_game_flow):
 		_game_flow.process_mode = Node.PROCESS_MODE_DISABLED
 		_game_flow.visible = false
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -180,7 +193,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_K:
 				_play_subject_death()
 			KEY_TAB:
-				_visual_panel.visible = not _visual_panel.visible and String(GALLERY[_gallery_index].profile).begins_with("Visual")
+				_visual_panel.visible = not _visual_panel.visible and _subject.has_method("apply_visual_values")
 			KEY_B:
 				_toggle_silhouette()
 			KEY_SPACE:
@@ -208,10 +221,13 @@ func _unhandled_input(event: InputEvent) -> void:
 				_cycle_decompose_frames()
 			KEY_ESCAPE:
 				_dragging = false
-				Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+				MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 
 
 func _show_subject(index: int) -> void:
+	if is_instance_valid(_visual_panel) and not bool(_visual_panel.call("_commit_inputs")):
+		_gallery_picker.select(_gallery_index)
+		return
 	for effect in get_tree().get_nodes_in_group("enemy_death_effect"):
 		if effect != _subject and is_ancestor_of(effect):
 			effect.queue_free()
@@ -254,10 +270,10 @@ func _show_subject(index: int) -> void:
 	_apply_motion_state()
 	_reset_view()
 	_gallery_picker.select(_gallery_index)
-	_visual_panel.bind_profile(profile if profile.begins_with("Visual") else "")
-	if profile.begins_with("Visual"):
+	var editable_visual := profile.begins_with("Visual") and _subject.has_method("apply_visual_values")
+	_visual_panel.bind_profile(profile if editable_visual else "")
+	if editable_visual:
 		_visual_panel.bind_subject(_subject)
-	if profile.begins_with("Visual"):
 		_apply_visual_values(_visual_panel.values)
 	_clear_ghosts()
 	_clear_highlight()
@@ -391,8 +407,8 @@ func _build_visual_controls() -> void:
 	($Interface/SafeArea as Control).theme = small
 	_gallery_picker = OptionButton.new()
 	_gallery_picker.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	_gallery_picker.position = Vector2(-280, 128)
-	_gallery_picker.size = Vector2(264, 26)
+	_gallery_picker.position = Vector2(-368, 128)
+	_gallery_picker.size = Vector2(356, 26)
 	_gallery_picker.theme = small
 	_gallery_picker.focus_mode = Control.FOCUS_NONE
 	for entry in GALLERY:
@@ -402,8 +418,8 @@ func _build_visual_controls() -> void:
 	_visual_panel = VisualPanel.new()
 	$Interface.add_child(_visual_panel)
 	_visual_panel.set_anchors_and_offsets_preset(Control.PRESET_RIGHT_WIDE)
-	_visual_panel.offset_left = -280
-	_visual_panel.offset_right = -16
+	_visual_panel.offset_left = -368
+	_visual_panel.offset_right = -12
 	_visual_panel.offset_top = 164
 	_visual_panel.offset_bottom = -16
 	_visual_panel.theme = small

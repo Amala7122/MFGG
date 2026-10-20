@@ -1,0 +1,94 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/world_decor.gd" id="5_decor"]
+[ext_resource type="Script" path="res://scripts/terrain_field.gd" id="8_terrain"]
+[ext_resource type="Script" path="res://scripts/field_cover.gd" id="9_cover"]
+[ext_resource type="Script" path="res://scripts/navigation_region.gd" id="11_nav"]
+[ext_resource type="Script" path="res://scripts/wave_director.gd" id="12_wave"]
+[ext_resource type="Script" path="res://scripts/player_spawner.gd" id="13_spawner"]
+[ext_resource type="Script" path="res://scripts/enemy_spawner.gd" id="14_enemy_spawner"]
+[ext_resource type="Script" path="res://scripts/editor_world_preview.gd" id="16_preview"]
+[ext_resource type="Script" path="res://scripts/grass_field.gd" id="17_grass"]
+[ext_resource type="PackedScene" path="res://scenes/weather_environment.tscn" id="18_weather_environment"]
+
+[node name="SanctumMain" type="Node3D"]
+script = ExtResource("16_preview")
+
+[node name="WeatherEnvironment" parent="." instance=ExtResource("18_weather_environment")]
+
+[node name="Sky3D" parent="WeatherEnvironment" index="0"]
+current_time = 11.83
+tonemap_exposure = 0.94
+sun_energy = 2.275
+ambient_energy = 1.42
+
+[node name="SunLight" parent="WeatherEnvironment/Sky3D" index="0"]
+transform = Transform3D(0.999957, 0.00795821, -0.0047444385, 0, 0.5120741, 0.85894126, 0.009265139, -0.85890436, 0.5120522, -0.0047444385, 0.85894126, 0.5120522)
+light_color = Color(1, 0.89, 0.7, 1)
+light_energy = 2.275
+light_angular_distance = 0.0
+directional_shadow_pancake_size = 20.0
+
+[node name="MoonLight" parent="WeatherEnvironment/Sky3D" index="1"]
+transform = Transform3D(0, -0.71593934, 0.69816256, -0.053137016, -0.6971762, -0.71492785, 0.99858725, -0.037098274, -0.038042877, 0.69816256, -0.71492785, -0.038042877)
+
+[node name="SkyDome" parent="WeatherEnvironment/Sky3D" index="2"]
+sun_azimuth = -3.150858
+sun_altitude = -0.53759784
+sun_light_energy = 2.275
+moon_azimuth = -1.5163602
+moon_altitude = -2.3673172
+atm_sun_intensity = 30.0
+fog_density = 0.00861079
+fog_start = 72.76582512499999
+fog_end = 736.0041725
+fog_mie_depth = 0.0071012676
+
+[node name="TimeOfDay" parent="WeatherEnvironment/Sky3D" index="3"]
+current_time = 11.83
+
+[node name="WeatherSystem" parent="WeatherEnvironment" index="2"]
+editor_preview_enabled = false
+cloud_enabled = true
+cloud_type = 0
+cloud_coverage = 0.46
+cloud_size_multiplier = 0.55
+
+[node name="ProceduralCloudField" parent="WeatherEnvironment/WeatherSystem" index="1"]
+visible = false
+
+[node name="FillLight" parent="WeatherEnvironment" index="3"]
+light_energy = 0.657152
+
+[node name="NightSkyLight" parent="WeatherEnvironment" index="4"]
+light_energy = 0.0
+
+[node name="Ground" type="StaticBody3D" parent="."]
+script = ExtResource("8_terrain")
+
+[node name="Grass" type="Node3D" parent="."]
+script = ExtResource("17_grass")
+
+[node name="WorldDecor" type="Node3D" parent="."]
+script = ExtResource("5_decor")
+
+[node name="Cover" type="Node3D" parent="."]
+script = ExtResource("9_cover")
+
+[node name="NavRegion" type="NavigationRegion3D" parent="."]
+script = ExtResource("11_nav")
+
+[node name="Players" type="Node3D" parent="."]
+
+[node name="PlayerSpawner" type="Node" parent="."]
+script = ExtResource("13_spawner")
+
+[node name="Enemies" type="Node3D" parent="."]
+
+[node name="WaveDirector" type="Node" parent="Enemies"]
+script = ExtResource("12_wave")
+encounter_path = "res://data/encounters/sanctum_creatures.json"
+
+[node name="EnemySpawner" type="Node" parent="Enemies"]
+script = ExtResource("14_enemy_spawner")
+

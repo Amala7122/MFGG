@@ -1,15 +1,26 @@
 extends PanelContainer
 ## Visual-only profiles use the same schemas and preset store as combat prototypes.
 const Tuning = preload("res://scripts/prototypes/enemy_tuning.gd")
+const Session := preload("res://scripts/testing/tuning_session.gd")
+const Catalog := preload("res://scripts/testing/tuning_catalog.gd")
+const InputField := preload("res://scripts/testing/parameter_input.gd")
+const Layout := preload("res://scripts/testing/enemy_parameter_layout.gd")
 signal values_changed(values: Dictionary)
 signal field_focused(key: String)
 signal pose_selected(index: int)
 signal replay_requested
 signal seek_requested(fraction: float)
 var profile := ""
-var drafts: Dictionary = {}
-var baselines: Dictionary = {}
 var values: Dictionary = {}
+var draft_id := ""
+var _session: RefCounted
+var _inputs: Dictionary = {}
+var _pending: Dictionary = {}
+var _search: LineEdit
+var _filter_rows: Array[Control] = []
+var _headers: Array[Control] = []
+var _overwrite: ConfirmationDialog
+var _overwrite_request: Dictionary = {}
 var fields: VBoxContainer
 var presets: OptionButton
 var preset_name: LineEdit
@@ -24,15 +35,19 @@ var demo_distance: SpinBox
 var demo_status: Label
 
 func _ready() -> void:
-	custom_minimum_size.x = 250
+	theme = InputField.compact_theme(preload("res://scripts/ui_theme.gd").get_theme(), 11)
+	_session = Session.shared()
+	_session.changed.connect(_on_session_changed)
+	custom_minimum_size.x = 300
 	var margin := MarginContainer.new()
 	for edge in ["left", "right", "top", "bottom"]:
 		margin.add_theme_constant_override("margin_" + edge, 8)
 	add_child(margin)
 	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 3)
 	margin.add_child(column)
 	var title := Label.new()
-	title.text = "外形编辑 · 即时预览"
+	title.text = "视觉测试台 · 外形草稿"
 	column.add_child(title)
 	var playback := HBoxContainer.new()
 	column.add_child(playback)
@@ -71,6 +86,10 @@ func _ready() -> void:
 			subject.set("preview_player_distance", distance))
 	demo_status = Label.new()
 	column.add_child(demo_status)
+	_search = LineEdit.new()
+	_search.placeholder_text = "搜索参数／模块"
+	_search.text_changed.connect(_filter_fields)
+	column.add_child(_search)
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -85,15 +104,29 @@ func _ready() -> void:
 	preset_row.add_child(presets)
 	button(preset_row, "载入", _load_selected)
 	preset_name = LineEdit.new()
+	preset_name.max_length = 64
+	preset_name.text_changed.connect(func(text: String):
+		if not draft_id.is_empty(): _session.set_candidate_name(draft_id, text))
 	preset_name.placeholder_text = "命名方案，例如：宽甲短角"
 	column.add_child(preset_name)
 	var save_row := HBoxContainer.new()
 	column.add_child(save_row)
-	button(save_row, "保存命名方案", _save)
-	button(save_row, "所选设为默认", _activate)
+	button(save_row, "保存候选", _save)
+	button(save_row, "覆盖同名…", _request_overwrite)
+	button(save_row, "设为默认", _activate)
+	var history := HBoxContainer.new()
+	column.add_child(history)
+	button(history, "撤销", func(): _pending.clear(); _session.undo(draft_id); _on_session_changed(draft_id))
+	button(history, "重做", func(): _pending.clear(); _session.redo(draft_id); _on_session_changed(draft_id))
+	button(history, "还原草稿", func(): _pending.clear(); _session.restore(draft_id))
+	button(history, "重读…", _request_reload)
 	status = Label.new()
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(status)
+	_overwrite = ConfirmationDialog.new()
+	_overwrite.title = "覆盖已有方案"
+	_overwrite.confirmed.connect(_confirm_overwrite)
+	add_child(_overwrite)
 
 func button(parent: Node, title: String, action: Callable) -> void:
 	var control := Button.new()
@@ -103,16 +136,16 @@ func button(parent: Node, title: String, action: Callable) -> void:
 	parent.add_child(control)
 
 func bind_profile(id: String) -> void:
+	if not draft_id.is_empty() and not _commit_inputs(): return
 	profile = id
 	visible = not id.is_empty()
 	if not visible:
 		return
-	if not drafts.has(id):
-		drafts[id] = Tuning.get_values(id).duplicate(true)
-		baselines[id] = drafts[id].duplicate(true)
-	values = drafts[id]
+	draft_id = _session.open_profile(id)
+	values = _session.values(draft_id)
 	_build_fields()
-	_refresh_presets()
+	_refresh_presets(_session.record(draft_id).preset)
+	preset_name.text = _session.record(draft_id).candidate_name
 	_refresh_status()
 
 func bind_subject(node: Node3D) -> void:
@@ -141,17 +174,38 @@ func _process(_delta: float) -> void:
 		poses.select(int(subject.get("preview_pose")))
 
 func _build_fields() -> void:
+	updating = true
+	_inputs.clear()
+	_pending.clear()
+	_filter_rows.clear()
+	_headers.clear()
 	for child in fields.get_children():
 		child.free()
-	for group: Dictionary in Tuning.get_schema(profile).groups:
+	for group: Dictionary in Layout.groups(profile, Tuning.get_schema(profile)):
 		var heading := Label.new()
 		heading.text = String(group.title)
 		fields.add_child(heading)
+		_headers.append(heading)
+		var section := ""
+		var subheading: Label
 		for field: Dictionary in group.fields:
+			if field.section != section:
+				section = field.section
+				subheading = Label.new()
+				subheading.text = "  " + section
+				fields.add_child(subheading)
+				_headers.append(subheading)
 			var row := HBoxContainer.new()
 			fields.add_child(row)
+			row.set_meta("search", (String(group.title) + section + String(field.label) + String(field.key)).to_lower())
+			row.set_meta("heading", heading)
+			row.set_meta("subheading", subheading)
+			row.tooltip_text = InputField.tooltip(profile, field)
+			_filter_rows.append(row)
 			var label := Label.new()
 			label.text = String(field.label)
+			label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			label.custom_minimum_size.x = 112
 			label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			row.add_child(label)
 			var key := String(field.key)
@@ -163,25 +217,41 @@ func _build_fields() -> void:
 				toggle.mouse_entered.connect(func() -> void: field_focused.emit(key))
 				row.mouse_entered.connect(func() -> void: field_focused.emit(key))
 				row.add_child(toggle)
+				_inputs[key] = toggle
 				continue
 			var spin := SpinBox.new()
 			spin.min_value = float(field.min)
 			spin.max_value = float(field.max)
-			spin.step = float(field.step)
-			spin.value = float(values[field.key])
-			spin.suffix = String(field.get("unit", ""))
+			InputField.configure_step(spin, float(field.step))
+			InputField.update_number(spin, Layout.display_number(key, float(values[field.key])))
 			spin.custom_minimum_size.x = 96
 			spin.tooltip_text = "%s – %s；%s" % [field.min, field.max, String(field.get("tip", "即时预览；保存后可复用"))]
 			spin.value_changed.connect(_field_changed.bind(String(field.key)))
+			spin.get_line_edit().text_changed.connect(func(text: String):
+				if not updating: _pending[key] = text; _refresh_status())
+			spin.get_line_edit().text_submitted.connect(func(_text: String): _commit_inputs())
+			spin.get_line_edit().focus_exited.connect(func(): _commit_inputs())
 			# 悬停或改动都告诉观察台：这个参数动的是哪一块、作用在哪个阶段。
 			spin.mouse_entered.connect(func() -> void: field_focused.emit(key))
 			row.mouse_entered.connect(func() -> void: field_focused.emit(key))
 			row.add_child(spin)
+			_inputs[key] = spin
+			var unit := Label.new()
+			unit.text = InputField.unit(profile, field)
+			unit.custom_minimum_size.x = 26
+			row.add_child(unit)
+	updating = false
+	_filter_fields(_search.text)
+	_on_session_changed.call_deferred(draft_id)
 
 func _field_changed(value: Variant, key: String) -> void:
-	values[key] = value
-	values_changed.emit(values)
-	_refresh_status()
+	if updating: return
+	if _pending.has(key) and _inputs[key] is SpinBox:
+		value = InputField.exact_change(_inputs[key], float(value), _pending[key])
+	_pending.erase(key)
+	if _inputs[key] is SpinBox: value = Layout.stored_number(key, float(value))
+	if not _session.set_value(draft_id, key, value): status.text = _session.error
+	_on_session_changed.call_deferred(draft_id)
 
 func _refresh_presets(select_name := "") -> void:
 	presets.clear()
@@ -191,33 +261,103 @@ func _refresh_presets(select_name := "") -> void:
 			presets.select(presets.item_count - 1)
 
 func _refresh_status() -> void:
-	status.text = ("● 未保存修改" if values != baselines[profile] else "已载入 / 已保存") + "\n下次默认：" + Tuning.active_name(profile)
+	if draft_id.is_empty() or profile.is_empty(): return
+	var d: Dictionary = _session.record(draft_id)
+	status.text = "%s · %s · 修订 %d\n当前默认：%s\n外形预览即时；战斗属性重新生成生效。%s" % [d.preset, "输入待提交" if not _pending.is_empty() else "未保存" if _session.dirty(draft_id) else "已载入／保存", d.revision, Tuning.active_name(profile), _session.validation(draft_id)]
 
 func _load_selected() -> void:
+	if not _commit_inputs(): return
 	var title := presets.get_item_text(presets.selected)
-	values = Tuning.preset_values(profile, title)
-	drafts[profile] = values
-	baselines[profile] = values.duplicate(true)
-	preset_name.text = "" if title == Tuning.DEFAULT_PRESET else title
+	draft_id = _session.open_profile(profile, title)
+	values = _session.values(draft_id)
+	preset_name.text = _session.record(draft_id).candidate_name
 	_build_fields()
 	values_changed.emit(values)
 	_refresh_status()
 
 func _save() -> void:
+	if not _commit_inputs(): return
 	var title := preset_name.text.strip_edges()
-	# Saving an active name would alter the next default implicitly: require a new name.
-	if title == Tuning.active_name(profile):
-		status.text = "请另存新名称，再显式设为默认。"
+	if not _session.save_as(draft_id, title):
+		status.text = _session.error
 		return
-	if not Tuning.save_preset(profile, title, values, false):
-		status.text = Tuning.last_error
-		return
-	baselines[profile] = values.duplicate(true)
 	_refresh_presets(title)
 	_refresh_status()
 
 func _activate() -> void:
-	if Tuning.set_active_preset(profile, presets.get_item_text(presets.selected)):
+	if not _commit_inputs(): return
+	if _session.activate(draft_id):
 		_refresh_status()
 	else:
-		status.text = Tuning.last_error
+		status.text = _session.error
+
+func _commit_inputs() -> bool:
+	for key: String in _pending.keys():
+		var entered: String = _pending[key]
+		var parsed := InputField.read_number(_inputs[key], entered)
+		if not parsed.ok:
+			(_inputs[key] as SpinBox).get_line_edit().text = entered
+			status.text = key + "：" + String(parsed.error)
+			return false
+		_pending.erase(key)
+		if not _session.set_value(draft_id, key, Layout.stored_number(key, float(parsed.value))):
+			_pending[key] = entered
+			status.text = _session.error
+			return false
+	return true
+
+func _on_session_changed(key: String) -> void:
+	if draft_id.is_empty() or profile.is_empty() or (not key.is_empty() and key != draft_id): return
+	var previous := values
+	values = _session.values(draft_id)
+	updating = true
+	for field: String in _inputs:
+		if _pending.has(field): continue
+		if _inputs[field] is SpinBox: InputField.update_number(_inputs[field], Layout.display_number(field, float(values[field])))
+		else: _inputs[field].set_pressed_no_signal(bool(values[field]))
+	updating = false
+	var name: String = _session.record(draft_id).preset
+	if presets.item_count != Tuning.preset_names(profile).size() or presets.get_item_text(presets.selected) != name: _refresh_presets(name)
+	_refresh_status()
+	if previous != values: values_changed.emit(values)
+
+func _request_overwrite() -> void:
+	if not _commit_inputs(): return
+	var name := preset_name.text.strip_edges()
+	var expected := Tuning.saved_fingerprint(profile, name, true)
+	if expected.is_empty() or name == Tuning.DEFAULT_PRESET:
+		status.text = "新名称请保存候选；基础值不可覆盖。"
+		return
+	_overwrite_request = {"kind": "save", "draft": draft_id, "name": name, "fingerprint": expected}
+	var refs := Catalog.references(profile, name)
+	_overwrite.dialog_text = "覆盖：%s\n引用范围：%s\n下次读取会采用新内容；当前默认选择不变。" % [name, "、".join(refs) if not refs.is_empty() else "已登记关卡无直接引用，其他同名引用仍可能采用"]
+	_overwrite.popup_centered(Vector2i(560, 180))
+
+func _confirm_overwrite() -> void:
+	if _overwrite_request.get("draft") != draft_id: return
+	if _overwrite_request.get("kind") == "reload":
+		_pending.clear()
+		status.text = "已重新读取磁盘方案" if _session.reload_from_disk(draft_id, true) else _session.error
+		return
+	if not _session.save_as(draft_id, _overwrite_request.name, true, _overwrite_request.fingerprint):
+		status.text = _session.error
+		return
+	_refresh_presets(_overwrite_request.name)
+	_refresh_status()
+
+func _request_reload() -> void:
+	if _session.dirty(draft_id) or not _pending.is_empty():
+		_overwrite_request = {"kind": "reload", "draft": draft_id}
+		_overwrite.dialog_text = "丢弃当前未保存修改／输入后重读磁盘？其他草稿保留。"
+		_overwrite.popup_centered(Vector2i(540, 150))
+	else:
+		status.text = "已重新读取磁盘方案" if _session.reload_from_disk(draft_id) else _session.error
+
+func _filter_fields(query: String) -> void:
+	var text := query.strip_edges().to_lower()
+	for heading: Control in _headers: heading.visible = false
+	for row: Control in _filter_rows:
+		row.visible = text.is_empty() or String(row.get_meta("search")).contains(text)
+		if row.visible:
+			row.get_meta("heading").visible = true
+			row.get_meta("subheading").visible = true

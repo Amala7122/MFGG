@@ -220,7 +220,20 @@
       "thrust_swing": 0.1,
       "thrust_recovery": 0.6,
       "thrust_cooldown": 1.8,
-      "sweep_distance": 6.3
+      "sweep_distance": 6.3,
+      "rage_director_enabled": true,
+      "rage_close_distance": 5.2,
+      "rage_close_timeout": 1.1,
+      "rage_leap_lead_limit": 12.0,
+      "rage_gap_close_speed": 1.8,
+      "rage_gap_close_burst": 1.6,
+      "triple_slam_length": 14.5,
+      "triple_slam_width": 2.2,
+      "triple_slam_windup": 1.2,
+      "triple_slam_recovery": 0.9,
+      "triple_slam_damage": 35.0,
+      "triple_slam_cooldown": 3.8,
+      "triple_slam_spread": 35.0
     }
   },
   "version": 1

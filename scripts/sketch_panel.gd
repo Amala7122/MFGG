@@ -46,7 +46,7 @@ func open() -> void:
 	if opened or not _can_open():
 		return
 	_saved = Settings.load_values()
-	_mouse = Input.mouse_mode
+	_mouse = MouseControl.mode
 	_previous_style = _effect.style
 	_scene = get_tree().current_scene
 	if is_instance_valid(_scene):
@@ -55,7 +55,7 @@ func open() -> void:
 	_player()._melee.cancel()
 	opened = true
 	get_tree().paused = true
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 	_effect.set_style(5)
 	_build()
 
@@ -216,7 +216,7 @@ func close() -> void:
 	if flow != null:
 		flow.remove_meta(MODAL)
 	get_tree().paused = false
-	Input.mouse_mode = _mouse
+	MouseControl.mode = _mouse
 	if is_instance_valid(_effect):
 		_effect.set_style(_previous_style)
 	if is_instance_valid(_root):

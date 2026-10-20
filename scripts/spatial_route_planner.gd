@@ -43,7 +43,7 @@ func begin(actor: CharacterBody3D, settings: Resource, abilities: Array[Resource
 		goal = goal_override
 	_queue.append({"at": body.global_position, "pose": body.global_transform, "cost": 0.0, "time": 0.0, "segments": [], "exclude": [], "used": {}})
 
-func set_attack_goal(check: Callable) -> void:
+func set_attack_goal(check: Callable, distances: Array = []) -> void:
 	attack_pose = check
 	if not attack_pose.is_valid():
 		return
@@ -54,7 +54,7 @@ func set_attack_goal(check: Callable) -> void:
 	var toward := body.global_position - target.global_position
 	toward.y = 0.0
 	toward = toward.normalized() if toward.length() > 0.01 else Vector3.FORWARD
-	for ring: float in [1.0, 1.5, 2.0, 2.5, 3.0]:
+	for ring: float in distances if not distances.is_empty() else [1.0, 1.5, 2.0, 2.5, 3.0]:
 		for i in range(8):
 			var expected := target.global_position + toward.rotated(Vector3.UP, TAU * i / 8.0) * ring
 			expected.y = here.position.y
@@ -168,7 +168,7 @@ func walk_route(origin: Vector3, destination: Vector3, exclude: Array[RID] = [])
 	parameters.map = navigation_map
 	parameters.start_position = source
 	parameters.target_position = end
-	var preferred := NavigationPathQueryParameters3D.PATH_POSTPROCESSING_EDGECENTERED if radius >= 1.3 or absf(source.y - end.y) > float(profile.safe_drop) + 0.1 else NavigationPathQueryParameters3D.PATH_POSTPROCESSING_CORRIDORFUNNEL
+	var preferred := NavigationPathQueryParameters3D.PATH_POSTPROCESSING_EDGECENTERED if absf(source.y - end.y) > float(profile.safe_drop) + 0.1 else NavigationPathQueryParameters3D.PATH_POSTPROCESSING_CORRIDORFUNNEL
 	var alternative := NavigationPathQueryParameters3D.PATH_POSTPROCESSING_CORRIDORFUNNEL if preferred == NavigationPathQueryParameters3D.PATH_POSTPROCESSING_EDGECENTERED else NavigationPathQueryParameters3D.PATH_POSTPROCESSING_EDGECENTERED
 	var complete_paths: Array[PackedVector3Array] = []
 	# 网格门户的中点可落在体素近似的陡边上，最短通道也可能擦角。
@@ -178,11 +178,19 @@ func walk_route(origin: Vector3, destination: Vector3, exclude: Array[RID] = [])
 		var answer := NavigationPathQueryResult3D.new()
 		NavigationServer3D.query_path(parameters, answer)
 		var path := answer.path
+		if Query.debug: print("[T03 nav path] mode=", processing, " ", path)
 		if path.is_empty() or path[path.size() - 1].distance_to(end) > 0.4:
 			if Query.debug: print("[T03 nav] partial ", end, " path=", path)
 			continue
 		complete_paths.append(path)
 		points = _physical_walk_points(origin, path, floor_depth, exclude)
+		# 网格按公共半径烘焙，大型长方身体转角需要额外净空。
+		# 先在原短路径转角外侧找有限修正，整段仍用完整身体/落脚复核；
+		# 不因擦角失败立即换成跨大三角形门户中点的超长绕路。
+		if points.is_empty() and processing == NavigationPathQueryParameters3D.PATH_POSTPROCESSING_CORRIDORFUNNEL:
+			for padding: float in [0.25, 0.5, 0.75, 1.0, 1.5, 2.0]:
+				points = _physical_walk_points(origin, path, floor_depth, exclude, false, radius * padding)
+				if not points.is_empty(): break
 		if points.is_empty(): continue
 		var base_points := points
 		points = PathStyle.shape(body, navigation_map, points, float(profile.safe_drop), exclude)
@@ -201,8 +209,12 @@ func walk_route(origin: Vector3, destination: Vector3, exclude: Array[RID] = [])
 		return {"kind": "walk", "points": points, "base": base_points, "landing": points[points.size() - 1], "cost": cost}
 	return {}
 
-func _physical_walk_points(origin: Vector3, path: PackedVector3Array, floor_depth: float, exclude: Array[RID], repair := false) -> PackedVector3Array:
+func _physical_walk_points(origin: Vector3, path: PackedVector3Array, floor_depth: float, exclude: Array[RID], repair := false, padding := 0.0) -> PackedVector3Array:
 	var points := PackedVector3Array([origin])
+	# 门户可在同一直线上插入很多点；它们不是转角。
+	# 先去掉共线提示点，避免贴角处某个中间脚印被错误抬到墙顶，
+	# 也让转角净空修正作用于完整拐角。最终每段仍做身体和地面检查。
+	path = _compact_walk_path(path)
 	var pinned := PackedVector3Array()
 	for index in range(path.size()):
 		var ground := path[index]
@@ -214,6 +226,20 @@ func _physical_walk_points(origin: Vector3, path: PackedVector3Array, floor_dept
 			if repair and index < path.size() - 1: continue
 			return PackedVector3Array()
 		pinned.append(Query.ground_pose(body, hit, exclude))
+	if padding > 0.0:
+		var original := pinned.duplicate()
+		for corner in range(1, pinned.size() - 1):
+			var incoming := original[corner] - original[corner - 1]
+			var outgoing := original[corner + 1] - original[corner]
+			incoming.y = 0.0
+			outgoing.y = 0.0
+			var outward := incoming.normalized() - outgoing.normalized()
+			if outward.length() < 0.05: continue
+			var wanted := original[corner] + outward.normalized() * padding
+			var hit := Query.floor_at(body, wanted - Vector3.UP * float(Query.dimensions(body).half_height), floor_depth, exclude)
+			if hit.is_empty(): return PackedVector3Array()
+			pinned[corner] = Query.ground_pose(body, hit, exclude)
+		if Query.debug: print("[T03 nav padding] ", padding, " ", pinned)
 	var index := 0
 	while index < pinned.size():
 		var point := pinned[index]
@@ -234,6 +260,19 @@ func _physical_walk_points(origin: Vector3, path: PackedVector3Array, floor_dept
 		points.append(point)
 		index += 1
 	return points
+
+
+func _compact_walk_path(path: PackedVector3Array) -> PackedVector3Array:
+	var result := PackedVector3Array()
+	for point in path:
+		while result.size() >= 2:
+			var previous := result[result.size() - 1]
+			var start := result[result.size() - 2]
+			if Geometry3D.get_closest_point_to_segment(previous, start, point).distance_to(previous) > 0.02:
+				break
+			result.remove_at(result.size() - 1)
+		result.append(point)
+	return result
 
 func _enqueue(state: Dictionary, segment: Dictionary, ability: Resource, wait: float, extra_exclude: Array[RID] = []) -> void:
 	var point: Vector3 = segment.landing

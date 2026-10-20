@@ -21,6 +21,12 @@ static func enemy_attack_started(host: Node, attack: String) -> void:
 		stats.call("record_enemy_attack", host, attack)
 
 
+static func enemy_attack_beat(host: Node, attack: String, beat: int, total: int) -> void:
+	var stats := recorder(host)
+	if stats != null and stats.has_method("record_enemy_beat"):
+		stats.call("record_enemy_beat",host,attack,beat,total)
+
+
 static func begin_attack(host: Node, source: String) -> Dictionary:
 	var stats := recorder(host)
 	if stats == null:
@@ -38,6 +44,8 @@ static func source_info(source: Node, attack: String) -> Dictionary:
 	}
 	if source.has_meta(&"sparring_actor_id"):
 		info["subject_id"] = String(source.get_meta(&"sparring_actor_id"))
+	if source.is_inside_tree() and source.get_tree().has_group("attack_inspection_observers"):
+		info["inspection_actor_id"] = source.get_instance_id()
 	return info
 
 

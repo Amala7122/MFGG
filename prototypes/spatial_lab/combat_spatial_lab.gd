@@ -97,51 +97,47 @@ func _build_markings() -> void:
 
 func _build_interface() -> void:
 	super._build_interface()
-	_title.text = "战斗空间测试场"
-	var column := _panel.get_child(0) as VBoxContainer
-	(column.get_child(1) as Label).text = "在此自选敌人，或使用左侧整组投放。\n最多 12 只；按体型限制投放线容量。"
+	_title.text = "战斗空间测试台"
+	_config_help.tooltip_text += "\n空间台可自选敌人或从左侧整组投放；最多12只，按体型限制容量。"
 	_quick_panel = PanelContainer.new()
 	_quick_panel.name = "GroupDeployment"
+	_quick_panel.theme = _configuration_theme()
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.065, 0.105, 0.09, 0.95)
-	style.set_content_margin_all(14)
-	style.set_corner_radius_all(8)
+	style.set_content_margin_all(6)
+	style.set_corner_radius_all(5)
 	_quick_panel.add_theme_stylebox_override("panel", style)
 	_interface.get_node("Root").add_child(_quick_panel)
 	var quick_column := VBoxContainer.new()
-	quick_column.add_theme_constant_override("separation", 8)
+	quick_column.add_theme_constant_override("separation", 3)
 	_quick_panel.add_child(quick_column)
-	quick_column.add_child(_label("空间预设 · 整组投放", 18, UI.COLOR_TITLE))
-	quick_column.add_child(_label("9 个起点；泰坦反应组可观察撤离与受击。", 13, UI.COLOR_DIM))
-	quick_column.add_child(_label("机制验证组自带「死一只补一只」：清空场上不会结算。", 13, UI.COLOR_DIM))
+	var heading := HBoxContainer.new()
+	quick_column.add_child(heading)
+	var title := _label("空间预设", 12, UI.COLOR_TITLE)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	heading.add_child(title)
+	var help := _label("?", 12, UI.COLOR_DIM)
+	help.mouse_filter = Control.MOUSE_FILTER_PASS
+	help.tooltip_text = "9个起点；泰坦反应组可观察撤离与受击。\n机制验证组自带“死一只补一只”，清空场上不会结算。"
+	heading.add_child(help)
 	var groups := HBoxContainer.new()
 	_group_choice = OptionButton.new()
 	_group_choice.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_group_choice.add_theme_font_size_override("font_size", 14)
+	_group_choice.tooltip_text = "选择空间测试用的敌人编组；点击投放应用本组与其循环模式"
 	for preset: Dictionary in GROUP_PRESETS:
 		_group_choice.add_item(preset.title)
 	groups.add_child(_group_choice)
-	var deploy := Button.new()
-	deploy.text = "投放这组"
-	deploy.add_theme_font_size_override("font_size", 14)
-	deploy.pressed.connect(deploy_group)
-	groups.add_child(deploy)
+	_action_button(groups, "投放", "投放所选编组，并采用本组循环模式", deploy_group)
 	quick_column.add_child(groups)
-	# 机制验证用的一键触发：共鸣需要攒能量，而"观察盾卫是否迎面对盾"要反复触发同一事件。
-	# 手动打怪攒条会让重复观察变得很慢，所以给一个实验场专用按钮（不改游戏本体参数）。
-	var fill := Button.new()
-	fill.text = "填满共鸣（方便反复触发）"
-	fill.add_theme_font_size_override("font_size", 13)
-	fill.pressed.connect(fill_resonance)
-	quick_column.add_child(fill)
 	var starts := HBoxContainer.new()
-	starts.add_child(_label("玩家起点", 14, UI.COLOR_BODY))
+	starts.add_child(_label("起点", 11, UI.COLOR_BODY))
 	_start_choice = OptionButton.new()
 	_start_choice.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_start_choice.add_theme_font_size_override("font_size", 14)
+	_start_choice.tooltip_text = "下次生成时使用的玩家起点"
 	for start: Dictionary in STARTS:
 		_start_choice.add_item(start.title)
 	starts.add_child(_start_choice)
+	_action_button(starts, "满共鸣", "填满玩家共鸣能量，方便反复触发机制测试", fill_resonance)
 	quick_column.add_child(starts)
 	_invincible.button_pressed = true
 	set_selection(GROUP_PRESETS[0].enemies)

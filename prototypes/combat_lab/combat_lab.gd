@@ -12,6 +12,9 @@ const Stats := preload("res://prototypes/combat_lab/combat_lab_stats.gd")
 const StatsView := preload("res://prototypes/combat_lab/combat_lab_stats_view.gd")
 const EnemyTuning := preload("res://scripts/prototypes/enemy_tuning.gd")
 const TuningPanel := preload("res://prototypes/combat_lab/enemy_tuning_panel.gd")
+const ParameterInput := preload("res://scripts/testing/parameter_input.gd")
+const AttackObserver := preload("res://prototypes/combat_lab/attack_observer.gd")
+const AttackInspect := preload("res://scripts/testing/enemy_attack_inspection.gd")
 const MudGolemScene := preload("res://prototypes/enemy_prototypes/procedural_mud_golem.tscn")
 const MUD_GOLEM_ID := "PrototypeMudGolem"
 const MUD_GOLEM_ENTRY := {"id": MUD_GOLEM_ID, "title": "泥土傀儡 · 动作原型", "kind": "melee"}
@@ -25,6 +28,10 @@ const HornetScene := preload("res://prototypes/enemy_prototypes/procedural_horne
 const HORNET_ID := "PrototypeHornet"
 const HORNET_ENTRY := {"id": HORNET_ID, "title": "晶刺蜂 · 飞行原型", "kind": "ranged"}
 const PROTOTYPE_SCENES := {
+	"VisualBurstCrawler": preload("res://prototypes/enemy_prototypes/procedural_burst_crawler.tscn"),
+	"VisualPrismSpider": preload("res://prototypes/enemy_prototypes/procedural_prism_spider.tscn"),
+	"VisualChargeBeetle": preload("res://prototypes/enemy_prototypes/procedural_charge_beetle.tscn"),
+
 	MUD_GOLEM_ID: MudGolemScene,
 	SEDIMENT_TITAN_ID: SedimentTitanScene,
 	FAST_BEAST_ID: FastBeastScene,
@@ -75,6 +82,7 @@ var _saved_mouse_mode := Input.MOUSE_MODE_VISIBLE
 var _interface: CanvasLayer
 var _panel: PanelContainer
 var _summary: Label
+var _config_help: Label
 var _title: Label
 var _status: Label
 var _result: Label
@@ -102,6 +110,9 @@ var _live_stats_toggle: CheckBox
 var _live_stats_plate: PanelContainer
 var _live_stats_readout: Label
 var _sample_time := 0.0
+var _attack_observer: Node3D
+var _observation_profile := ""
+var _observation_values := {}
 
 @onready var _actors: Node3D = $Combatants
 @onready var _enemy_container: Node3D = $Combatants/Enemies
@@ -110,7 +121,7 @@ var _sample_time := 0.0
 
 func _ready() -> void:
 	_saved_paused = get_tree().paused
-	_saved_mouse_mode = Input.mouse_mode
+	_saved_mouse_mode = MouseControl.mode
 	_flow = get_node_or_null("/root/GameFlow") as CanvasLayer
 	if _flow:
 		_saved_flow_state = int(_flow.get("state"))
@@ -125,6 +136,14 @@ func _ready() -> void:
 	_spawner.name = "EnemySpawner"
 	_enemy_container.add_child(_spawner)
 	_build_interface()
+	_attack_observer = AttackObserver.new()
+	_attack_observer.lab = self
+	add_child(_attack_observer)
+	_attack_observer.replay_requested.connect(func(): observe_draft(_observation_profile, _observation_values, false))
+	_attack_observer.return_requested.connect(func(): _show_enemy_tuning(_observation_profile))
+	_attack_observer.skill_choice.item_selected.connect(func(index: int):
+		if _attack_observer.study: _attack_observer.distance_input.value = _observation_distance(_observation_profile, _observation_values, index))
+	_tuning_panel.connect("observe_requested", observe_draft)
 	_static_children.assign(get_children())
 	_create_player()
 	get_viewport().size_changed.connect(_layout_interface)
@@ -138,7 +157,7 @@ func _ready() -> void:
 			_flow.set("state", Flow.State.PLAYING)
 		if state == State.CONFIGURING:
 			get_tree().paused = true
-			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+			MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 	var environment: Environment = $WorldEnvironment.environment
 	environment.fog_enabled = false
 	environment.volumetric_fog_enabled = false
@@ -188,7 +207,7 @@ func _exit_tree() -> void:
 		_flow.process_mode = _saved_flow_mode
 		_flow.visible = _saved_flow_visible
 	get_tree().paused = _saved_paused
-	Input.mouse_mode = _saved_mouse_mode
+	MouseControl.mode = _saved_mouse_mode
 
 
 func _process(delta: float) -> void:
@@ -216,12 +235,16 @@ func handle_lab_input(event: InputEvent) -> void:
 	if not (event is InputEventKey) or not event.pressed or event.echo:
 		return
 	var key: int = event.physical_keycode if event.physical_keycode != 0 else event.keycode
+	if key == KEY_V and state == State.FIGHTING and not _tuning_open:
+		_attack_observer.enabled = not _attack_observer.enabled
+		get_viewport().set_input_as_handled()
+		return
 	if key not in [KEY_ESCAPE, KEY_TAB]:
 		return
 	get_viewport().set_input_as_handled()
 	if key == KEY_ESCAPE:
 		# 包括生成和死亡演出期间：Esc 永远先释放，只有显式继续才重新捕获。
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 		if _generating:
 			_cancel_generation_requested = true
 	if _generating or state == State.RESOLVING:
@@ -329,12 +352,12 @@ func open_sparring() -> void:
 	var groups := preload("res://tools/probes/sparring/sparring_groups.gd")
 	var problem := groups.validate(selection)
 	if not problem.is_empty():
-		_result.text = "尚不能交接到正式实战：" + problem
+		_set_result("尚不能交接到正式实战：" + problem)
 		return
 	var id := "lab_" + JSON.stringify(selection).sha256_text().left(8)
 	var error := groups.save_named(id, selection)
 	if error != OK:
-		_result.text = "编组交接保存失败：" + error_string(error)
+		_set_result("编组交接保存失败：" + error_string(error))
 		return
 	preload("res://tools/probes/sparring/sparring_settings.gd").pending_run = {"scenario_id": "sanctum_mixed", "group_id": id, "group_selection": selection}
 	get_tree().paused = false
@@ -377,7 +400,7 @@ func _update_selection(_unused: Variant = null) -> void:
 	_summary.modulate = UI.COLOR_DANGER if total > enemy_limit or too_wide else UI.COLOR_BODY
 	_generate.disabled = _generating or total <= 0 or total > enemy_limit or too_wide or invalid_profile
 	if invalid_profile:
-		_result.text = "敌人参数配置不可用，请检查对应的独立配置文件。"
+		_set_result("敌人参数配置不可用，请检查对应的独立配置文件。")
 	_generate.tooltip_text = "单排空间不足，请减少数量或调整敌人的排列占位" if too_wide else "生成选择的敌人，倒数后开始新的战斗"
 
 
@@ -421,7 +444,7 @@ func generate_round() -> void:
 	spawned_total = total
 	_loop_mode = _loop_choice.get_selected_id()
 	_wave_number = 1
-	_result.text = ""
+	_set_result("")
 	var index := 0
 	var line_cursor := -line_width * 0.5
 	for id in selection:
@@ -453,6 +476,7 @@ func _spawn_slot(slot_index: int, activate: bool) -> void:
 		enemy = prototype_scene.instantiate() as CharacterBody3D
 		enemy.set_meta(&"enemy_tuning", slot.tuning.duplicate(true))
 		enemy.set_meta(&"crowd_uniform", not bool(slot.crowd_motion))
+		if slot.has("observe_z"): enemy.set_meta(&"crowd_seed", 20261020)
 		enemy.position = spawn_position
 		enemy.process_mode = Node.PROCESS_MODE_DISABLED
 		_enemy_container.add_child(enemy)
@@ -474,7 +498,7 @@ func _spawn_slot(slot_index: int, activate: bool) -> void:
 
 
 func _spawn_position(_slot_index: int, slot: Dictionary) -> Vector3:
-	return Vector3(slot.x, 0, enemy_line_z)
+	return Vector3(slot.x, 0, float(slot.get("observe_z", enemy_line_z)))
 
 
 func _prepare_enemy(enemy: CharacterBody3D, serial: int, activate: bool) -> void:
@@ -578,7 +602,7 @@ func clear_round() -> void:
 	spawned_total = 0
 	elapsed = 0.0
 	_wave_number = 0
-	_result.text = ""
+	_set_result("")
 	_show_configuration()
 
 
@@ -599,7 +623,7 @@ func _begin_countdown() -> void:
 	_overview.current = false
 	(_player.get("camera") as Camera3D).current = true
 	get_tree().paused = false
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	MouseControl.mode = Input.MOUSE_MODE_CAPTURED
 	if _flow:
 		_flow.set("state", Flow.State.PLAYING)
 	_update_status()
@@ -622,6 +646,9 @@ func _start_fight() -> void:
 
 
 func _show_configuration() -> void:
+	if is_instance_valid(_attack_observer) and _attack_observer.study:
+		_attack_observer.end_study()
+		state = State.CONFIGURING
 	_panel_open = true
 	_tuning_open = false
 	_tuning_panel.visible = false
@@ -638,7 +665,7 @@ func _show_configuration() -> void:
 	if is_instance_valid(_player):
 		(_player.get("aim_ui") as CanvasLayer).visible = false
 	get_tree().paused = true
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 	_update_selection()
 	_update_status()
 	_layout_interface()
@@ -661,7 +688,7 @@ func resume_fight() -> void:
 	_stats.paused = false
 	_stats.capture_player(_player)
 	get_tree().paused = false
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	MouseControl.mode = Input.MOUSE_MODE_CAPTURED
 	_continue_loop()
 	_update_status()
 	_layout_interface()
@@ -729,9 +756,9 @@ func _present_result(won: bool) -> void:
 	if state == State.RESOLVING and is_instance_valid(_player):
 		_player.set_meta(&"experiment_invincible", _settlement_player_invincible)
 	state = State.FINISHED
-	_result.text = "%s · 用时 %.1f 秒\n剩余 %d / %d 只，可修改配置再次生成" % [
+	_set_result("%s · 用时 %.1f 秒\n剩余 %d / %d 只，可修改配置再次生成" % [
 		"测试完成" if won else "玩家倒下", elapsed, _live_enemies.size(), spawned_total,
-	]
+	])
 	_show_configuration()
 	_show_statistics()
 	if _flow:
@@ -748,7 +775,7 @@ func _update_status() -> void:
 
 
 func _update_weapon_readout() -> void:
-	_weapon_plate.visible = is_instance_valid(_player) and not _stats_open and not _tuning_open and state in [State.FIGHTING, State.FINISHED, State.RESOLVING]
+	_weapon_plate.visible = is_instance_valid(_player) and not _stats_open and not _tuning_open and (not is_instance_valid(_attack_observer) or not _attack_observer.study) and state in [State.FIGHTING, State.FINISHED, State.RESOLVING]
 	if not is_instance_valid(_player):
 		return
 	var weapon: Node = _player.get("_weapon")
@@ -819,12 +846,79 @@ func _show_enemy_tuning(id: String) -> void:
 
 
 func accepts_player_input() -> bool:
-	return state == State.FIGHTING and not _panel_open and not get_tree().paused
+	return state == State.FIGHTING and not _panel_open and not get_tree().paused and not _attack_observer.study
+
+
+func _observation_distance(id: String, values: Dictionary, skill: int) -> float:
+	var size := float(values.body_size)
+	match id:
+		"PrototypeMudGolem": return (float(values.attack_distance)+float(values.attack_reach_extra))*size*0.7
+		"PrototypeFastBeast": return (float(values.pounce_min_distance)+float(values.pounce_max_distance))*size*0.5 if skill == 0 else float(values.normal_attack_reach)*size*0.65
+		"PrototypeHornet": return float(values.strafe_distance)*size if skill == 0 else minf(float(values.dive_range)*size*0.65, 8.0*size)
+		"PrototypeSedimentTitan":
+			var keys := ["slam_distance", "sweep_distance", "thrust_distance", "leap_max_distance", "triple_slam_length", "normal_attack_reach", "slam_distance"]
+			return float(values[keys[clampi(skill,0,6)]])*size*0.65
+		"VisualChargeBeetle": return maxf(float(values.charge_min_range)+1.0,float(values.charge_distance)*0.65)*size if skill == 0 else float(values.contact_range)*size*0.7
+	return maxf(float(values.get("retreat_exit_range", 1.0))+1.0, float(values.get("attack_range", 12.0))*0.65)*size
+
+
+func observe_draft(id: String, values: Dictionary, first := true) -> void:
+	if _generating or not PROTOTYPE_SCENES.has(id) or not EnemyTuning.validate(id, values).is_empty(): return
+	var skill: int = 0 if first else _attack_observer.skill_choice.selected
+	_observation_profile = id
+	_observation_values = values.duplicate(true)
+	if first: _attack_observer.distance_input.value = _observation_distance(id, values, skill)
+	_serial += 1
+	_dispose_round()
+	_stats = Stats.new()
+	_create_player()
+	_player.position = Vector3(0, 1.08, 0)
+	_player.set_meta(&"experiment_invincible", true)
+	_player.process_mode = Node.PROCESS_MODE_DISABLED
+	_round_slots.append({"entry":_rows[id].entry.duplicate(true), "level":1, "x":0.0, "observe_z":-_attack_observer.distance_input.value, "tuning":values.duplicate(true), "crowd_motion":false})
+	state = State.FIGHTING
+	_loop_mode = LoopMode.OFF
+	_spawn_slot(0, false)
+	var subject: CharacterBody3D = _live_enemies[0]
+	subject.set_meta(&"attack_inspection_manual", true)
+	subject.set_meta(&"experiment_invincible", true)
+	subject.ai_enabled = false
+	_panel_open = false
+	_tuning_open = false
+	_panel.visible = false
+	_tuning_panel.visible = false
+	_interface.visible = false
+	_attack_observer.study = true
+	_attack_observer.enabled = true
+	_attack_observer.watch(subject, skill)
+	get_tree().paused = false
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
+	await get_tree().process_frame
+	if not is_instance_valid(subject): return
+	if id == SEDIMENT_TITAN_ID: subject.prepare_sparring_phase("rage" if skill == 4 else "front")
+	subject.process_mode = Node.PROCESS_MODE_INHERIT
+	# 先让真实碰撞体落到平地，普通跳跃技能需要 is_on_floor()。
+	for frame in 8: await get_tree().physics_frame
+	if not is_instance_valid(subject): return
+	if id.begins_with("Visual"): subject.ai_enabled = true
+	_attack_observer.frame_study()
+	AttackInspect.trigger(subject, skill)
 
 
 func _on_enemy_tuning_saved(_id: String, name: String) -> void:
-	_result.text = "参数方案已保存：%s\n重新生成后生效；当前轮次和补兵保持开场参数。" % name
+	_set_result("方案已保存：%s\n当前轮次不变；原型场按当前默认重新生成，正式关卡按其引用读取。" % name)
 	_update_selection()
+
+
+func _on_enemy_tuning_default_changed(_id: String, name: String) -> void:
+	_set_result("已明确选用默认方案：%s\n重新生成后生效；当前轮次和补兵保持开场参数。" % name)
+	_update_selection()
+
+
+func _set_result(text: String) -> void:
+	_result.text = text
+	_result.tooltip_text = text
+	_result.visible = not text.is_empty()
 
 
 func _build_interface() -> void:
@@ -857,76 +951,87 @@ func _build_interface() -> void:
 	_weapon_readout = _label("武器 LV 1", 13, UI.COLOR_BODY)
 	_weapon_plate.add_child(_weapon_readout)
 	_weapon_plate.visible = false
-	_title = _label("战斗测试场", 26, UI.COLOR_BODY)
+	_title = _label("战斗原型测试台", 14, UI.COLOR_BODY)
 	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	root.add_child(_title)
-	_status = _label("准备配置", 14, UI.COLOR_DIM)
+	_status = _label("准备配置", 11, UI.COLOR_DIM)
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	root.add_child(_status)
-	_controls = _label("WASD 移动  ·  鼠标射击  ·  右键瞄准  ·  R 换弹\nE 手雷  ·  Q 脉冲  ·  Esc 暂停并释放鼠标  ·  Tab 切换暂停", 13, UI.COLOR_BODY)
+	_controls = _label("WASD 移动  ·  鼠标射击  ·  右键瞄准  ·  R 换弹\nE 手雷  ·  Q 脉冲  ·  Esc 暂停并释放鼠标  ·  Tab 切换暂停", 11, UI.COLOR_BODY)
 	root.add_child(_controls)
 	_panel = PanelContainer.new()
 	_panel.name = "Configuration"
+	_panel.theme = _configuration_theme()
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.065, 0.105, 0.09, 0.97)
 	style.border_color = Color(0.57, 0.54, 0.36, 0.9)
 	style.set_border_width_all(1)
-	style.set_content_margin_all(18)
+	style.set_content_margin_all(6)
 	style.corner_radius_top_left = 10
 	style.corner_radius_bottom_left = 10
 	_panel.add_theme_stylebox_override("panel", style)
 	root.add_child(_panel)
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 8)
+	column.add_theme_constant_override("separation", 2)
 	_panel.add_child(column)
 	var config_header := HBoxContainer.new()
+	config_header.name = "ConfigurationHeader"
 	column.add_child(config_header)
-	var config_heading := _label("配置敌人", 24, UI.COLOR_TITLE)
-	config_heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	config_header.add_child(config_heading)
-	var statistics := Button.new()
-	statistics.text = "查看战斗统计"
-	statistics.add_theme_font_size_override("font_size", 14)
-	statistics.pressed.connect(_show_statistics)
-	config_header.add_child(statistics)
-	column.add_child(_label("复选兵种，分别设置数量。\n生成后沿对面墙排列，倒数结束开始行动。", 13, UI.COLOR_DIM))
+	config_header.add_child(_label("敌人", 12, UI.COLOR_TITLE))
+	_summary = _label("", 11, UI.COLOR_BODY)
+	_summary.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_summary.clip_text = true
+	config_header.add_child(_summary)
+	_action_button(config_header, "统计", "查看本轮战斗统计", _show_statistics)
+	_config_help = _label("?", 12, UI.COLOR_DIM)
+	_config_help.name = "ConfigurationHelp"
+	_config_help.mouse_filter = Control.MOUSE_FILTER_PASS
+	_config_help.tooltip_text = "勾选敌人并设置数量；点行内“调参”编辑参数草稿。\n生成后沿对面墙排列，倒数结束开始行动。"
+	config_header.add_child(_config_help)
 	var options := HBoxContainer.new()
+	options.name = "ConfigurationOptions"
+	options.add_theme_constant_override("separation", 2)
 	column.add_child(options)
-	options.add_child(_label("测试等级", 14, UI.COLOR_BODY))
+	options.add_child(_label("等级", 11, UI.COLOR_BODY))
 	_level = SpinBox.new()
 	_level.min_value = 1
 	_level.max_value = 12
 	_level.value = 1
-	_level.custom_minimum_size.x = 74
+	_level.custom_minimum_size.x = 48
+	_level.tooltip_text = "本次战斗的测试等级"
 	options.add_child(_level)
 	_invincible = CheckBox.new()
-	_invincible.text = "玩家无敌"
-	_invincible.add_theme_font_size_override("font_size", 14)
+	_invincible.text = "无敌"
+	_invincible.tooltip_text = "玩家无敌；只影响本台测试"
+	_invincible.add_theme_font_size_override("font_size", 11)
 	options.add_child(_invincible)
 	# 【敌人不死】机制验证的另一种刚需：一打就死就看不到"被打了之后会怎样"
 	#（盾卫举盾 / 重型激怒 / 格挡反馈都要在挨打之后才出现）。
 	# 打开后伤害照常结算、受击表现照常播，只是不进入死亡。
 	_enemy_invincible = CheckBox.new()
-	_enemy_invincible.text = "敌人不死"
-	_enemy_invincible.add_theme_font_size_override("font_size", 14)
+	_enemy_invincible.text = "敌不死"
+	_enemy_invincible.tooltip_text = "敌人不死：照常受伤与播放受击表现，生命最低保留1，不进入死亡"
+	_enemy_invincible.add_theme_font_size_override("font_size", 11)
 	options.add_child(_enemy_invincible)
 	_crowd_motion = CheckBox.new()
-	_crowd_motion.text = "原型个体差异与群体运动"
+	_crowd_motion.text = "个体差异"
 	_crowd_motion.button_pressed = true
-	_crowd_motion.add_theme_font_size_override("font_size", 14)
-	_crowd_motion.tooltip_text = "作用于四个程序化敌人；关闭可比较整齐基准。手动生成后生效，自动补兵保持本轮开场设置。"
-	column.add_child(_crowd_motion)
+	_crowd_motion.add_theme_font_size_override("font_size", 11)
+	_crowd_motion.tooltip_text = "原型个体差异与群体运动。作用于四个程序化敌人；关闭可比较整齐基准。手动生成后生效，自动补兵保持本轮开场设置。"
+	options.add_child(_crowd_motion)
 	var loop_options := HBoxContainer.new()
-	column.add_child(loop_options)
-	loop_options.add_child(_label("循环战斗", 14, UI.COLOR_BODY))
+	loop_options.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	loop_options.add_theme_constant_override("separation", 2)
+	options.add_child(loop_options)
+	loop_options.add_child(_label("循环", 11, UI.COLOR_BODY))
 	_loop_choice = OptionButton.new()
 	_loop_choice.name = "LoopMode"
-	_loop_choice.add_theme_font_size_override("font_size", 14)
+	_loop_choice.add_theme_font_size_override("font_size", 11)
 	_loop_choice.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_loop_choice.add_item("关闭（单轮）", LoopMode.OFF)
-	_loop_choice.add_item("A · 全灭后生成同一批", LoopMode.WAVE)
-	_loop_choice.add_item("B · 死一只立即补同种", LoopMode.REPLACE)
-	_loop_choice.tooltip_text = "循环补兵从原起始线加入战斗，仅首次倒数；玩家状态不重置。暂停后可切换模式，兵种和数量修改需重新生成。"
+	_loop_choice.add_item("单轮", LoopMode.OFF)
+	_loop_choice.add_item("全灭重投", LoopMode.WAVE)
+	_loop_choice.add_item("同种补位", LoopMode.REPLACE)
+	_loop_choice.tooltip_text = "单轮：清完结束；全灭重投：全灭后生成同一批；同种补位：死一只立即补同种。\n循环补兵从原起始线加入战斗，仅首次倒数；玩家状态不重置。暂停后可切换模式，兵种和数量修改需重新生成。"
 	_loop_choice.item_selected.connect(_on_loop_mode_selected)
 	loop_options.add_child(_loop_choice)
 	column.add_child(HSeparator.new())
@@ -939,78 +1044,66 @@ func _build_interface() -> void:
 	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	list.add_theme_constant_override("separation", 2)
 	scroll.add_child(list)
-	# 原型只加入实验场列表，不进入正式图鉴和关卡刷怪。
+	# 此处复用已有程序化角色登记，不改变正式关卡的投放配置。
 	var entries: Array = Config.get_dictionary("enemy_roster").get("entries", []).duplicate(true)
 	entries.push_front(MUD_GOLEM_ENTRY)
 	entries.insert(1, SEDIMENT_TITAN_ENTRY)
 	entries.insert(2, FAST_BEAST_ENTRY)
 	entries.insert(3, HORNET_ENTRY)
+	entries.insert(4, {"id": "VisualBurstCrawler", "title": "爆囊爬兽 · 转身投囊", "kind": "ranged"})
+	entries.insert(5, {"id": "VisualPrismSpider", "title": "棱眼蛛 · 锁向狙击", "kind": "ranged"})
+	entries.insert(6, {"id": "VisualChargeBeetle", "title": "裂甲兜虫 · 锁向冲锋", "kind": "melee"})
 	for entry: Dictionary in entries:
 		var id := String(entry.id)
 		var row := HBoxContainer.new()
-		row.custom_minimum_size.y = 34
+		row.custom_minimum_size.y = 22
 		list.add_child(row)
 		var check := CheckBox.new()
 		check.text = String(entry.title)
 		check.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		check.add_theme_font_size_override("font_size", 14)
+		check.add_theme_font_size_override("font_size", 11)
+		check.clip_text = true
+		check.tooltip_text = String(entry.title)
 		check.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
 		check.button_pressed = id == "L1MeleeSoldier"
 		row.add_child(check)
-		var tag := _label("远程" if entry.kind == "ranged" else "近战", 11, UI.COLOR_DIM)
+		var tag := _label("远程" if entry.kind == "ranged" else "近战", 10, UI.COLOR_DIM)
 		row.add_child(tag)
 		if EnemyTuning.PROFILE_PATHS.has(id):
 			var tune := Button.new()
-			tune.text = "参数"
-			tune.add_theme_font_size_override("font_size", 13)
+			tune.text = "调参"
+			tune.custom_minimum_size.x = 40
+			tune.add_theme_font_size_override("font_size", 11)
+			tune.tooltip_text = "编辑%s的参数草稿" % String(entry.title)
 			tune.pressed.connect(_show_enemy_tuning.bind(id))
 			row.add_child(tune)
 		var count := SpinBox.new()
 		count.min_value = 1
 		count.max_value = enemy_limit
 		count.value = 1
-		count.custom_minimum_size.x = 74
-		count.add_theme_font_size_override("font_size", 14)
+		count.custom_minimum_size.x = 48
+		count.add_theme_font_size_override("font_size", 11)
 		row.add_child(count)
 		_rows[id] = {"entry": entry, "check": check, "count": count}
 		check.toggled.connect(_update_selection)
 		count.value_changed.connect(_update_selection)
 	column.add_child(HSeparator.new())
-	_summary = _label("", 15, UI.COLOR_BODY)
-	column.add_child(_summary)
-	_result = _label("", 13, UI.COLOR_TITLE)
+	_result = _label("", 11, UI.COLOR_TITLE)
 	_result.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_result.max_lines_visible = 1
+	_result.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_result.mouse_filter = Control.MOUSE_FILTER_PASS
+	_result.visible = false
 	column.add_child(_result)
-	_generate = Button.new()
-	_generate.text = "生成并开始战斗"
-	_generate.custom_minimum_size.y = 42
-	_generate.pressed.connect(generate_round)
-	column.add_child(_generate)
-	var sparring := Button.new()
-	sparring.text = "当前正式兵种编组 → 实战陪练"
-	sparring.tooltip_text = "只交接正式图鉴兵种和数量；无敌、不死、空场临时参数不带入。未投产原型仍在本台验证。"
-	sparring.pressed.connect(open_sparring)
-	column.add_child(sparring)
 	var actions := HBoxContainer.new()
+	actions.name = "ConfigurationActions"
+	actions.add_theme_constant_override("separation", 3)
 	column.add_child(actions)
-	_resume = Button.new()
-	_resume.text = "继续战斗"
-	_resume.add_theme_font_size_override("font_size", 14)
-	_resume.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_resume.pressed.connect(resume_fight)
-	actions.add_child(_resume)
-	var clear := Button.new()
-	clear.text = "清空场地"
-	clear.add_theme_font_size_override("font_size", 14)
-	clear.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	clear.pressed.connect(clear_round)
-	actions.add_child(clear)
-	var deselect := Button.new()
-	deselect.text = "取消全选"
-	deselect.add_theme_font_size_override("font_size", 14)
-	deselect.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	deselect.pressed.connect(set_selection.bind({}))
-	actions.add_child(deselect)
+	_generate = _action_button(actions, "开战", "按当前敌人和数量生成，倒数后开始新的战斗", generate_round)
+	_action_button(actions, "实战陪练", "当前正式兵种编组进入实战陪练。只交接正式图鉴兵种和数量；无敌、不死、空场临时参数不带入。未投产原型仍在本台验证。", open_sparring)
+	_resume = _action_button(actions, "继续", "继续当前暂停的战斗，不重新生成", resume_fight)
+	_action_button(actions, "清场", "清空当前场地、敌人和待补兵名额", clear_round)
+	_action_button(actions, "全不选", "取消全部敌人的勾选", set_selection.bind({}))
 	_countdown = _label("3", 104, UI.COLOR_TITLE)
 	_countdown.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	root.add_child(_countdown)
@@ -1023,6 +1116,7 @@ func _build_interface() -> void:
 	root.add_child(_tuning_panel)
 	_tuning_panel.connect("closed", _show_configuration)
 	_tuning_panel.connect("saved", _on_enemy_tuning_saved)
+	_tuning_panel.connect("default_changed", _on_enemy_tuning_default_changed)
 	_update_selection()
 
 
@@ -1090,19 +1184,55 @@ func _label(text: String, size: int, color: Color) -> Label:
 	return label
 
 
+func _action_button(parent: Control, caption: String, help_text: String, action: Callable) -> Button:
+	var control := Button.new()
+	control.text = caption
+	control.tooltip_text = help_text
+	control.custom_minimum_size.y = 20
+	control.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	control.pressed.connect(action)
+	parent.add_child(control)
+	return control
+
+
+func _configuration_theme() -> Theme:
+	# 调试配置不能沿用游戏菜单的大字号和按钮留白，否则列表会被压到零高度。
+	var compact := ParameterInput.compact_theme(UI.get_theme(), 11)
+	for state_name in ["normal", "hover", "pressed", "disabled", "focus"]:
+		if not compact.has_stylebox(state_name, "Button"): continue
+		var button_style := compact.get_stylebox(state_name, "Button").duplicate() as StyleBox
+		button_style.set_content_margin(SIDE_LEFT, 4)
+		button_style.set_content_margin(SIDE_RIGHT, 4)
+		button_style.set_content_margin(SIDE_TOP, 2)
+		button_style.set_content_margin(SIDE_BOTTOM, 2)
+		compact.set_stylebox(state_name, "Button", button_style)
+	# 浮动说明使用实色底，避免叠到密集控件上仍透出文字。
+	var tooltip_style := StyleBoxFlat.new()
+	tooltip_style.bg_color = Color(0.025, 0.035, 0.03, 1.0)
+	tooltip_style.set_content_margin_all(6)
+	compact.set_stylebox("panel", "TooltipPanel", tooltip_style)
+	compact.set_font_size("font_size", "TooltipLabel", 11)
+	compact.set_color("font_color", "TooltipLabel", UI.COLOR_BODY)
+	return compact
+
+
 func _layout_interface() -> void:
 	var size := get_viewport().get_visible_rect().size
 	_weapon_plate.position = Vector2(24, 18)
-	var width := minf(430.0, size.x - 48.0)
-	_panel.position = Vector2(size.x - width - 24, 88)
-	_panel.size = Vector2(width, maxf(size.y - 112, 380))
+	var width := minf(480.0, size.x - 24.0)
+	var panel_top := 44.0
+	_panel.position = Vector2(size.x - width - 12, panel_top)
+	var enemy_list := _panel.find_child("EnemyList", true, false) as ScrollContainer
+	if enemy_list != null:
+		enemy_list.custom_minimum_size.y = minf(220.0, size.y * 0.26)
+	_panel.size = Vector2(width, size.y - panel_top - 12)
 	var stats_width := minf(1040.0, size.x - 48.0)
 	_stats_panel.position = Vector2((size.x - stats_width) * 0.5, 88)
 	_stats_panel.size = Vector2(stats_width, maxf(size.y - 112, 380))
-	_title.position = Vector2(size.x * 0.5 - 180, 16)
-	_title.size = Vector2(360, 36)
-	_status.position = Vector2(size.x * 0.5 - 240, 55)
-	_status.size = Vector2(480, 24)
+	_title.position = Vector2(size.x * 0.5 - 180, 6)
+	_title.size = Vector2(360, 20)
+	_status.position = Vector2(size.x * 0.5 - 240, 25)
+	_status.size = Vector2(480, 16)
 	_title.visible = _panel_open
 	_status.visible = _panel_open
 	_controls.visible = _panel_open and not _stats_open and not _tuning_open

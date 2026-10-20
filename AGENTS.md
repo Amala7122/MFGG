@@ -68,6 +68,14 @@
 - 交付前运行 `python -B tools/project_hygiene.py check`；它只检查，不自动删除。
 - 迁移须有源路径、目标路径、校验值及回退记录；未知归属先保留，禁止仅按日期批量删除。
 
+## AI 自动运行的鼠标与焦点隔离
+
+- AI 的自动验收、截图与探针必须使用 `tools/run_acceptance.py` / `tools/run_probe.py`（或复用它们的 `isolate_project` 与 `run_check`），默认无头；需要真实渲染时才加 `--graphics`。
+- 图形自动运行必须在隔离工程中，从创建窗口前启用 `display/window/size/no_focus=true`、关闭置顶，继承启动器设置的 `RUIN_STAR_AUTOMATION=1`。不能只隐藏控制台、启动后再释放鼠标或靠每帧纠正。
+- 自动运行窗口应放在用户当前工作窗口后面。Windows 统一启动器仅对本次启动的测试进程及其子进程，在窗口首次显示时放到后台；不激活窗口，不调整用户编辑器或手动游戏窗口，不靠持续纠正焦点实现隔离。
+- 项目脚本、测试和探针一律通过 `MouseControl.mode` 读写鼠标模式；禁止直接设置 `Input.mouse_mode`、`Input.set_mouse_mode()` 或 `DisplayServer.mouse_set_mode()`。唯一实现位于 `scripts/mouse_control.gd`。自动运行的该属性表示游戏请求状态，真实系统状态用 `Input.mouse_mode` / `DisplayServer.mouse_get_mode()` 检查。
+- 不为自动调试直接点击用户编辑器的运行按钮或启动会捕获鼠标的原工程。用户明确要求自己接管试玩时使用正常编辑器入口，不继承自动运行标记。手动路径捕获回归只能放到无头子进程，不能用用户的系统鼠标试验。
+
 ## 敌人观察台（新敌人必须接入）
 
 - **还没投入主场景**的新敌人（`prototypes/enemy_prototypes/` 与 `prototypes/visual_lab/` 下的原型、新外形）必须登记进 [敌人视觉观察台](prototypes/visual_lab/enemy_visual_lab.tscn)：在 [enemy_visual_lab.gd](scripts/prototypes/enemy_visual_lab.gd) 的 `GALLERY` 加一条，并显式声明 `observe` 能力（`scrub` = 有可定位时间轴；`play` = 只能冻结与全局慢放）。已投入主场景的兵种（`melee_enemy.tscn` / `ranged_enemy.tscn` + 图鉴 body profile）不强制接入。
@@ -78,6 +86,8 @@
 - 观察台是调试入口，字号与排版按"字小、信息密度大"处理，不要为好看放大。
 
 ## 可调整、可复现的交付
+
+- 敌人调参统一使用 `scripts/testing/enemy_parameter_layout.gd` 的八分页、公共语义与技能槽位顺序。新敌人必须登记 `SKILLS`、`WORLD_KEYS` 与 `enemy_attack_inspection.gd` 的实际技能观察适配；共性参数复用统一名称／单位，专属项放“专属参数”区，不另做一套布局。保留存储键时通过显示换算统一单位（例如旧步态角频率显示为 Hz），不能只改单位标签。由 `test_enemy_parameter_contract.gd` 守住覆盖、体型和观察入口。
 
 - 用户选择编辑器为工作中心：从编辑器启动，在运行窗口面板调整，显式保存回项目配置。
 - 新增可调功能先明确参数入口、单位、范围、生效时机、快速触发与重复观察方式。

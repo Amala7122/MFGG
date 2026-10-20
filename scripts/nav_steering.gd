@@ -137,11 +137,11 @@ func setup(body: Node3D, radius: float, height: float) -> void:
 	agent.name = "NavAgent"
 	# 这里只是局部避让代理尺寸；普通寻路的实际通行宽度由烘焙网格的
 	# NavigationMesh.agent_radius 决定，不能靠这里的 radius 缩小窄缝。
-	agent.radius = radius
-	agent.height = height
-	# 大型平底身体在坡角不能像胶囊那样擦角；经过通道中部再转入坡脚。
-	if radius >= 1.3:
-		agent.path_postprocessing = NavigationPathQueryParameters3D.PATH_POSTPROCESSING_EDGECENTERED
+	var body_scale := body.global_basis.get_scale().abs()
+	agent.radius = radius * maxf(body_scale.x, body_scale.z)
+	agent.height = height * body_scale.y
+	# 先用通道最短线；大身体的真实净空交给空间规划器逐段复核。
+	# 仅按半径强制门户中点，会在大三角地面先向后绕出十几米。
 	# 保持关闭：开启避障后必须每帧回写 set_velocity，否则代理会以为静止不动。
 	# 敌人之间刻意不互相碰撞（collision_mask 不含自身层），分离交给下面这套
 	# 防卡死逻辑，避免为 RVO 付出每帧的额外物理开销。
@@ -339,7 +339,7 @@ func _safe_local_motion(desired: Vector3, delta: float) -> bool:
 	if _character.test_move(_character.global_transform, motion) and GroundMovement.step_landing(_character, _character.global_transform, motion).is_empty():
 		return false
 	var feet := _body.to_global(Vector3(0, -_body_height * 0.5, 0)) + motion
-	var side := Vector3(-motion.z, 0, motion.x).normalized() * _body_radius * 0.75
+	var side := Vector3(-motion.z, 0, motion.x).normalized() * _body_radius * maxf(_body.global_basis.get_scale().x, _body.global_basis.get_scale().z) * 0.75
 	for point in [feet, feet + side, feet - side]:
 		var hit := _body.get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(point + Vector3.UP * GroundMovement.STEP_HEIGHT, point + Vector3.DOWN * GroundMovement.STEP_HEIGHT, 1))
 		if hit.is_empty() or (hit.normal as Vector3).dot(_character.up_direction) < cos(_character.floor_max_angle):

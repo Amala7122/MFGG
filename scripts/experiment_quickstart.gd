@@ -36,7 +36,7 @@ func _enter_experiment() -> void:
 		flow.call("_resume_play")
 	else:
 		get_tree().paused = false
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		MouseControl.mode = Input.MOUSE_MODE_CAPTURED
 
 	var spawner := get_node_or_null("../PlayerSpawner")
 	var player: Node = get_tree().get_first_node_in_group("player")
