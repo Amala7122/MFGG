@@ -5,6 +5,15 @@ const VisualPanel = preload("res://scripts/prototypes/visual_model_panel.gd")
 const Tuning := preload("res://scripts/prototypes/enemy_tuning.gd")
 const Timeline := preload("res://scripts/prototypes/motion_timeline.gd")
 const ParamParts := preload("res://scripts/prototypes/visual_param_parts.gd")
+const ObservationCamera := preload("res://scripts/testing/observation_camera.gd")
+const Navigation := preload("res://scripts/testing/professional_navigation.gd")
+const Session := preload("res://scripts/testing/tuning_session.gd")
+const Ownership := preload("res://scripts/testing/enemy_parameter_ownership.gd")
+var _navigation: CanvasLayer
+var _sample_values: Dictionary = {}
+var _rebuilding := false
+var _rebuild_values: Dictionary = {}
+var camera_control := ObservationCamera.new()
 ## observe 是每个条目**必须显式声明**的观察能力，守卫 test_enemy_observation_coverage 会核对
 ## 声明与实现是否一致：
 ##   "scrub" —— 有可定位的时间轴（set_preview_pose + sample_pose）：慢放、逐帧、叠影、排开可用；
@@ -37,7 +46,6 @@ var _visual_panel: PanelContainer
 var _gallery_picker: OptionButton
 var _subject: Node3D
 var _gallery_index := 0
-var _dragging := false
 var _auto_rotate := false
 var _motion_enabled := true
 var _silhouette := false
@@ -84,12 +92,19 @@ var _press_valid := false
 
 
 func _ready() -> void:
+	add_to_group("professional_workspaces")
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	_navigation = Navigation.shared(get_tree())
+	_navigation.set_local()
 	_game_flow = get_node_or_null("/root/GameFlow") as CanvasLayer
 	if _game_flow != null:
 		_game_flow_mode = _game_flow.process_mode
 		_game_flow_visible = _game_flow.visible
 	_enforce_lab_isolation()
+	add_child(camera_control)
+	camera_control.bind(_camera,_camera_rig.global_position)
+	camera_control.sensitivity = orbit_sensitivity
+	camera_control.changed.connect(_update_status)
 	_build_silhouette_material()
 	_build_visual_controls()
 	var initial := 0
@@ -99,6 +114,8 @@ func _ready() -> void:
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--visual-profile="):
 			initial = gallery_index_for(argument.trim_prefix("--visual-profile="), requested_form)
+	if has_meta("workspace_profile"):
+		initial = gallery_index_for(get_meta("workspace_profile"), get_meta("workspace_form", "visual"))
 	_show_subject(initial)
 
 
@@ -150,11 +167,14 @@ func _enforce_lab_isolation() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if camera_control.handle_event(event):
+		_press_valid = false
+		get_viewport().set_input_as_handled()
+		return
 	if event is InputEventMouseButton:
 		var mouse_event := event as InputEventMouseButton
 		if mouse_event.button_index == MOUSE_BUTTON_LEFT:
-			_dragging = mouse_event.pressed
-			# 单击（不是拖拽）用来拾取几何体；拖拽仍然是环绕。
+			# 左键只拾取；观察相机统一使用右键／中键，不与选取共用拖动。
 			if mouse_event.pressed:
 				_press_position = mouse_event.position
 				_press_valid = true
@@ -162,16 +182,6 @@ func _unhandled_input(event: InputEvent) -> void:
 				if _press_valid and mouse_event.position.distance_to(_press_position) < 4.0:
 					_pick_at(mouse_event.position)
 				_press_valid = false
-		elif mouse_event.pressed and mouse_event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			_set_distance(_camera.position.z - 0.8)
-		elif mouse_event.pressed and mouse_event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			_set_distance(_camera.position.z + 0.8)
-	elif event is InputEventMouseMotion and _dragging:
-		var motion := event as InputEventMouseMotion
-		_camera_rig.rotation.y -= motion.relative.x * orbit_sensitivity
-		_camera_pitch.rotation.x = clampf(
-			_camera_pitch.rotation.x - motion.relative.y * orbit_sensitivity, -0.55, 0.35
-		)
 	elif event is InputEventKey and event.pressed and not event.echo:
 		match event.physical_keycode:
 			KEY_LEFT, KEY_A:
@@ -193,7 +203,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_K:
 				_play_subject_death()
 			KEY_TAB:
-				_visual_panel.visible = not _visual_panel.visible and _subject.has_method("apply_visual_values")
+				_visual_panel.visible = not _visual_panel.visible and not _current_profile().is_empty()
 			KEY_B:
 				_toggle_silhouette()
 			KEY_SPACE:
@@ -220,7 +230,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_N:
 				_cycle_decompose_frames()
 			KEY_ESCAPE:
-				_dragging = false
+				camera_control.cancel_drag()
 				MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 
 
@@ -240,11 +250,13 @@ func _show_subject(index: int) -> void:
 	var scene: PackedScene = entry["scene"]
 	_subject = scene.instantiate() as Node3D
 	if _subject == null:
-		push_error("敌人视觉实验场的角色场景根节点必须是 Node3D")
+		push_error("视觉测试台的角色场景根节点必须是 Node3D")
 		return
 	var profile := String(entry["profile"])
 	if not profile.is_empty():
-		_subject.set_meta(&"enemy_tuning", Tuning.get_values(profile))
+		var draft: String = Session.shared().open_profile(profile)
+		_sample_values = Session.shared().preview_values(draft)
+		_subject.set_meta(&"enemy_tuning", _sample_values)
 		_subject.set_meta(&"crowd_uniform", true)
 		_subject.set("ai_enabled", false)
 	_subject.position.y = float(entry["height"])
@@ -270,11 +282,11 @@ func _show_subject(index: int) -> void:
 	_apply_motion_state()
 	_reset_view()
 	_gallery_picker.select(_gallery_index)
-	var editable_visual := profile.begins_with("Visual") and _subject.has_method("apply_visual_values")
-	_visual_panel.bind_profile(profile if editable_visual else "")
-	if editable_visual:
+	var form := "visual" if entry.observe == "scrub" else "combat"
+	_visual_panel.bind_profile(profile, Ownership.visual_editable(profile, form))
+	if not profile.is_empty():
 		_visual_panel.bind_subject(_subject)
-		_apply_visual_values(_visual_panel.values)
+		if _subject.has_method("apply_visual_values"): _apply_visual_values(_visual_panel.values)
 	_clear_ghosts()
 	_clear_highlight()
 	_clear_selection()
@@ -335,19 +347,24 @@ func _apply_distance_preset(index: int) -> void:
 
 
 func _set_distance(value: float) -> void:
-	_camera.position.z = clampf(value, 4.5, 30.0)
+	camera_control.set_distance(value)
 	_update_status()
 
 
 func _reset_view() -> void:
+	camera_control.cancel_drag()
 	_camera_rig.rotation = Vector3.ZERO
+	_camera_rig.position = Vector3(0,float(GALLERY[_gallery_index].look_y),0)
+	_camera.transform = Transform3D.IDENTITY
 	_camera_pitch.rotation.x = -0.12
 	_distance_index = 1
 	var entry: Dictionary = GALLERY[_gallery_index]
-	_set_distance(float(entry.get("distance", _distances[1])))
 	_camera_rig.rotation.y = float(entry.get("yaw", 0.0))
+	_camera.position.z = float(entry.get("distance", _distances[1]))
+	camera_control.bind(_camera,_camera_rig.global_position)
 	if is_instance_valid(_subject):
 		_subject.rotation = Vector3(0.0, PI, 0.0)
+	_update_status()
 
 
 func _update_status() -> void:
@@ -360,14 +377,14 @@ func _update_status() -> void:
 	if is_instance_valid(_subject) and _subject.has_method("get_preview_pose_name"):
 		pose_text = "  |  姿态：" + String(_subject.call("get_preview_pose_name"))
 	_status_label.text = (
-		"敌人视觉实验场 %d/%d · %s | %s | %s%s\n"
+		"视觉测试台 %d/%d · %s | %s | %s%s\n"
 		+ "←/→ 换角色　M 静/动　P 姿态　B 剪影　空格 旋转　F 复位　Esc 释放鼠标　K 死亡重播\n"
-		+ "左键单击=拾取　拖拽=环绕　滚轮或 1/2/3 缩放　距离 %.1f m　网格 %d　三角面 %d\n"
+		+ "左键=拾取　右键拖动=旋转　中键拖动=平移　滚轮或 1/2/3 缩放　距离 %.1f m　网格 %d　三角面 %d\n"
 		+ "%s"
 	) % [
 		_gallery_index + 1, GALLERY.size(), String(entry["title"]),
 		"剪影" if _silhouette else "材质", "动态" if _motion_enabled else "静态",
-		pose_text, _camera.position.z, _original_materials.size(), _count_triangles(),
+		pose_text, camera_control.distance(), _original_materials.size(), _count_triangles(),
 		_status_detail(),
 	]
 	_refresh_timeline()
@@ -424,6 +441,8 @@ func _build_visual_controls() -> void:
 	_visual_panel.offset_bottom = -16
 	_visual_panel.theme = small
 	_visual_panel.values_changed.connect(_apply_visual_values)
+	_visual_panel.combat_requested.connect(func(profile: String):
+		_navigation.open(self, "res://prototypes/combat_lab/combat_lab.tscn", profile, "combat"))
 	_visual_panel.field_focused.connect(_highlight_field)
 	_visual_panel.pose_selected.connect(func(index: int):
 		_visual_panel.stop_demo()
@@ -446,7 +465,19 @@ func _build_visual_controls() -> void:
 
 
 func _apply_visual_values(values: Dictionary) -> void:
-	if not is_instance_valid(_subject) or not _subject.has_method("apply_visual_values"):
+	if not is_inside_tree() or not is_instance_valid(_subject):
+		return
+	if _subject is CharacterBody3D:
+		if _current_profile() == "VisualChargeBeetle" and _sample_values != values:
+			_rebuild_values = values.duplicate(true)
+			if not _rebuilding:
+				_rebuilding = true
+				_rebuild_combat_sample.call_deferred()
+		return
+	if not _subject.has_method("apply_visual_values"): return
+	var invalid := Tuning.validate(_current_profile(), values)
+	if not invalid.is_empty():
+		_visual_panel._set_notice("未应用：" + invalid + "；保留最近合法样本，草稿仍可返回修正", true)
 		return
 	_clear_highlight()
 	_clear_selection()
@@ -456,6 +487,58 @@ func _apply_visual_values(values: Dictionary) -> void:
 	if _silhouette:
 		_apply_silhouette(true)
 	_update_status()
+
+
+func _rebuild_combat_sample() -> void:
+	_rebuilding = false
+	if not is_inside_tree() or _current_profile() != "VisualChargeBeetle" or not _subject is CharacterBody3D: return
+	var values := _rebuild_values.duplicate(true)
+	var invalid := Tuning.validate(_current_profile(), values)
+	if not invalid.is_empty():
+		_visual_panel._set_notice("未应用：" + invalid + "；当前观察样本保留", true)
+		return
+	_clear_highlight()
+	_clear_selection()
+	var old := _subject
+	var transform := old.transform
+	var clock := float(old.get("anim_clock"))
+	var mode := old.process_mode
+	var scene: PackedScene = GALLERY[_gallery_index].scene
+	var next := scene.instantiate() as CharacterBody3D
+	next.set_meta(&"enemy_tuning", values)
+	next.set_meta(&"crowd_uniform", true)
+	next.set("ai_enabled", false)
+	_subject_mount.remove_child(old)
+	old.queue_free()
+	_subject = next
+	# 根缩放由Crowd.setup按本次body_size应用；不能把旧样本的体型再次相乘。
+	next.transform = transform.orthonormalized()
+	_subject_mount.add_child(next)
+	next.position.y = next.get("_collision").shape.size.y * next.scale.y * 0.5
+	next.collision_layer = 0
+	next.collision_mask = 1
+	next.set("anim_clock", clock)
+	next.call("_pose", 0.0)
+	next.process_mode = mode
+	for node in next.find_children("*", "Label3D", true, false): node.visible = false
+	_sample_values = values
+	_visual_panel.bind_subject(next)
+	_capture_original_materials()
+	if _silhouette: _apply_silhouette(true)
+	_visual_panel._set_notice("已应用：观察样本已重建（模型／碰撞／导航）；正式现场待重新生成")
+	_update_status()
+
+
+func workspace_suspending() -> void:
+	_visual_panel._commit_inputs()
+	_visual_panel.remember_view()
+	camera_control.cancel_drag()
+
+
+func workspace_resumed() -> void:
+	_enforce_lab_isolation()
+	_visual_panel.resume_view()
+	if not _current_profile().is_empty(): _apply_visual_values(Session.shared().values(_visual_panel.draft_id))
 
 
 func _replay_visual() -> void:

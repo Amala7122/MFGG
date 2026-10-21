@@ -4,6 +4,8 @@ const Inspect := preload("res://scripts/testing/enemy_attack_inspection.gd")
 const UI := preload("res://scripts/ui_theme.gd")
 const Area := preload("res://scripts/enemy_attack_area.gd")
 const Puddle := preload("res://scripts/enemies/poison_puddle.gd")
+const ObservationCamera := preload("res://scripts/testing/observation_camera.gd")
+const ShapePanel := preload("res://prototypes/combat_lab/skill_shape_panel.gd")
 signal replay_requested
 signal return_requested
 var lab: Node3D
@@ -18,7 +20,13 @@ var _paths: CheckBox
 var _panel: PanelContainer
 var _readout: Label
 var _hint: Label
-var _study_controls: HBoxContainer
+var _study_controls: Container
+var shape_panel: PanelContainer
+var shape_sample: Dictionary = {}
+var single_playing := false
+var _single_completed := false
+var _edit_button: Button
+var _step_button: Button
 var _canvas: CanvasLayer
 var _mesh: MeshInstance3D
 var _geometry := ImmediateMesh.new()
@@ -37,6 +45,8 @@ var _view: OptionButton
 var _framing: OptionButton
 var _zoom: SpinBox
 var camera: Camera3D
+var camera_control := ObservationCamera.new()
+var _base_camera_distance := 13.0
 var sample_data := {}
 var active_snapshots: Array[Dictionary] = []
 
@@ -56,6 +66,10 @@ func _ready() -> void:
 	camera = Camera3D.new()
 	camera.far = 250.0
 	add_child(camera)
+	add_child(camera_control)
+	camera_control.bind(camera,Vector3.ZERO)
+	camera_control.active = false
+	camera_control.changed.connect(_camera_changed)
 	_canvas = CanvasLayer.new()
 	_canvas.layer = 115
 	add_child(_canvas)
@@ -67,12 +81,12 @@ func _ready() -> void:
 	style.bg_color = Color(0.025, 0.045, 0.04, 0.98)
 	style.set_content_margin_all(5)
 	_panel.add_theme_stylebox_override("panel", style)
-	_panel.position = Vector2(8, 8)
+	_panel.position = Vector2(8, 40)
 	_canvas.add_child(_panel)
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 2)
 	_panel.add_child(column)
-	var row := HBoxContainer.new()
+	var row := HFlowContainer.new()
 	column.add_child(row)
 	_ranges = CheckBox.new()
 	_ranges.text = "攻击范围"
@@ -104,7 +118,7 @@ func _ready() -> void:
 	_hold.custom_minimum_size.x = 115
 	row.add_child(_hold)
 	_button(row, "清轨迹", func(): _traces.clear(); _last_positions.clear())
-	_study_controls = HBoxContainer.new()
+	_study_controls = HFlowContainer.new()
 	column.add_child(_study_controls)
 	distance_input = SpinBox.new()
 	distance_input.min_value = 0.5
@@ -114,10 +128,15 @@ func _ready() -> void:
 	distance_input.prefix = "距离 "
 	distance_input.suffix = " 米"
 	distance_input.custom_minimum_size.x = 120
+	distance_input.tooltip_text = "重播／进入定格时采用此固定目标距离；不会移动已经锁定的预警。"
 	_study_controls.add_child(distance_input)
-	_button(_study_controls, "重播", func(): replay_requested.emit())
+	_button(_study_controls, "重播", _request_replay)
+	_edit_button = _button(_study_controls,"定格编辑",func():
+		if shape_panel.visible: close_shape_edit()
+		else: lab.edit_observation_shape())
+	_edit_button.tooltip_text = "首批支持沉积泰坦→三线重击；固定站位与时刻，调整真实范围及时序。其他技能仍可重播观察。"
 	_pause = _button(_study_controls, "暂停 / 继续", func(): get_tree().paused = not get_tree().paused)
-	_button(_study_controls, "单帧", _step)
+	_step_button = _button(_study_controls, "单帧", _step)
 	_speed = OptionButton.new()
 	for label in ["1×", "0.5×", "0.25×", "0.1×"]: _speed.add_item(label)
 	_speed.item_selected.connect(func(index: int): Engine.time_scale = _saved_time_scale * [1.0, 0.5, 0.25, 0.1][index])
@@ -131,15 +150,15 @@ func _ready() -> void:
 	_framing.item_selected.connect(func(_index: int): frame_study())
 	_study_controls.add_child(_framing)
 	_zoom = SpinBox.new()
-	_zoom.min_value = 0.3
-	_zoom.max_value = 3.0
+	_zoom.min_value = 0.001
+	_zoom.max_value = 1000.0
 	_zoom.step = 0.1
 	_zoom.value = 1.0
 	_zoom.prefix = "镜距 "
 	_zoom.custom_minimum_size.x = 110
-	_zoom.value_changed.connect(func(_value: float): frame_study())
+	_zoom.value_changed.connect(func(value: float): camera_control.set_distance(_base_camera_distance*value))
 	_study_controls.add_child(_zoom)
-	_button(_study_controls, "返回调参", func(): return_requested.emit())
+	# 返回统一使用视口左上角的ProfessionalNavigation，不再另造工具栏返回位置。
 	_readout = Label.new()
 	_readout.clip_text = true
 	column.add_child(_readout)
@@ -148,6 +167,49 @@ func _ready() -> void:
 	_hint.add_theme_color_override("font_color", Color(0.65, 0.8, 0.75))
 	column.add_child(_hint)
 	_panel.tooltip_text = "青蓝：理论范围与预计轨迹；橙红：真实准备／锁定／命中快照；绿色：实际运动。范围线穿透地形便于观察，不代表可隔墙命中。普通战斗按 V 开关。单体重播固定种子并关闭个体浮动。"
+	var camera_help := Label.new()
+	camera_help.text = ObservationCamera.HELP_TEXT + "；选固定视角可复位"
+	_study_controls.get_parent().add_child(camera_help)
+	camera_help.add_theme_color_override("font_color",Color(0.65,0.8,0.75))
+	camera_help.set_meta("study_camera_help",true)
+	shape_panel = ShapePanel.new()
+	_canvas.add_child(shape_panel)
+	shape_panel.sample_changed.connect(func(): _refresh = 0.0)
+	shape_panel.play_requested.connect(lab.play_edited_observation.bind(false))
+	shape_panel.fight_requested.connect(lab.play_edited_observation.bind(true))
+
+func _request_replay() -> void:
+	if lab._shape_transition: return
+	if shape_panel.visible:
+		if shape_panel.commit(): lab.play_edited_observation(false)
+	elif _single_completed: lab.play_edited_observation(false)
+	else: replay_requested.emit()
+
+func close_shape_edit() -> void:
+	single_playing = false
+	_single_completed = false
+	shape_panel.visible = false
+	shape_sample.clear()
+	_refresh = 0.0
+
+func _layout_panels() -> void:
+	var viewport_size := get_viewport().get_visible_rect().size
+	shape_panel.position = Vector2(viewport_size.x-288,40)
+	shape_panel.size = Vector2(280,maxf(280,minf(470,viewport_size.y-52)))
+	_panel.size = Vector2(minf(710,viewport_size.x-16-(288 if shape_panel.visible else 0)),0)
+	var editing: bool = shape_panel.visible
+	_edit_button.disabled = lab._shape_transition or (not editing and (not study or lab._observation_profile != ShapePanel.PROFILE or skill_choice.selected != 4))
+	_edit_button.text = "收起编辑" if editing else "定格编辑"
+	skill_choice.disabled = editing
+	_pause.disabled = editing
+	_step_button.disabled = editing
+	_speed.disabled = editing
+
+func _unhandled_input(event: InputEvent) -> void:
+	if study and camera_control.handle_event(event): get_viewport().set_input_as_handled()
+
+func _camera_changed() -> void:
+	if is_instance_valid(_zoom): _zoom.set_value_no_signal(camera_control.distance()/_base_camera_distance)
 
 func _button(parent: Node, title: String, callback: Callable) -> Button:
 	var control := Button.new()
@@ -159,7 +221,9 @@ func _button(parent: Node, title: String, callback: Callable) -> Button:
 func _exit_tree() -> void: Engine.time_scale = _saved_time_scale
 
 func end_study() -> void:
+	close_shape_edit()
 	study = false
+	camera_control.active = false
 	camera.current = false
 	Engine.time_scale = _saved_time_scale
 	_speed.select(0)
@@ -174,8 +238,12 @@ func watch(subject: Node3D, skill_index: int) -> void:
 	skill_choice.select(clampi(skill_index, 0, skill_choice.item_count - 1))
 	_refresh = 0.0
 
-func frame_study() -> void:
+func frame_study(preserve_manual := false) -> void:
 	if not is_instance_valid(actor): return
+	camera_control.active = true
+	if preserve_manual and camera_control.user_adjusted:
+		camera.current = true
+		return
 	var target := lab.get("_player") as Node3D
 	var center := actor.global_position.lerp(target.global_position, 0.5)
 	var span := maxf(actor.global_position.distance_to(target.global_position), actor.scale.x * 5.0)
@@ -191,8 +259,8 @@ func frame_study() -> void:
 			span = float(spec.radius)*2.0
 		for point: Vector3 in sample.get("path", PackedVector3Array()): span = maxf(span, center.distance_to(point)*2.0)
 	var directions := [Vector3(0.8,0.8,1), Vector3(0,1,0), Vector3(1,0.25,0.15)]
-	camera.global_position = center + (directions[_view.selected] as Vector3).normalized() * maxf(span * 1.4, 13.0) * _zoom.value
-	camera.look_at(center, Vector3.FORWARD if _view.selected == 1 else Vector3.UP)
+	_base_camera_distance = maxf(span * 1.4,13.0)
+	camera_control.set_view(center+(directions[_view.selected] as Vector3).normalized()*_base_camera_distance*_zoom.value,center,Vector3.FORWARD if _view.selected == 1 else Vector3.UP)
 	camera.current = true
 
 func _fill_skills() -> void:
@@ -216,7 +284,10 @@ func record_segment(id: int, start: Vector3, end: Vector3, owner_id := 0, point 
 	if _traces.size() > 6000: _traces.pop_front()
 
 func _physics_process(_delta: float) -> void:
-	if not is_instance_valid(actor) or get_tree().paused: return
+	if not Inspect.can_observe(actor):
+		_last_positions.clear()
+		return
+	if get_tree().paused: return
 	var id := actor.get_instance_id()
 	var current := actor.global_position
 	if _last_positions.has(id):
@@ -224,6 +295,8 @@ func _physics_process(_delta: float) -> void:
 		if previous.distance_squared_to(current) > 0.00001: record_segment(id, previous, current, id, "body")
 	_last_positions[id] = current
 	var points := Inspect.motion_points(actor)
+	for key: Variant in _last_positions.keys():
+		if key is String and not points.has(key): _last_positions.erase(key)
 	for key: String in points:
 		var point: Vector3 = points[key]
 		if _last_positions.has(key) and (Vector3(_last_positions[key])).distance_squared_to(point) > 0.00001:
@@ -232,11 +305,18 @@ func _physics_process(_delta: float) -> void:
 
 func _process(delta: float) -> void:
 	if not is_instance_valid(lab): return
+	_layout_panels()
 	var showing: bool = study or (int(lab.state) == lab.State.FIGHTING and not lab._panel_open)
 	_panel.visible = showing and enabled
 	_mesh.visible = showing and enabled
 	_study_controls.visible = study
+	for child in _study_controls.get_parent().get_children():
+		if child.has_meta("study_camera_help"): child.visible = study
 	if not showing or not enabled: return
+	if study and single_playing and Inspect.can_observe(actor) and actor.current_state == actor.State.IDLE:
+		single_playing = false
+		_single_completed = true
+		get_tree().paused = true
 	if not get_tree().paused: _clock += delta
 	if _was_paused != get_tree().paused:
 		_was_paused = get_tree().paused
@@ -245,9 +325,32 @@ func _process(delta: float) -> void:
 	if _refresh > 0.0: return
 	_refresh = 0.05
 	_refresh_actor_choices()
-	if not is_instance_valid(actor):
-		_readout.text = "当前无可观察的参数化敌人"
-		_geometry.clear_surfaces()
+	if not Inspect.can_observe(actor):
+		sample_data.clear()
+		active_snapshots.clear()
+		_vertices.clear()
+		_colors.clear()
+		_append_recorded_traces()
+		_flush_geometry()
+		_readout.text = "当前对象已死亡／回收，保留已录轨迹"
+		_hint.text = "重播可创建新的观察样本；死亡演出正常继续。" if study else "可重新投放敌人；死亡演出正常继续。"
+		_hint.tooltip_text = _hint.text
+		return
+	if shape_panel.visible:
+		shape_sample = shape_panel.sample()
+		_vertices.clear()
+		_colors.clear()
+		active_snapshots.clear()
+		sample_data.clear()
+		for entry: Dictionary in shape_sample.get("shapes",[]):
+			if _ranges.button_pressed:
+				_outline(entry.pose,entry.spec,Color(.1,.75,1))
+				if not shape_sample.timing.struck: _outline(entry.pose,entry.spec,Color(1,.65,.05))
+			if not shape_sample.timing.struck: active_snapshots.append(entry.duplicate(true))
+		_flush_geometry()
+		_readout.text = "定格几何 · 站位／朝向／种子固定 · 体型 ×%.2f" % actor.scale.x
+		_hint.text = "橙色为该时刻预警，青蓝为理论边界；真实命中仍检查高度／遮挡。原世界已暂停。"
+		_hint.tooltip_text = _hint.text
 		return
 	sample_data = Inspect.sample(actor, skill_choice.selected)
 	_vertices.clear()
@@ -266,22 +369,32 @@ func _process(delta: float) -> void:
 		active_snapshots.append({"pose":hazard.global_transform, "shape":spec, "phase":Area.Phase.STRIKE})
 		if _ranges.button_pressed: _outline(hazard.global_transform, spec, Color(1,0.19,0.02))
 	if _paths.button_pressed and not sample_data.is_empty(): _polyline(sample_data.path, Color(0.2, 0.7, 1.0))
-	while not _traces.is_empty() and _clock - float(_traces[0].time) > _hold.value: _traces.pop_front()
-	if _paths.button_pressed:
-		for trace: Dictionary in _traces: _line(trace.a, trace.b, Color(0.2, 1, 0.2))
-	_geometry.clear_surfaces()
-	if not _vertices.is_empty():
-		_geometry.surface_begin(Mesh.PRIMITIVE_LINES)
-		for i in _vertices.size():
-			_geometry.surface_set_color(_colors[i])
-			_geometry.surface_add_vertex(_vertices[i])
-		_geometry.surface_end()
+	_append_recorded_traces()
+	_flush_geometry()
 	var spec: Dictionary = sample_data.get("spec", {})
 	_readout.text = "青蓝 理论范围 / 预计轨迹 · 橙红 实际判定 · 绿 实际运动 | 体型 ×%.2f | %s | %s" % [actor.scale.x, "冻结" if get_tree().paused else "运行", _measure(spec)]
 	_hint.text = String(sample_data.get("notes", ""))
+	if _single_completed: _hint.text = "单次已结束并冻结；可重播或进入定格编辑。" + _hint.text
+	var controller: PanelContainer = lab._tuning_panel
+	if study and controller.enemy_id == lab._observation_profile and not controller.draft_id.is_empty():
+		if not controller._pending_text.is_empty(): _hint.text = "有输入未提交；运行样本尚未采用，返回参数页可继续修改。" + _hint.text
+		elif controller._session.values(controller.draft_id) != lab._observation_values: _hint.text = "草稿已更新；当前运行样本待重播／试打。" + _hint.text
 	_hint.tooltip_text = _hint.text
-	_panel.size.x = minf(_panel.get_combined_minimum_size().x, get_viewport().get_visible_rect().size.x - 16)
 	if not study: lab._weapon_plate.position.y = _panel.position.y + _panel.size.y + 8.0
+
+func _append_recorded_traces() -> void:
+	while not _traces.is_empty() and _clock - float(_traces[0].time) > _hold.value: _traces.pop_front()
+	if _paths.button_pressed:
+		for trace: Dictionary in _traces: _line(trace.a, trace.b, Color(0.2, 1, 0.2))
+
+func _flush_geometry() -> void:
+	_geometry.clear_surfaces()
+	if _vertices.is_empty(): return
+	_geometry.surface_begin(Mesh.PRIMITIVE_LINES)
+	for i in _vertices.size():
+		_geometry.surface_set_color(_colors[i])
+		_geometry.surface_add_vertex(_vertices[i])
+	_geometry.surface_end()
 
 func _refresh_actor_choices() -> void:
 	var candidates: Array = lab._live_enemies.filter(func(node: Node3D): return is_instance_valid(node) and not Inspect.names(node).is_empty())

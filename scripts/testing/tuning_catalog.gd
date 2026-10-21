@@ -1,6 +1,7 @@
 extends RefCounted
 ## 归属与身份目录；从现有 schema / species / 图鉴派生，不新增另一份游戏数值。
 const Tuning := preload("res://scripts/prototypes/enemy_tuning.gd")
+const Ownership := preload("res://scripts/testing/enemy_parameter_ownership.gd")
 const Creatures := preload("res://scripts/enemies/creature_catalog.gd")
 const Config := preload("res://scripts/game_config.gd")
 const Layout := preload("res://scripts/testing/enemy_parameter_layout.gd")
@@ -67,7 +68,9 @@ static func field(profile: String, key: String) -> Dictionary:
 			var d := spec.duplicate(true)
 			d["profile"] = profile
 			d["module"] = group.title
-			d["owner"] = "待细分（现有参数面板）"
+			d["owner"] = Ownership.title(profile, key)
+			d["domain"] = Ownership.owner(profile, key)
+			d["dependency"] = Ownership.dependency(profile, key)
 			d["apply"] = "战斗实体重新生成"
 			d["reviewed"] = profile == "PrototypeSedimentTitan" and PILOT.has(key)
 			if d.reviewed:

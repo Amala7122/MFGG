@@ -12,6 +12,8 @@ const OutlineShader := preload("res://prototypes/painterly_lab/ink_outline.gdsha
 const CapturePaths := preload("res://scripts/capture_paths.gd")
 const UiTheme := preload("res://scripts/ui_theme.gd")
 const MainStudy := preload("res://prototypes/painterly_lab/main_scene_study.gd")
+const ObservationCamera := preload("res://scripts/testing/observation_camera.gd")
+var camera_control := ObservationCamera.new()
 const SETTINGS_PATH := "res://data/painterly_lab.json"
 const SCENE_NAMES := ["原实验场景", "主场景 · 静态美术预览"]
 const MAIN_VIEWS := [
@@ -43,10 +45,6 @@ var style_picker: OptionButton
 var lighting_picker: OptionButton
 var status_label: Label
 var description_label: Label
-var orbit_target := Vector3(0, 2, -3)
-var orbit_yaw := 0.0
-var orbit_pitch := 0.25
-var orbit_distance := 25.0
 var _guard_frames := 4
 var _flow: CanvasLayer
 var _previous_flow_mode: int
@@ -70,7 +68,7 @@ var _main_arena_before := ""
 
 func _ready() -> void:
 	_previous_paused = get_tree().paused
-	_previous_mouse_mode = Input.mouse_mode
+	_previous_mouse_mode = MouseControl.mode
 	_flow = get_node_or_null("/root/GameFlow") as CanvasLayer
 	if _flow:
 		_previous_flow_mode = _flow.process_mode
@@ -81,6 +79,8 @@ func _ready() -> void:
 	_build_composition()
 	_build_shape_variants()
 	_build_camera()
+	add_child(camera_control)
+	camera_control.bind(camera,Vector3(0,2,-3))
 	_load_lab_settings()
 	_build_controls()
 	set_style(7)
@@ -92,7 +92,7 @@ func _ready() -> void:
 
 func _isolate() -> void:
 	get_tree().paused = false
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 	if _flow:
 		_flow.process_mode = Node.PROCESS_MODE_DISABLED
 		_flow.visible = false
@@ -105,7 +105,7 @@ func _exit_tree() -> void:
 		_flow.visible = _previous_flow_visible
 	if get_tree():
 		get_tree().paused = _previous_paused
-	Input.mouse_mode = _previous_mouse_mode as Input.MouseMode
+	MouseControl.mode = _previous_mouse_mode as Input.MouseMode
 	if is_inside_tree():
 		get_world_3d().environment = _previous_environment
 
@@ -461,29 +461,11 @@ func set_view(index: int) -> void:
 	camera.far = 240 if scene_index == 0 else 1400
 	camera.fov = 55 if scene_index == 0 else 62
 	camera.position = view[0]
-	orbit_target = view[1]
-	camera.look_at(orbit_target)
-	var offset := camera.position - orbit_target
-	orbit_distance = offset.length()
-	orbit_yaw = atan2(offset.x, offset.z)
-	orbit_pitch = asin(offset.y / orbit_distance)
-
-func _orbit() -> void:
-	camera.position = orbit_target + Vector3(sin(orbit_yaw) * cos(orbit_pitch), sin(orbit_pitch), cos(orbit_yaw) * cos(orbit_pitch)) * orbit_distance
-	camera.look_at(orbit_target)
+	camera_control.set_view(view[0],view[1])
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseMotion and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
-		orbit_yaw -= event.relative.x * 0.005
-		orbit_pitch = clampf(orbit_pitch + event.relative.y * 0.005, 0.04, 1.45)
-		_orbit()
-	elif event is InputEventMouseButton and event.pressed:
-		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			orbit_distance = maxf(4, orbit_distance * 0.9)
-		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			orbit_distance = minf(65 if scene_index == 0 else 450, orbit_distance * 1.1)
-		_orbit()
-	elif event is InputEventKey and event.pressed and not event.echo:
+	if camera_control.handle_event(event): get_viewport().set_input_as_handled(); return
+	if event is InputEventKey and event.pressed and not event.echo:
 		match event.physical_keycode:
 			KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8: set_style(event.physical_keycode - KEY_1)
 			KEY_L: set_lighting((lighting_index + 1) % 3)
@@ -572,7 +554,7 @@ func _build_controls() -> void:
 	description_label.add_theme_color_override("font_color", Color("c5c8bf"))
 	column.add_child(description_label)
 	var help := Label.new()
-	help.text = "右键拖动：环绕  ·  滚轮：远近\n1—8：风格（4 水墨） · L：光照 · F：手电筒\nR：正面 · F5 / F6 / F7：背面 / 近景 / 俯视\nH：隐藏面板"
+	help.text = ObservationCamera.HELP_TEXT + "\n1—8：风格（4 水墨） · L：光照 · F：手电筒\nR：正面 · F5 / F6 / F7：背面 / 近景 / 俯视\nH：隐藏面板"
 	help.add_theme_font_size_override("font_size", 14)
 	help.add_theme_color_override("font_color", Color("aaaeb0"))
 	column.add_child(help)

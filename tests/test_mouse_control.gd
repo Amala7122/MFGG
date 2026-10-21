@@ -30,6 +30,8 @@ func _run() -> void:
 	MouseControl.mode = previous
 	_scan_calls("res://scripts")
 	_scan_calls("res://prototypes/combat_lab")
+	_scan_calls("res://prototypes/painterly_lab")
+	_scan_calls("res://prototypes/spatial_lab")
 	_scan_calls("res://tests")
 	_scan_calls("res://tools/probes")
 	_verify_headless_child(true)

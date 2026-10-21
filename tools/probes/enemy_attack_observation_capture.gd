@@ -24,6 +24,8 @@ func _run() -> void:
 	root.add_child(lab)
 	current_scene = lab
 	await frames(8)
+	if not lab.get_selection().is_empty(): failed = true; push_error("原型台启动应全不选")
+	await capture("00_empty_enemy_selection")
 	lab._show_enemy_tuning("VisualPrismSpider")
 	lab._tuning_panel._tabs.current_tab = 2
 	await frames(4)
@@ -48,6 +50,29 @@ func _run() -> void:
 		paused = true
 		await capture("04_"+id+"_trajectory")
 		lab._show_configuration()
+	await lab.observe_draft("VisualChargeBeetle",Tuning.defaults("VisualChargeBeetle"))
+	await frames(15)
+	paused = true
+	var control: Node = lab._attack_observer.camera_control
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_RIGHT
+	press.pressed = true
+	control.handle_event(press)
+	var motion := InputEventMouseMotion.new()
+	motion.relative = Vector2(75,-25)
+	control.handle_event(motion)
+	press.pressed = false
+	control.handle_event(press)
+	press.button_index = MOUSE_BUTTON_WHEEL_UP
+	press.pressed = true
+	control.handle_event(press)
+	press.button_index = MOUSE_BUTTON_MIDDLE
+	control.handle_event(press)
+	motion.relative = Vector2(40,20)
+	control.handle_event(motion)
+	press.pressed = false
+	control.handle_event(press)
+	await capture("05_manual_orbit_zoom_pan")
 	paused = false
 	lab.queue_free()
 	await frames(2)

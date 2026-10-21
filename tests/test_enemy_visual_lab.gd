@@ -66,6 +66,8 @@ func _run() -> void:
 		await process_frame
 		subject = lab.get_node("SubjectMount").get_child(lab.get_node("SubjectMount").get_child_count() - 1) as Node3D
 		_check(subject.name == expected_name, "Gallery did not load " + expected_name)
+		if not lab.get("_visual_panel").visible:
+			_check(bool(lab.get("_visual_panel").call("_commit_inputs")), "Unbound visual panel must not block gallery switching")
 		_check(not bool(subject.get("ai_enabled")), "Preview must suppress enemy AI: " + expected_name)
 		_check(subject.process_mode == Node.PROCESS_MODE_DISABLED, "Static mode must survive gallery switching")
 		_check(subject.find_children("*", "MeshInstance3D", true, false).size() > 0, "Gallery subject has no visual parts: " + expected_name)

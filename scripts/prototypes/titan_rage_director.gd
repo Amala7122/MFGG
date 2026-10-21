@@ -4,6 +4,7 @@ const Area := preload("res://scripts/enemy_attack_area.gd")
 const Telemetry := preload("res://scripts/combat_telemetry.gd")
 const Effect := preload("res://scripts/prototypes/titan_melee_effect.gd")
 const Audio := preload("res://scripts/audio_manager.gd")
+const TripleSlam := preload("res://scripts/prototypes/titan_triple_slam_definition.gd")
 var actor: CharacterBody3D
 var cycle := 0
 var closing_elapsed := 0.0
@@ -108,7 +109,7 @@ func clear_triple_slam() -> void:
 
 func start_triple_slam() -> void:
 	clear_triple_slam()
-	triple_snapshot = {"windup":actor._p("triple_slam_windup"),"recovery":actor._p("triple_slam_recovery"),"damage":actor._p("triple_slam_damage")*actor._damage_scale,"width":actor._p("triple_slam_width")*actor._crowd.size_multiplier,"length":actor._p("triple_slam_length")*actor._crowd.size_multiplier,"spread":actor._p("triple_slam_spread")}
+	triple_snapshot = TripleSlam.snapshot(actor._tuning,actor._crowd.size_multiplier,actor._damage_scale)
 	# 三道共用脚下起点，向左/中/右展开；近处重叠、向外形成缝隙，出现后不追踪。
 	var offset: Vector3 = actor.target.global_position-actor.global_position
 	offset.y = 0.0
@@ -117,11 +118,10 @@ func start_triple_slam() -> void:
 	var lead_yaw := atan2(-led.x,-led.z)
 	base_yaw += clampf(wrapf(lead_yaw-base_yaw,-PI,PI),deg_to_rad(-20.0),deg_to_rad(20.0))
 	actor.rotation.y = base_yaw
-	for slot in [-1,0,1]:
-		var pose := Transform3D(Basis(Vector3.UP,base_yaw-deg_to_rad(slot*float(triple_snapshot.spread))),actor.global_position)
+	for entry: Dictionary in TripleSlam.shapes(triple_snapshot,Transform3D(Basis(Vector3.UP,base_yaw),actor.global_position)):
 		var area := Area.new()
 		actor.add_child(area)
-		area.prepare(pose,{"kind":"rect","offset":0.0,"width":float(triple_snapshot.width),"length":float(triple_snapshot.length),"height":4.1,"stable_tracking_surface":true,"solid_footprint":true},float(triple_snapshot.damage))
+		area.prepare(entry.pose,entry.spec,float(triple_snapshot.damage))
 		area.lock()
 		areas.append(area)
 	Audio.play_at("titan_charge",actor.global_position,-6.0,.8)
@@ -129,14 +129,14 @@ func start_triple_slam() -> void:
 func tick_triple_slam(delta: float) -> void:
 	if triple_snapshot.is_empty(): return
 	triple_elapsed += delta
-	var windup: float = triple_snapshot.windup
+	var timing := TripleSlam.timing(triple_snapshot,triple_elapsed)
 	if not triple_struck:
-		for area: Node3D in areas: area.set_progress(triple_elapsed/windup)
-		var raise := clampf(triple_elapsed/maxf(windup,.01),0.0,1.0)
+		for area: Node3D in areas: area.set_progress(timing.progress)
+		var raise: float = timing.raise
 		actor.left_arm_pivot.rotation_degrees.x = -75.0*raise
 		actor.right_arm_pivot.rotation_degrees.x = -110.0*raise
 		actor.torso_pivot.rotation_degrees.x = -12.0*raise
-		if triple_elapsed+0.00001 >= windup:
+		if timing.struck:
 			triple_struck = true
 			# 先同时熄灭全部预警，再统一命中。三道是一击，不能叠伤三次。
 			for area: Node3D in areas: area.strike()
@@ -157,8 +157,8 @@ func tick_triple_slam(delta: float) -> void:
 			actor._heavy_recovering = true
 			actor._publish_formal_boss_health()
 	if triple_struck:
-		var recovery := clampf((triple_elapsed-windup)/float(triple_snapshot.recovery),0.0,1.0)
-		var impulse := clampf(1.0-(triple_elapsed-windup)/.18,0.0,1.0)
+		var recovery: float = timing.recovery
+		var impulse: float = timing.impulse
 		actor.torso_pivot.position.y = 1.8-.32*impulse
 		actor.left_arm_pivot.rotation_degrees.x = 15.0*(1.0-recovery)
 		actor.right_arm_pivot.rotation_degrees.x = 15.0*(1.0-recovery)

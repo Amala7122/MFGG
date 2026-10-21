@@ -1,5 +1,6 @@
 extends RefCounted
 ## 新敌人的唯一数值来源是各自 JSON；方案文件只保存玩家调整值。
+const Limits := preload("res://scripts/testing/enemy_parameter_limits.gd")
 
 const PROFILE_PATHS := {
 	"VisualBurstCrawler": "res://data/enemies/visual_burst_crawler.json",
@@ -27,6 +28,7 @@ static func get_schema(id: String) -> Dictionary:
 			last_error = "敌人参数配置损坏：" + String(PROFILE_PATHS[id])
 			push_error(last_error)
 			return {}
+		Limits.apply(id, schema)
 		_schemas[id] = schema
 	return _schemas[id]
 
@@ -93,49 +95,52 @@ static func resolve(enemy: Node, id: String) -> Dictionary:
 	return values
 
 
-static func validate(id: String, values: Dictionary) -> String:
+static func field_issue(spec: Dictionary, value: Variant) -> Dictionary:
+	var key := String(spec.key)
+	var error := ""
+	var code := "type"
+	if spec.value is bool:
+		if not value is bool: error = "需要开关值"
+	elif not (value is float or value is int): error = "需要完整数值"
+	elif not is_finite(float(value)): error = "不能使用NaN或无穷大"
+	elif float(value) < float(spec.min) or float(value) > float(spec.max):
+		code = "range"
+		error = "输入%s，允许范围%s–%s" % [value, spec.min, spec.max]
+	elif spec.get("integer", false) and float(value) != roundf(float(value)):
+		code = "integer"
+		error = "输入%s；计数必须为整数" % value
+	return {} if error.is_empty() else {"keys": [key], "code": code, "message": error}
+
+
+static func validation_issues(id: String, values: Dictionary) -> Array[Dictionary]:
+	var issues: Array[Dictionary] = []
 	var schema := get_schema(id)
-	if schema.is_empty():
-		return "找不到敌人参数配置"
+	if schema.is_empty(): return [{"keys": [], "code": "schema", "message": "找不到敌人参数配置"}]
 	for group: Dictionary in schema.groups:
-		for field: Dictionary in group.fields:
-			var value: Variant = values.get(String(field.key))
-			if field.value is bool:
-				if not value is bool:
-					return String(field.label) + "必须为开关"
-			elif not (value is float or value is int):
-				return String(field.label) + "必须为数值"
-			elif not is_finite(float(value)) or float(value) < float(field.min) or float(value) > float(field.max):
-				return "%s需在 %s–%s 之间" % [field.label, field.min, field.max]
-	for pair in [["scatter_up_min", "scatter_up_max"], ["mud_shield_first_min", "mud_shield_first_max"], ["mud_shield_interval_min", "mud_shield_interval_max"], ["orbit_wait_min", "orbit_wait_max"]]:
-		if values.has(pair[0]) and float(values[pair[0]]) > float(values[pair[1]]):
-			return "随机区间的下限不能大于上限"
-	if values.has("sweep_preferred_distance") and float(values.sweep_preferred_distance) > float(values.sweep_distance):
-		return "横扫优先施放距离不能大于攻击半径"
-	if values.has("grenade_reserve_capacity"):
-		if float(values.grenade_reserve_start) > float(values.grenade_reserve_capacity):
-			return "手雷初始枚数不能超过储备容量"
-		for key in ["grenade_reserve_capacity", "grenade_reserve_start"]:
-			if float(values[key]) != roundf(float(values[key])):
-				return "手雷枚数必须为整数"
-	for key in ["offense_front_limit", "offense_rage_limit", "shield_grenade_hits", "crystal_sniper_hits"]:
-		if values.has(key) and float(values[key]) != roundf(float(values[key])):
-			return "招组上限必须为整数"
-	if values.has("circle_inner_distance") and float(values.circle_inner_distance) > float(values.circle_outer_distance):
-		return "绕行内圈不能大于外圈"
-	if values.has("pounce_min_distance") and float(values.pounce_min_distance) > float(values.pounce_max_distance):
-		return "飞扑施放距离下限不能大于上限"
-	if values.has("leap_min_distance"):
-		if float(values.leap_min_distance) > float(values.leap_far_distance) or float(values.leap_far_distance) > float(values.leap_max_distance):
-			return "跃击距离需满足：最小距离 ≤ 远距触发 ≤ 最大距离"
-		if float(values.leap_min_flight) > float(values.leap_max_flight):
-			return "跃击飞行时间下限不能大于上限"
-		if float(values.near_enter_distance) > float(values.near_exit_distance):
-			return "近身进入距离不能大于离开距离"
-	if values.has("retreat_range"):
-		if float(values.retreat_range) >= float(values.retreat_exit_range) or float(values.retreat_exit_range) >= float(values.attack_range):
-			return "距离需满足：撤退触发 < 撤退结束 < 攻击范围"
-	return ""
+		for spec: Dictionary in group.fields:
+			var issue := field_issue(spec, values.get(String(spec.key)))
+			if not issue.is_empty(): issues.append(issue)
+	if not issues.is_empty(): return issues
+	var pairs := [
+		["scatter_up_min", "scatter_up_max", false], ["mud_shield_first_min", "mud_shield_first_max", false],
+		["mud_shield_interval_min", "mud_shield_interval_max", false], ["orbit_wait_min", "orbit_wait_max", false],
+		["sweep_preferred_distance", "sweep_distance", false], ["grenade_reserve_start", "grenade_reserve_capacity", false],
+		["circle_inner_distance", "circle_outer_distance", false], ["pounce_min_distance", "pounce_max_distance", false],
+		["leap_min_distance", "leap_far_distance", false], ["leap_far_distance", "leap_max_distance", false],
+		["leap_min_flight", "leap_max_flight", false], ["near_enter_distance", "near_exit_distance", false],
+		["retreat_range", "retreat_exit_range", true], ["retreat_exit_range", "attack_range", true],
+	]
+	for pair: Array in pairs:
+		if not values.has(pair[0]) or not values.has(pair[1]): continue
+		if float(values[pair[0]]) > float(values[pair[1]]) or (pair[2] and float(values[pair[0]]) == float(values[pair[1]])):
+			issues.append({"keys": [String(pair[0]), String(pair[1])], "code": "relation",
+				"message": "需满足前者%s后者；当前%s与%s" % ["小于" if pair[2] else "不大于", values[pair[0]], values[pair[1]]]})
+	return issues
+
+
+static func validate(id: String, values: Dictionary) -> String:
+	var issues := validation_issues(id, values)
+	return "" if issues.is_empty() else "; ".join(issues[0].keys) + "：" + String(issues[0].message)
 
 
 static func save_preset(id: String, name: String, values: Dictionary, make_active := true) -> bool:
@@ -165,12 +170,12 @@ static func _write_document(id: String, document: Dictionary) -> bool:
 	var path := _save_path(id)
 	var directory_error := DirAccess.make_dir_recursive_absolute(path.get_base_dir())
 	if directory_error != OK:
-		last_error = "无法创建方案目录（错误 %d）" % directory_error
+		last_error = "无法创建方案目录：%s（错误 %d）；请检查目标是否可写／被同名文件占用" % [path.get_base_dir(), directory_error]
 		return false
 	var temporary := path + ".tmp"
 	var file := FileAccess.open(temporary, FileAccess.WRITE)
 	if file == null:
-		last_error = "无法保存方案（错误 %d）" % FileAccess.get_open_error()
+		last_error = "无法保存方案：%s（错误 %d）；请检查目录权限和文件占用" % [path, FileAccess.get_open_error()]
 		return false
 	file.store_string(JSON.stringify(document, "\t") + "\n")
 	file.flush()
@@ -231,7 +236,7 @@ static func fingerprint(id: String, values: Dictionary) -> String:
 
 
 static func schema_fingerprint(id: String) -> String:
-	return FileAccess.get_sha256(PROFILE_PATHS[id]) if PROFILE_PATHS.has(id) else ""
+	return (FileAccess.get_sha256(PROFILE_PATHS[id]) + FileAccess.get_sha256("res://scripts/testing/enemy_parameter_limits.gd")).sha256_text() if PROFILE_PATHS.has(id) else ""
 
 
 static func saved_fingerprint(id: String, name: String, fresh := false) -> String:

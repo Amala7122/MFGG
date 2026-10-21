@@ -3,6 +3,7 @@ extends RefCounted
 signal changed(draft_id: String)
 const Tuning := preload("res://scripts/prototypes/enemy_tuning.gd")
 const Catalog := preload("res://scripts/testing/tuning_catalog.gd")
+const Ownership := preload("res://scripts/testing/enemy_parameter_ownership.gd")
 static var _shared: RefCounted
 var session_id := "%d:%d" % [OS.get_process_id(), Time.get_ticks_usec()]
 var error := ""
@@ -11,6 +12,13 @@ var _drafts: Dictionary = {}
 var _sources: Dictionary = {}
 var _last: Dictionary = {}
 var _serial := 0
+var _views: Dictionary = {}
+
+func view_data(key: String, domain: String) -> Dictionary:
+	return _views.get(key + ":" + domain, {}).duplicate(true)
+
+func store_view(key: String, domain: String, state: Dictionary) -> void:
+	_views[key + ":" + domain] = state.duplicate(true)
 
 static func shared() -> RefCounted:
 	if _shared == null or _shared._storage != Tuning.storage_directory:
@@ -35,7 +43,7 @@ func open_profile(profile: String, preset := "", target_id := "") -> String:
 		var values := Tuning.preset_values(profile, preset)
 		_drafts[id] = {"id": id, "profile": profile, "preset": preset, "target_id": target_id, "source_key": source_key,
 			"candidate_name": "" if preset == Tuning.DEFAULT_PRESET else preset,
-			"values": values.duplicate(true), "baseline": values.duplicate(true), "base_fingerprint": Tuning.fingerprint(profile, values),
+			"values": values.duplicate(true), "baseline": values.duplicate(true), "last_valid": values.duplicate(true), "base_fingerprint": Tuning.fingerprint(profile, values),
 			"schema_fingerprint": Tuning.schema_fingerprint(profile), "revision": 0, "undo": [], "redo": []}
 		_sources[source_key] = id
 	var key: String = _sources[source_key]
@@ -50,6 +58,12 @@ func record(key: String) -> Dictionary:
 
 func values(key: String) -> Dictionary:
 	return _drafts.get(key, {}).get("values", {}).duplicate(true)
+
+func preview_values(key: String) -> Dictionary:
+	if not _drafts.has(key): return {}
+	var d: Dictionary = _drafts[key]
+	if Tuning.validate(d.profile, d.values).is_empty(): d.last_valid = d.values.duplicate(true)
+	return d.last_valid.duplicate(true)
 
 func dirty(key: String) -> bool:
 	return _drafts.has(key) and _drafts[key].values != _drafts[key].baseline
@@ -66,23 +80,54 @@ func set_value(key: String, field: String, value: Variant) -> bool:
 	var data: Dictionary = _drafts[key]
 	var spec := Catalog.field(data.profile, field)
 	if spec.is_empty(): error = "字段未登记"; return false
-	if spec.value is bool:
-		if not value is bool: error = "需要开关值"; return false
-	elif not (value is int or value is float) or not is_finite(float(value)) or float(value) < float(spec.min) or float(value) > float(spec.max):
-		error = "%s需在 %s–%s 之间" % [spec.label, spec.min, spec.max]
+	var issue := Tuning.field_issue(spec, value)
+	if not issue.is_empty():
+		error = "%s：%s" % [spec.label, issue.message]
 		return false
 	if data.values[field] == value: return true
 	var next: Dictionary = data.values.duplicate(true)
 	next[field] = value
-	_replace(key, next)
+	_replace(key, next, Ownership.owner(data.profile, field))
 	return true
 
-func _replace(key: String, next: Dictionary) -> void:
+func set_domain_value(key: String, domain: String, field: String, value: Variant) -> bool:
+	if not _drafts.has(key) or not Ownership.editable(_drafts[key].profile, field, domain):
+		error = "此参数归属其他模块，请通过专业入口编辑；草稿保留"
+		return false
+	return set_value(key, field, value)
+
+func history_owner(key: String, forward := false) -> String:
+	if not _drafts.has(key): return ""
+	var stack: Array = _drafts[key].redo if forward else _drafts[key].undo
+	return "" if stack.is_empty() else String(stack.back().domain)
+
+func domain_history(key: String, domain: String, forward := false) -> bool:
+	error = ""
+	var latest := history_owner(key, forward)
+	if latest.is_empty(): return true
+	if latest != domain and not (domain == "combat_prototype" and latest == "player_conditions"):
+		error = "最近操作来自%s，请进入该模块%s；不会越过中间历史" % [Ownership.TITLES.get(latest, "整对象操作"), "重做" if forward else "撤销"]
+		return false
+	if forward: redo(key)
+	else: undo(key)
+	return true
+
+func restore_domain(key: String, domain: String, defaults := false) -> void:
+	if not _drafts.has(key): return
 	var d: Dictionary = _drafts[key]
-	d.undo.append(d.values.duplicate(true))
+	var baseline: Dictionary = Tuning.defaults(d.profile) if defaults else d.baseline
+	var next: Dictionary = d.values.duplicate(true)
+	for field: String in next:
+		if Ownership.editable(d.profile, field, domain): next[field] = baseline[field]
+	if next != d.values: _replace(key, next, domain)
+
+func _replace(key: String, next: Dictionary, domain := "whole_object") -> void:
+	var d: Dictionary = _drafts[key]
+	d.undo.append({"values": d.values.duplicate(true), "domain": domain})
 	if d.undo.size() > 64: d.undo.pop_front()
 	d.redo.clear()
 	d.values = next.duplicate(true)
+	if Tuning.validate(d.profile, d.values).is_empty(): d.last_valid = d.values.duplicate(true)
 	d.revision += 1
 	changed.emit(key)
 
@@ -90,8 +135,9 @@ func undo(key: String) -> void:
 	if not _drafts.has(key): return
 	var d: Dictionary = _drafts[key]
 	if d.undo.is_empty(): return
-	d.redo.append(d.values.duplicate(true))
-	d.values = d.undo.pop_back()
+	var item: Dictionary = d.undo.pop_back()
+	d.redo.append({"values": d.values.duplicate(true), "domain": item.domain})
+	d.values = item.values
 	d.revision += 1
 	changed.emit(key)
 
@@ -99,8 +145,9 @@ func redo(key: String) -> void:
 	if not _drafts.has(key): return
 	var d: Dictionary = _drafts[key]
 	if d.redo.is_empty(): return
-	d.undo.append(d.values.duplicate(true))
-	d.values = d.redo.pop_back()
+	var item: Dictionary = d.redo.pop_back()
+	d.undo.append({"values": d.values.duplicate(true), "domain": item.domain})
+	d.values = item.values
 	d.revision += 1
 	changed.emit(key)
 
@@ -109,6 +156,11 @@ func restore(key: String, defaults := false) -> void:
 	_replace(key, Tuning.defaults(_drafts[key].profile) if defaults else _drafts[key].baseline)
 
 func save_as(key: String, name: String, overwrite := false, expected_target := "") -> bool:
+	for view: String in _views:
+		if view.begins_with(key + ":") and not _views[view].get("pending", {}).is_empty():
+			var domain := view.trim_prefix(key + ":")
+			error = "%s仍有未提交输入；请从专业入口修正／撤回后再保存整份方案，草稿与原文保留" % Ownership.TITLES.get(domain, domain)
+			return false
 	error = validation(key)
 	if not error.is_empty(): return false
 	var d: Dictionary = _drafts[key]

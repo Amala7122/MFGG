@@ -2,6 +2,7 @@ extends SceneTree
 ## 统一布局完整覆盖、真实实例缩放、七兵种单招入口与暂停合同。
 const Tuning := preload("res://scripts/prototypes/enemy_tuning.gd")
 const Layout := preload("res://scripts/testing/enemy_parameter_layout.gd")
+const Ownership := preload("res://scripts/testing/enemy_parameter_ownership.gd")
 const Inspect := preload("res://scripts/testing/enemy_attack_inspection.gd")
 const Lab := preload("res://prototypes/combat_lab/combat_lab.tscn")
 const Artifacts := preload("res://scripts/artifact_paths.gd")
@@ -72,15 +73,22 @@ func _run() -> void:
 		var stepped: float = subject.get(clock_key)
 		check(paused and stepped > frozen and stepped-frozen < 0.04, id+" 单帧只推进一帧并重新冻结")
 		lab._show_enemy_tuning(id)
-		check(lab._tuning_panel._fields.size() == Tuning.defaults(id).size(),id+" 面板没有遗漏参数")
+		check(lab._tuning_panel._fields.size() + lab._tuning_panel._readonly.size() == Tuning.defaults(id).size(),id+" 面板没有遗漏参数")
+
+		for key: String in lab._tuning_panel._fields:
+			check(Ownership.editable(id,key,"combat_prototype"), id+" 战斗页不重复编辑外形 "+key)
 		check(lab._tuning_panel._tabs.get_tab_count() == Layout.TABS.size(),id+" 固定八分页")
 		for key: String in ["walk_frequency", "trot_frequency"]:
 			if values.has(key):
-				check(is_equal_approx(lab._tuning_panel._fields[key].value,float(values[key])/TAU),id+" 步频统一显示Hz")
-				var control: SpinBox = lab._tuning_panel._fields[key]
+				check(is_equal_approx(lab._tuning_panel._readonly[key].text.to_float(),float(values[key])/TAU),id+" 步频统一显示Hz")
+				var visual := preload("res://scripts/prototypes/visual_model_panel.gd").new()
+				lab.add_child(visual)
+				visual.bind_profile(id)
+				var control: SpinBox = visual._inputs[key]
 				var entered := (control.min_value+control.max_value)*0.5
 				control.value = entered
-				check(is_equal_approx(float(lab._tuning_panel._session.values(lab._tuning_panel.draft_id)[key]),TAU*entered),id+" Hz输入换算原存储值")
+				check(is_equal_approx(float(visual._session.values(visual.draft_id)[key]),TAU*entered),id+" 视觉模块Hz输入换算原存储值")
+				visual.queue_free()
 	# 每一招都走实际入口；不只覆盖每个敌人的默认一招。
 	for id: String in Tuning.PROFILE_PATHS:
 		for index in Layout.SKILLS[id].size():

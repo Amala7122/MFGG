@@ -99,7 +99,7 @@ func _run() -> void:
 				if condition.scale == 1.0 and condition.size.x == 1920 or id == lab.SEDIMENT_TITAN_ID:
 					await click(tune)
 					check(lab._tuning_panel.visible and lab._tuning_panel.enemy_id == id, tag + " 实际点击打开正确敌人的参数")
-					var back := button_named(lab._tuning_panel, ["返回敌人配置"])
+					var back: Button = lab._professional_navigation.back_button
 					if back != null and lab._tuning_panel.visible:
 						await click(back)
 						check(lab._panel.visible and not lab._tuning_panel.visible, tag + " 实际返回配置列表")

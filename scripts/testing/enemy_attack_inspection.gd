@@ -2,6 +2,11 @@ extends RefCounted
 ## 观察适配：读取实际 spec／弹道公式，不维护另一套攻击数值。
 const Layout := preload("res://scripts/testing/enemy_parameter_layout.gd")
 const Projectile := preload("res://scripts/enemies/crystal_projectile.gd")
+const Health := preload("res://scripts/health_util.gd")
+const TripleSlam := preload("res://scripts/prototypes/titan_triple_slam_definition.gd")
+
+static func can_observe(actor: Variant) -> bool:
+	return Health.is_alive(actor) and actor is Node3D and actor.is_inside_tree()
 
 static func profile(actor: Node) -> String:
 	return String(actor.call("profile_id")) if actor.has_method("profile_id") else String(actor.get_meta(&"lab_roster_id", actor.get_script().get_script_constant_map().get("PROFILE_ID", "")))
@@ -11,14 +16,15 @@ static func names(actor: Node) -> Array[String]:
 	for skill: Array in Layout.SKILLS.get(profile(actor), []): result.append(skill[0])
 	return result
 
-static func sample(actor: Node3D, index: int) -> Dictionary:
+static func sample(actor: Variant, index: int) -> Dictionary:
+	if not can_observe(actor): return {}
 	var id := profile(actor)
 	var skills := names(actor)
 	if index < 0 or index >= skills.size(): return {}
 	var title := skills[index]
 	var v: Dictionary = actor.get("_tuning")
-	var size := actor.scale.x
-	var pose := actor.global_transform.orthonormalized()
+	var size: float = actor.scale.x
+	var pose: Transform3D = actor.global_transform.orthonormalized()
 	var spec := {}
 	var path := PackedVector3Array()
 	var notes := "蓝色为无障碍理论范围；橙色为当前公布判定，最终命中仍检查高度、地形与遮挡。"
@@ -45,7 +51,9 @@ static func sample(actor: Node3D, index: int) -> Dictionary:
 							path.append(actor._leap_origin.lerp(actor._leap_landing - Vector3.UP * actor.LEAP_LANDING_CONTACT_DEPTH, t) + Vector3.UP * (4.0 * actor._leap_arc_height * t * (1.0 - t)))
 					notes = "蓝圈为跃击施放上限；落点橙圈是实际爆炸范围。起跳后蓝线读取已锁定落点与弧高。"
 				4:
-					spec = {"kind":"fan_rects", "length":float(v.triple_slam_length)*size, "width":float(v.triple_slam_width)*size, "spread":float(v.triple_slam_spread), "height":2.5*size}
+					spec = TripleSlam.snapshot(v,size)
+					spec["kind"] = "fan_rects"
+					notes = "三线重击尚未启用；点“定格编辑”后勾选启用狂暴编排，再播放。" if not bool(v.rage_director_enabled) else "三道同时锁向和命中，交叠只结算一次；定格编辑可即时修改夹角／尺寸／时序。"
 				5: spec = _jump(actor.call("_normal_attack_spec"))
 				6: notes = "护盾是增益技能，无对外伤害范围。专属参数控制减伤与破解。"
 		"PrototypeHornet":
@@ -84,19 +92,36 @@ static func sample(actor: Node3D, index: int) -> Dictionary:
 static func _jump(spec: Dictionary) -> Dictionary:
 	return {"kind":"circle", "radius":float(spec.reach), "height":float(spec.height)}
 
-static func motion_points(actor: Node3D) -> Dictionary:
+static func motion_points(actor: Variant) -> Dictionary:
 	# 采实际攻击部位的位置；原地出拳也必须有轨迹，不能只记录身体平移。
+	# 死亡散架会先移走网格、帧尾才释放宿主；引用尚有效不等于部位仍存在。
+	if not can_observe(actor): return {}
+	var points := {}
 	match profile(actor):
-		"PrototypeMudGolem": return {"right_fist":actor.right_arm_pivot.get_child(0).global_position}
-		"PrototypeSedimentTitan": return {"right_fist":actor.right_forearm.get_node("MassiveFist").global_position, "sweep_tip":actor.left_arm_pivot.to_global(Vector3(0,-1.1,0))}
-		"PrototypeFastBeast": return {"jaw":actor.jaw_pivot.global_position}
-		"PrototypeHornet": return {"bite":actor.head_pivot.global_position}
-		"VisualBurstCrawler": return {"sac":actor.visual.sacs[0].global_position}
-		"VisualPrismSpider": return {"eye":actor.visual.focus.global_position}
-		"VisualChargeBeetle":
-			var horn := actor.visual.find_child("ShovelHorn",true,false) as Node3D
-			return {"horn":horn.global_position} if horn else {}
-	return {}
+		"PrototypeMudGolem":
+			var pivot: Variant = actor.get("right_arm_pivot")
+			if is_instance_valid(pivot) and pivot.get_child_count() > 0:
+				_point(points,"right_fist",pivot.get_child(0))
+		"PrototypeSedimentTitan":
+			var forearm: Variant = actor.get("right_forearm")
+			if is_instance_valid(forearm): _point(points,"right_fist",forearm.get_node_or_null("MassiveFist"))
+			_point(points,"sweep_tip",actor.get("left_arm_pivot"),Vector3(0,-1.1,0))
+		"PrototypeFastBeast": _point(points,"jaw",actor.get("jaw_pivot"))
+		"PrototypeHornet": _point(points,"bite",actor.get("head_pivot"))
+		"VisualBurstCrawler", "VisualPrismSpider", "VisualChargeBeetle":
+			var visual: Variant = actor.get("visual")
+			if is_instance_valid(visual):
+				if profile(actor) == "VisualBurstCrawler":
+					var sacs: Array = visual.get("sacs")
+					if not sacs.is_empty(): _point(points,"sac",sacs[0])
+				elif profile(actor) == "VisualPrismSpider": _point(points,"eye",visual.get("focus"))
+				else: _point(points,"horn",visual.find_child("ShovelHorn",true,false))
+	return points
+
+static func _point(points: Dictionary, key: String, node: Variant, offset := Vector3.ZERO) -> void:
+	if not is_instance_valid(node) or not node is Node3D: return
+	if not node.is_inside_tree() or node.is_queued_for_deletion(): return
+	points[key] = node.to_global(offset)
 
 static func trigger(actor: Node3D, index: int) -> void:
 	# 使用真实入口；不绕过合法性、冷却或地形检查。重播会重建固定条件实例。
@@ -119,4 +144,3 @@ static func trigger(actor: Node3D, index: int) -> void:
 				6: actor._activate_mud_shield()
 		"VisualPrismSpider", "VisualChargeBeetle": actor.trigger_attack()
 		"VisualBurstCrawler": actor._think(0.0)
-

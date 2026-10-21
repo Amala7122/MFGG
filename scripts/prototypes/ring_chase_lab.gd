@@ -19,6 +19,9 @@ extends Node3D
 const Main := preload("res://scenes/hyrule_field.tscn")
 const Actor := preload("res://scripts/prototypes/ring_chase_actor.gd")
 const Query := preload("res://scripts/spatial_query.gd")
+const ObservationCamera := preload("res://scripts/testing/observation_camera.gd")
+var camera_control := ObservationCamera.new()
+var _camera_anchor := Vector3.ZERO
 
 ## 追击者数量。固定值，不做面板。
 const COUNT := 256
@@ -102,6 +105,7 @@ func _build() -> void:
 	ready_for_test = true
 
 func _build_view() -> void:
+	add_child(camera_control)
 	camera = Camera3D.new()
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
 	camera.far = 1200.0
@@ -136,14 +140,21 @@ func _build_view() -> void:
 
 func reset_camera() -> void:
 	var centre: Vector3 = marker.global_position if is_instance_valid(marker) else Vector3.ZERO
+	_camera_anchor = Vector3(centre.x,0,centre.z)
 	camera.size = CAMERA_SIZE
 	camera.position = Vector3(centre.x, CAMERA_HEIGHT, centre.z)
 	camera.look_at(Vector3(camera.position.x, 0.0, camera.position.z), Vector3.FORWARD)
+	camera_control.bind(camera,_camera_anchor)
 
-## 相机跟随标记：正交俯视只平移，方向保持竖直向下。
+## 跟随只平移观察中心，保留用户旋转、缩放和平移偏置；F恢复初始顶视。
 func _follow_camera(centre: Vector3) -> void:
 	if is_instance_valid(camera):
-		camera.position = Vector3(centre.x, CAMERA_HEIGHT, centre.z)
+		var anchor := Vector3(centre.x,0,centre.z)
+		camera_control.translate_focus(anchor-_camera_anchor)
+		_camera_anchor = anchor
+
+func _unhandled_input(event: InputEvent) -> void:
+	if camera_control.handle_event(event): get_viewport().set_input_as_handled()
 
 ## 投放一个追击者，并把地面点换算成**身体原点**高度
 ## （胶囊中心在 origin，直接把地面点当 origin 会让身体半埋进地里）。
@@ -372,7 +383,7 @@ func _update_status() -> void:
 		nearest = 0.0
 	_status.text = "精确追击 · 追击 %d · 近距回收 %d · 掉队回收 %d · 重生失败 %d · 停滞中 %d · 停滞窗口 %d · 距离 %.0f~%.0f m · 距上次近距回收 %.1fs · 原因 %s" % [
 		chasing, entered, dropped, unreachable, stalled, stalled_windows, nearest, farthest,
-		maxf(elapsed - _last_enter_time, 0.0), _stall_summary()]
+		maxf(elapsed - _last_enter_time, 0.0), _stall_summary()] + "\n" + ObservationCamera.HELP_TEXT + " · F重置视角"
 
 ## 卡住原因分布，供状态栏直接读。
 func _stall_summary() -> String:

@@ -61,6 +61,8 @@ func _run() -> void:
 		_check(subject != null, "取不到主体：" + title)
 		if subject == null:
 			continue
+		_check(int(lab.get("_gallery_index")) == index and subject.scene_file_path == (entry.scene as PackedScene).resource_path,
+			"实际选中场景必须匹配条目，不能只对上一个同能力对象验证：" + title)
 		var declared := String(entry.get("observe", ""))
 		var scrub := declared == "scrub"
 		_check(subject.has_method("sample_pose") == scrub,

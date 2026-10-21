@@ -8,6 +8,8 @@ const Query := preload("res://scripts/spatial_query.gd")
 const Paths := preload("res://scripts/artifact_paths.gd")
 const PathStyle := preload("res://scripts/navigation_path.gd")
 const Controller := preload("res://scripts/combat_spatial_controller.gd")
+const ObservationCamera := preload("res://scripts/testing/observation_camera.gd")
+var camera_control := ObservationCamera.new()
 var world: Node3D
 var camera: Camera3D
 var target: Node3D
@@ -80,18 +82,17 @@ var _ring_radius_spins: Array[SpinBox] = []
 var _ring_radius_rows: Array[HBoxContainer] = []
 var _ring_span_label: Label
 const MAX_RINGS := 8
-## 中键拖动平移中。
-var _panning := false
 ## 2D 圈号标注（每环一个很小的数字，叠在画面上、不挡 3D 观察）。
 var _ring_markers: Array[Label] = []
 var _ring_marker_layer: CanvasLayer
 ## 场景内提示（操作说明）。
 ## 轨迹只画最近这么多点（观测用；256 体时全画会拖慢画面）。
 const TRAIL_DRAW_POINTS := 60
-const HINT_TEXT := "空格=开始寻路 · 左键=设目标 · 右键=加测量体 · 中键拖动=平移地图 · 滚轮=缩放 · R=重新投放 · F=重置视角"
+const HINT_TEXT := "空格=开始寻路 · 左键=设目标 · Shift+左键=加测量体 · 右键拖动=旋转 · 中键拖动=平移 · 滚轮=缩放 · R=重新投放 · F=重置视角"
 
 func _ready() -> void:
 	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
+	add_child(camera_control)
 	_load_ring_defaults()
 	_build_ui()
 	await rebuild_world()
@@ -252,16 +253,7 @@ func reset_camera() -> void:
 	camera.position = Vector3(-extent * 0.16, 350, 0)
 	camera.look_at(Vector3(-extent * 0.16, 0, 0), Vector3.FORWARD)
 	camera.size = extent * 2.25
-
-
-## 中键拖动平移。相机是正交俯视且以 FORWARD 为 up：屏幕右=+X、屏幕上=−Z，
-## 所以「抓着地图拖」就是把相机往反方向挪。
-func _pan_camera(relative: Vector2) -> void:
-	if not is_instance_valid(camera):
-		return
-	var viewport_height := maxf(get_viewport().get_visible_rect().size.y, 1.0)
-	var per_pixel := camera.size / viewport_height
-	camera.position += Vector3(-relative.x * per_pixel, 0.0, -relative.y * per_pixel)
+	camera_control.bind(camera,Vector3(-extent*0.16,0,0))
 
 
 func _marker_position(point: Vector3) -> Vector3:
@@ -423,7 +415,7 @@ func _process(delta: float) -> void:
 			"已到达" if actor.reached else names.get(state.status, state.status), actor.stationary_time, gap])
 	var stats: Dictionary = PathStyle.stage_stats()
 	var hits: Dictionary = stats.get("scale_hits", {})
-	_status.text = "%.1fs  到达 %d/%d  停滞 %d\n目标 (%.1f, %.1f) · %s\n右键增加测量体 · 滚轮缩放\n蓝：基础网格路径  绿：成形路径  彩色：实际轨迹\n成形候选 %d · 一级 %d · 二级 %d · 缩幅命中 %s · 终检失败 %d\n目标 %.1f m/s（Shift ×%.1f）%s\n%s\n%s" % [
+	_status.text = "%.1fs  到达 %d/%d  停滞 %d\n目标 (%.1f, %.1f) · %s\nShift+左键增加测量体 · 右键旋转\n蓝：基础网格路径  绿：成形路径  彩色：实际轨迹\n成形候选 %d · 一级 %d · 二级 %d · 缩幅命中 %s · 终检失败 %d\n目标 %.1f m/s（Shift ×%.1f）%s\n%s\n%s" % [
 		elapsed, reached, actors.size(), stuck, target.position.x, target.position.z,
 		"%s · %s" % ["未开始（点开始 / 空格）" if not started else ("已暂停" if paused_motion else "运行中"),
 			"WASD 连续控制中" if keyboard_target else "左键点击设置"],
@@ -615,6 +607,7 @@ func _draw_lines(mesh: ImmediateMesh, points: PackedVector3Array, color: Color) 
 		mesh.surface_add_vertex(points[i] + Vector3.UP * 0.4)
 
 func _unhandled_input(event: InputEvent) -> void:
+	if camera_control.handle_event(event): get_viewport().set_input_as_handled(); return
 	# 键盘：R = 重新投放，F = 重置视角（W/A/S/D 留给目标，Shift 冲刺）。
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_R:
@@ -626,26 +619,17 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if not ready_for_test:
 		return
-	if event is InputEventMouseMotion and _panning:
-		_pan_camera(event.relative)
-		return
 	if not event is InputEventMouseButton:
-		return
-	if event.button_index == MOUSE_BUTTON_MIDDLE:
-		_panning = event.pressed
 		return
 	if not event.pressed:
 		return
-	if event.button_index == MOUSE_BUTTON_WHEEL_UP or event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-		# 允许拉到 12 米视野看局部（配合中键平移），也允许拉到 400 米看全图。
-		camera.size = clampf(camera.size * (0.9 if event.button_index == MOUSE_BUTTON_WHEEL_UP else 1.1), 12, 400)
-	elif event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
+	if event.button_index == MOUSE_BUTTON_LEFT:
 		var start := camera.project_ray_origin(event.position)
 		var end := start + camera.project_ray_normal(event.position) * 1000
 		var map := get_world_3d().navigation_map
 		var point := NavigationServer3D.map_get_closest_point_to_segment(map, start, end, true)
 		if NavigationServer3D.map_get_closest_point_owner(map, point).is_valid():
-			if event.button_index == MOUSE_BUTTON_RIGHT:
+			if event.shift_pressed:
 				if actors.size() < 256:
 					var selected := _connected_spawn(point)
 					if not selected.is_empty(): spawn_actor(selected.point, actors.size())

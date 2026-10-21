@@ -176,24 +176,24 @@ func _panels() -> void:
 	check(combat.draft_id == visual.draft_id, "现有两个面板共用同一对象／方案草稿")
 	combat._changed(2.678901234567, "move_speed")
 	await frames(2)
-	var spin: SpinBox = combat._fields.body_size
+	var spin: SpinBox = visual._inputs.body_size
 	spin.get_line_edit().text = "1.23456789123"
 	spin.get_line_edit().text_changed.emit("1.23456789123")
 	spin.apply()
-	check(combat._commit_inputs(), "直接键入可提交，不依赖先按 Enter")
+	check(visual._commit_inputs(), "视觉归属字段直接键入可提交，不依赖先按 Enter")
 	check(absf(float(visual.values.body_size) - 1.23456789123) < 1e-11, "共享草稿保留键入精度，步长不强制取整")
 	combat.open_enemy("PrototypeHornet")
 	combat.open_enemy(profile)
 	check(absf(float(combat._draft.body_size) - 1.23456789123) < 1e-11, "切换对象后高精度草稿保留")
-	spin = combat._fields.body_size
+	spin = combat._fields.move_speed
 	spin.get_line_edit().text = "bad input"
 	spin.get_line_edit().text_changed.emit("bad input")
 	check(not combat._commit_inputs(), "非法文字显示错误而非静默保存旧值")
 	combat.open_enemy("PrototypeHornet")
 	check(combat.enemy_id == profile, "非法未提交内容阻止切走丢失输入")
-	spin.get_line_edit().text = "1.23456789123"
-	spin.get_line_edit().text_changed.emit("1.23456789123")
-	check(combat._commit_inputs(), "修正文字后可继续")
+	spin.get_line_edit().text = "2.678901234567"
+	spin.get_line_edit().text_changed.emit("2.678901234567")
+	check(combat._commit_inputs(), "修正战斗归属文字后可继续")
 	var active := Tuning.active_name(profile)
 	combat._name_edit.text = "T01 UI candidate"
 	combat.save_current()
@@ -206,7 +206,7 @@ func _panels() -> void:
 	check(not combat._session.dirty(combat.draft_id), "共享撤销恢复两个入口的基线状态")
 	await frames(4)
 	check(absf(visual._inputs.body_size.get_line_edit().text.to_float() - float(visual.values.body_size)) < 1e-11, "绘制后视觉输入显示真实草稿值，不按箭头步长舍入")
-	check(absf(combat._fields.body_size.get_line_edit().text.to_float() - float(combat._draft.body_size)) < 1e-11, "绘制后战斗输入保持真实精度")
+	check(absf(combat._readonly.body_size.text.to_float() - float(combat._draft.body_size)) < 1e-11, "绘制后战斗只读引用保持真实精度")
 	check(is_equal_approx(visual._inputs.body_size.custom_arrow_step, 0.05), "箭头仍沿用schema的操作步长")
 	visual.visible = false
 	combat.open_enemy("PrototypeSedimentTitan")

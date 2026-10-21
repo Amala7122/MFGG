@@ -12,6 +12,8 @@ const Stats := preload("res://prototypes/combat_lab/combat_lab_stats.gd")
 const StatsView := preload("res://prototypes/combat_lab/combat_lab_stats_view.gd")
 const EnemyTuning := preload("res://scripts/prototypes/enemy_tuning.gd")
 const TuningPanel := preload("res://prototypes/combat_lab/enemy_tuning_panel.gd")
+const ProfessionalNavigation := preload("res://scripts/testing/professional_navigation.gd")
+var _professional_navigation: CanvasLayer
 const ParameterInput := preload("res://scripts/testing/parameter_input.gd")
 const AttackObserver := preload("res://prototypes/combat_lab/attack_observer.gd")
 const AttackInspect := preload("res://scripts/testing/enemy_attack_inspection.gd")
@@ -113,6 +115,7 @@ var _sample_time := 0.0
 var _attack_observer: Node3D
 var _observation_profile := ""
 var _observation_values := {}
+var _shape_transition := false
 
 @onready var _actors: Node3D = $Combatants
 @onready var _enemy_container: Node3D = $Combatants/Enemies
@@ -120,6 +123,9 @@ var _observation_values := {}
 
 
 func _ready() -> void:
+	add_to_group("professional_workspaces")
+	_professional_navigation = ProfessionalNavigation.shared(get_tree())
+	_professional_navigation.set_local()
 	_saved_paused = get_tree().paused
 	_saved_mouse_mode = MouseControl.mode
 	_flow = get_node_or_null("/root/GameFlow") as CanvasLayer
@@ -144,6 +150,9 @@ func _ready() -> void:
 	_attack_observer.skill_choice.item_selected.connect(func(index: int):
 		if _attack_observer.study: _attack_observer.distance_input.value = _observation_distance(_observation_profile, _observation_values, index))
 	_tuning_panel.connect("observe_requested", observe_draft)
+	_tuning_panel.connect("visual_requested", func(profile: String):
+		if _generating: return
+		_professional_navigation.open(self, "res://prototypes/visual_lab/enemy_visual_lab.tscn", profile, "combat" if profile == "VisualChargeBeetle" else "visual"))
 	_static_children.assign(get_children())
 	_create_player()
 	get_viewport().size_changed.connect(_layout_interface)
@@ -199,6 +208,8 @@ func _ready() -> void:
 		_show_enemy_tuning(tuning_id)
 	if OS.get_cmdline_user_args().has("--lab-demo"):
 		generate_round()
+	if has_meta("workspace_profile"):
+		_show_enemy_tuning(get_meta("workspace_profile"))
 
 
 func _exit_tree() -> void:
@@ -207,7 +218,26 @@ func _exit_tree() -> void:
 		_flow.process_mode = _saved_flow_mode
 		_flow.visible = _saved_flow_visible
 	get_tree().paused = _saved_paused
-	MouseControl.mode = _saved_mouse_mode
+	if not get_meta("workspace_suspended", false): MouseControl.mode = _saved_mouse_mode
+
+
+func workspace_suspending() -> void:
+	if _tuning_open:
+		_tuning_panel._commit_inputs()
+		_tuning_panel.remember_view()
+	_attack_observer.camera_control.cancel_drag()
+
+
+func workspace_resumed() -> void:
+	if is_instance_valid(_flow):
+		_flow.process_mode = Node.PROCESS_MODE_DISABLED
+		_flow.visible = false
+		_flow.set("state", Flow.State.PLAYING)
+	get_tree().paused = true
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
+	_tuning_panel.resume_view()
+	_tuning_panel._set_notice("已返回同一页面与草稿；战斗实例待重新观察／生成，未自动继续")
+	_layout_interface()
 
 
 func _process(delta: float) -> void:
@@ -250,7 +280,7 @@ func handle_lab_input(event: InputEvent) -> void:
 	if _generating or state == State.RESOLVING:
 		return
 	if _tuning_open:
-		_show_configuration()
+		_tuning_panel.call("_request_return")
 		return
 	if state == State.COUNTDOWN:
 		clear_round()
@@ -836,11 +866,19 @@ func _show_statistics() -> void:
 	_layout_interface()
 
 
+func _on_tuning_closed() -> void:
+	_professional_navigation.set_local()
+	_show_configuration()
+	if not _tuning_panel._pending_text.is_empty():
+		_set_result("未提交输入已保留；重新进入该敌人调参可继续修改，未用于预览或写入方案。")
+
+
 func _show_enemy_tuning(id: String) -> void:
 	_show_configuration()
 	_tuning_open = true
 	_panel.visible = false
 	_tuning_panel.call("open_enemy", id)
+	_professional_navigation.set_local() if has_meta("workspace_profile") else _professional_navigation.set_local(_tuning_panel._request_return, "敌人配置")
 	_update_status()
 	_layout_interface()
 
@@ -862,9 +900,21 @@ func _observation_distance(id: String, values: Dictionary, skill: int) -> float:
 	return maxf(float(values.get("retreat_exit_range", 1.0))+1.0, float(values.get("attack_range", 12.0))*0.65)*size
 
 
-func observe_draft(id: String, values: Dictionary, first := true) -> void:
-	if _generating or not PROTOTYPE_SCENES.has(id) or not EnemyTuning.validate(id, values).is_empty(): return
+func observe_draft(id: String, values: Dictionary, first := true, play := true) -> void:
+	if _generating:
+		_tuning_panel.call("_set_notice", "正在生成，无法同时重建观察对象；请稍后重试，草稿已保留。")
+		return
+	if not PROTOTYPE_SCENES.has(id):
+		_tuning_panel.call("_set_notice", "该敌人未接入真实攻击观察；草稿已保留。")
+		return
+	var invalid := EnemyTuning.validate(id, values)
+	if not invalid.is_empty():
+		_tuning_panel.call("_set_notice", "无法观察本草稿：" + invalid + "；草稿已保留，请修正后重试。")
+		_tuning_panel.call("_refresh_feedback", "观察本草稿", true)
+		return
 	var skill: int = 0 if first else _attack_observer.skill_choice.selected
+	_attack_observer.close_shape_edit()
+	_professional_navigation.set_local(func(): _show_enemy_tuning(id), "战斗参数")
 	_observation_profile = id
 	_observation_values = values.duplicate(true)
 	if first: _attack_observer.distance_input.value = _observation_distance(id, values, skill)
@@ -879,6 +929,10 @@ func observe_draft(id: String, values: Dictionary, first := true) -> void:
 	state = State.FIGHTING
 	_loop_mode = LoopMode.OFF
 	_spawn_slot(0, false)
+	if _live_enemies.is_empty():
+		_show_enemy_tuning(id)
+		_tuning_panel.call("_set_notice", "观察对象未能创建；草稿已保留，请核对体型、场地和资源。")
+		return
 	var subject: CharacterBody3D = _live_enemies[0]
 	subject.set_meta(&"attack_inspection_manual", true)
 	subject.set_meta(&"experiment_invincible", true)
@@ -893,16 +947,62 @@ func observe_draft(id: String, values: Dictionary, first := true) -> void:
 	_attack_observer.watch(subject, skill)
 	get_tree().paused = false
 	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
+	var observation_tree := get_tree()
 	await get_tree().process_frame
-	if not is_instance_valid(subject): return
+	if not is_inside_tree() or not is_instance_valid(subject) or not _attack_observer.study: return
 	if id == SEDIMENT_TITAN_ID: subject.prepare_sparring_phase("rage" if skill == 4 else "front")
 	subject.process_mode = Node.PROCESS_MODE_INHERIT
 	# 先让真实碰撞体落到平地，普通跳跃技能需要 is_on_floor()。
-	for frame in 8: await get_tree().physics_frame
-	if not is_instance_valid(subject): return
+	for frame in 8:
+		await observation_tree.physics_frame
+		if not is_inside_tree() or not is_instance_valid(subject) or not _attack_observer.study: return
 	if id.begins_with("Visual"): subject.ai_enabled = true
-	_attack_observer.frame_study()
-	AttackInspect.trigger(subject, skill)
+	_attack_observer.frame_study(not first)
+	if play: AttackInspect.trigger(subject, skill)
+
+
+func edit_observation_shape() -> void:
+	if _shape_transition: return
+	if _observation_profile != SEDIMENT_TITAN_ID or _attack_observer.skill_choice.selected != 4: return
+	if _tuning_panel.enemy_id != _observation_profile: _tuning_panel.open_enemy(_observation_profile)
+	if not _tuning_panel._commit_inputs("定格编辑",true):
+		_show_enemy_tuning(_observation_profile)
+		return
+	var values: Dictionary = _tuning_panel._session.values(_tuning_panel.draft_id)
+	_shape_transition = true
+	await observe_draft(_observation_profile,values,false,false)
+	_shape_transition = false
+	if not is_inside_tree() or not _attack_observer.study or _live_enemies.is_empty(): return
+	var subject: Node3D = _live_enemies[0]
+	var direction: Vector3 = _player.global_position-subject.global_position
+	subject.rotation.y = atan2(-direction.x,-direction.z)
+	get_tree().paused = true
+	_attack_observer.shape_panel.bind(_tuning_panel,subject.global_transform.orthonormalized(),subject.scale.x)
+	_attack_observer.frame_study(true)
+
+
+func play_edited_observation(fight := false) -> void:
+	if _shape_transition: return
+	if not _tuning_panel._commit_inputs("播放／试打",true): return
+	var values: Dictionary = _tuning_panel._session.values(_tuning_panel.draft_id)
+	_shape_transition = true
+	await observe_draft(_observation_profile,values,false,not fight)
+	_shape_transition = false
+	if not is_inside_tree(): return
+	_attack_observer.single_playing = not fight and _attack_observer.study
+	if not fight or not _attack_observer.study or _live_enemies.is_empty(): return
+	_attack_observer.end_study()
+	var subject: Node3D = _live_enemies[0]
+	subject.set_meta(&"attack_inspection_manual",false)
+	subject.set_meta(&"experiment_invincible",_enemy_invincible.button_pressed)
+	subject.ai_enabled = true
+	(_player.get("camera") as Camera3D).make_current()
+	_player.set_meta(&"experiment_invincible",_invincible.button_pressed)
+	_player.set_meta(&"experiment_unlimited_abilities",true)
+	_start_fight()
+	get_tree().paused = false
+	MouseControl.mode = Input.MOUSE_MODE_CAPTURED
+	_professional_navigation.set_local(func(): _show_enemy_tuning(_observation_profile),"战斗参数")
 
 
 func _on_enemy_tuning_saved(_id: String, name: String) -> void:
@@ -1065,7 +1165,7 @@ func _build_interface() -> void:
 		check.clip_text = true
 		check.tooltip_text = String(entry.title)
 		check.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
-		check.button_pressed = id == "L1MeleeSoldier"
+		check.button_pressed = false
 		row.add_child(check)
 		var tag := _label("远程" if entry.kind == "ranged" else "近战", 10, UI.COLOR_DIM)
 		row.add_child(tag)
@@ -1114,7 +1214,7 @@ func _build_interface() -> void:
 	_tuning_panel = TuningPanel.new()
 	_tuning_panel.name = "EnemyTuning"
 	root.add_child(_tuning_panel)
-	_tuning_panel.connect("closed", _show_configuration)
+	_tuning_panel.connect("closed", _on_tuning_closed)
 	_tuning_panel.connect("saved", _on_enemy_tuning_saved)
 	_tuning_panel.connect("default_changed", _on_enemy_tuning_default_changed)
 	_update_selection()

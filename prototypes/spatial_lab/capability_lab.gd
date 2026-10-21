@@ -5,6 +5,8 @@ const Profile := preload("res://scripts/combat_spatial_profile.gd")
 const Capability := preload("res://scripts/traversal_capability.gd")
 const Link := preload("res://scripts/spatial_traversal_link.gd")
 const Prop := preload("res://scripts/destructible_prop.gd")
+const ObservationCamera := preload("res://scripts/testing/observation_camera.gd")
+var camera_control := ObservationCamera.new()
 var _geometry: Node3D
 var _actors: Array[CharacterBody3D] = []
 var _targets: Array[Node3D] = []
@@ -22,7 +24,7 @@ func _enter_tree() -> void:
 
 func _ready() -> void:
 	_saved_paused = get_tree().paused
-	_saved_mouse = Input.mouse_mode
+	_saved_mouse = MouseControl.mode
 	_geometry = Node3D.new()
 	_geometry.name = "Geometry"
 	add_child(_geometry)
@@ -63,6 +65,8 @@ func _ready() -> void:
 	add_child(_camera)
 	_camera.look_at(Vector3(36, -1, 0))
 	_camera.current = true
+	add_child(camera_control)
+	camera_control.bind(_camera,Vector3(36,-1,0))
 	var light := DirectionalLight3D.new()
 	light.rotation_degrees = Vector3(-55, -30, 0)
 	light.light_energy = 1.4
@@ -80,7 +84,7 @@ func _ready() -> void:
 	var instructions := Label.new()
 	instructions.position = Vector2(20, 16)
 	instructions.add_theme_font_override("font", preload("res://theme/fonts/NotoSansSC-wght.ttf"))
-	instructions.text = "T03 能力演示：绿 = 测试角色，红 = 目标\nE：浅坑目标出坑 / 回坑　R：重开　滚轮：缩放\n小台面跳跃普攻与混合敌人：运行 combat_spatial_lab"
+	instructions.text = "T03 能力演示：绿 = 测试角色，红 = 目标\nE：浅坑目标出坑 / 回坑　R：重开　" + ObservationCamera.HELP_TEXT + "\n小台面跳跃普攻与混合敌人：运行 combat_spatial_lab"
 	canvas.add_child(instructions)
 	_start.call_deferred()
 
@@ -92,13 +96,13 @@ func _start() -> void:
 		_saved_flow_visible = _flow.visible
 		_flow.hide()
 	get_tree().paused = false
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 
 func _exit_tree() -> void:
 	if is_instance_valid(_flow):
 		_flow.visible = _saved_flow_visible
 	get_tree().paused = _saved_paused
-	Input.mouse_mode = _saved_mouse
+	MouseControl.mode = _saved_mouse
 
 func _process(_delta: float) -> void:
 	var names := {"checking": "检查路线", "approach": "接近目标", "traversing": "能力通行", "escaping": "返程", "relocate": "寻找安全位置", "blocked": "通路受阻", "trapped": "受困", "unsafe_drop": "拒绝危险落差", "breaking": "破障"}
@@ -107,17 +111,13 @@ func _process(_delta: float) -> void:
 		_readouts[i].text = "%s · 命中 %d%s" % [names.get(controller.status, controller.status), _actors[i].hits, " · 已预留返程" if not controller.escape_reserved.is_empty() else ""]
 
 func _unhandled_input(event: InputEvent) -> void:
+	if camera_control.handle_event(event): get_viewport().set_input_as_handled(); return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_E:
 			_outside = not _outside
 			_pit_target.position = Vector3(14, 0.9, 0) if _outside else Vector3(18, -0.1, 0)
 		elif event.keycode == KEY_R:
 			get_tree().reload_current_scene()
-	elif event is InputEventMouseButton and event.pressed:
-		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			_camera.size = maxf(20, _camera.size - 5)
-		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			_camera.size = minf(100, _camera.size + 5)
 
 func _profile(kind: Capability.Kind) -> Resource:
 	var settings := Profile.new()
