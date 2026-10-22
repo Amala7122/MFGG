@@ -44,6 +44,7 @@ CORE_TESTS = (
     "test_poison_puddle",
     "test_titan_sanctum_route",
     "test_creature_navigation_and_attacks",
+    "test_mud_golem_architecture",
     "test_navigation_render_budget",
     "test_navigation_planner_yield",
     "test_main_run_preparation",
