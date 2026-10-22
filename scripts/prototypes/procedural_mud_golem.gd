@@ -15,7 +15,8 @@ const SpatialProfile := preload("res://scripts/combat_spatial_profile.gd")
 @export var combat_spatial_profile: SpatialProfile = preload("res://data/combat_spatial/ground.tres")
 var _steering := Nav.new()
 const AttackArea := preload("res://scripts/enemy_attack_area.gd")
-var _attack_area := AttackArea.new()
+const Melee := preload("res://scripts/prototypes/mud_golem_melee.gd")
+var _attack_area := Melee.new()
 var _attack_target: Node3D
 ## 粘贴的程序化泥土傀儡原型，适配独立战斗测试场的敌人接口。
 
@@ -62,7 +63,7 @@ var _health_label: Label3D
 
 
 func _ready() -> void:
-	add_child(_attack_area)
+	_attack_area.setup(self)
 	_tuning = Tuning.resolve(self, PROFILE_ID)
 	if _tuning.is_empty():
 		queue_free()
@@ -282,6 +283,7 @@ func trigger_attack(target_pos: Vector3) -> void:
 	velocity.z = 0.0
 	_attack_area.prepare(global_transform, _attack_spec(), attack_damage * _damage_scale,
 		_p("attack_windup") + _p("attack_swing"))
+	Telemetry.enemy_attack_started(self, "傀儡挥拳")
 	_action_tween = create_tween().set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
 	_action_tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	_action_tween.tween_property(right_arm_pivot, "rotation_degrees", Vector3(-95, 20, 0), _p("attack_windup"))
@@ -298,8 +300,8 @@ func trigger_attack(target_pos: Vector3) -> void:
 func _on_attack_hit_frame() -> void:
 	if current_state != State.ATTACK or not _attack_area.strike():
 		return
-	if _attack_area.can_hit(_attack_target, _attack_area.global_position):
-		Telemetry.hurt_player(_attack_target, _attack_area.damage, _attack_area.global_position, 1.0,
+	if _attack_area.can_hit(_attack_target, _attack_area.origin):
+		Telemetry.hurt_player(_attack_target, _attack_area.damage, _attack_area.origin, 1.0,
 			Telemetry.source_info(self, "傀儡挥拳"))
 	_attack_area.recover()
 
