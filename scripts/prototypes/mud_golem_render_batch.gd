@@ -35,9 +35,10 @@ static func acquire(body: Node3D) -> MudGolemRenderBatch:
 		return batch
 	batch = MudGolemRenderBatch.new()
 	batch.name = "MudGolemRenderBatch"
-	scene.add_child(batch)
-	# 所有 MultiMesh 中的坐标都是世界坐标，避免随场景根节点再次变换。
+	# Model transforms are WORLD transforms. Never inherit a translated scene root.
 	batch.top_level = true
+	scene.add_child(batch)
+	batch.global_transform = Transform3D.IDENTITY
 	_scenes[key] = weakref(batch)
 	return batch
 
@@ -205,6 +206,7 @@ func _process(_delta: float) -> void:
 		if not _buckets.has(cell):
 			_buckets[cell] = _make_bucket(cell)
 		var bucket: Dictionary = _buckets[cell]
+		bucket["idle_frames"] = 0
 		var members: Array = grouped[cell]
 		_ensure_capacity(bucket, members.size())
 		var multimeshes: Array = bucket.groups
@@ -232,9 +234,19 @@ func _process(_delta: float) -> void:
 			if not mm.custom_aabb.is_equal_approx(bounds):
 				mm.custom_aabb = bounds
 		_draw_calls_expected += 4
+	var stale_cells: Array[Vector2i] = []
 	for cell: Vector2i in _buckets:
 		if grouped.has(cell):
 			continue
 		var bucket: Dictionary = _buckets[cell]
 		for mm: MultiMesh in bucket.groups:
 			mm.visible_instance_count = 0
+		# Preserve short wave gaps without accumulating thousands of empty cells
+		# across a long exploratory run.
+		bucket["idle_frames"] = int(bucket.get("idle_frames", 0)) + 1
+		if int(bucket.idle_frames) > 600:
+			stale_cells.append(cell)
+	for cell in stale_cells:
+		var bucket: Dictionary = _buckets[cell]
+		(bucket.container as Node).queue_free()
+		_buckets.erase(cell)
