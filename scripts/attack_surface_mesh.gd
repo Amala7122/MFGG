@@ -1,4 +1,5 @@
 extends RefCounted
+const CpuAudit := preload("res://scripts/enemy_cpu_audit.gd")
 ## 从起点刷出的可达地表。显示、命中和攻击留下的笔迹共用这一份覆盖。
 
 const CELL_SIZE := 1.0
@@ -95,11 +96,13 @@ func query_reachable(context: Node3D, pose: Transform3D, spec: Dictionary, world
 
 
 func build(context: Node3D, footprint: PackedVector2Array, spec: Dictionary) -> Dictionary:
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"surface.build") if CpuAudit.enabled else null
 	begin(context, footprint, spec)
 	return finish()
 
 
 func begin(context: Node3D, footprint: PackedVector2Array, spec: Dictionary) -> void:
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"surface.begin") if CpuAudit.enabled else null
 	_pose = context.global_transform
 	_inverse = _pose.affine_inverse()
 	_space = context.get_world_3d().direct_space_state
@@ -157,6 +160,7 @@ func queue_build() -> void:
 
 
 static func process_build_jobs() -> void:
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"surface.jobs") if CpuAudit.enabled else null
 	var frame := Engine.get_process_frames()
 	if frame == _job_frame:
 		return
@@ -173,6 +177,7 @@ static func process_build_jobs() -> void:
 
 
 func advance(budget_usec: int) -> void:
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"surface.advance") if CpuAudit.enabled else null
 	var end := Time.get_ticks_usec() + maxi(budget_usec, 1)
 	while not is_finished() and Time.get_ticks_usec() < end:
 		match _stage:
