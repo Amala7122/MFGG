@@ -384,7 +384,7 @@ func _request_route() -> void:
 	status = "checking"
 
 static func process_jobs() -> void:
-	var _cpu_scope := CpuAudit.begin(&"spatial.jobs") if CpuAudit.enabled else null
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"spatial.jobs") if CpuAudit.enabled else null
 	# 一次慢渲染帧可能补算8个物理步；异步规划预算只能花一次，不能跟着补8份。
 	# 移动／碰撞／技能仍逐物理步执行，只有共享规划队列按渲染帧让出时间。
 	var frame := Engine.get_process_frames()
@@ -492,7 +492,7 @@ func _cheap_tick(delta: float, speed: float) -> bool:
 
 
 func tick(delta: float, can_act: bool, target: Node3D, speed: float) -> bool:
-	var _cpu_scope := CpuAudit.begin(&"spatial.tick") if CpuAudit.enabled else null
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"spatial.tick") if CpuAudit.enabled else null
 	for channel: StringName in _cooldowns:
 		_cooldowns[channel] = maxf(float(_cooldowns[channel]) - delta, 0.0)
 	_timer -= delta
@@ -693,7 +693,7 @@ func _route_landing_allowed(origin: Vector3, landing: Vector3, consumed: StringN
 	return not escape_plan(landing, origin, consumed, rids).is_empty()
 
 func adjust_ground_motion(goal: Vector3, desired: Vector3, delta: float) -> Vector3:
-	var _cpu_scope := CpuAudit.begin(&"spatial.adjust") if CpuAudit.enabled else null
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"spatial.adjust") if CpuAudit.enabled else null
 	var live := goal
 	if _pursuit_active:
 		# 连续追击：朝“当前目标”连续修正，由 NavSteering 的 Agent 路径负责绕开地形。
@@ -993,7 +993,7 @@ func _live_aim_ready(waypoint: Vector3) -> bool:
 	return offset.normalized().dot(to_waypoint.normalized()) >= cos(deg_to_rad(LIVE_AIM_CONE_DEG))
 
 func gate_motion(desired: Vector3, delta: float) -> Vector3:
-	var _cpu_scope := CpuAudit.begin(&"spatial.gate") if CpuAudit.enabled else null
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"spatial.gate") if CpuAudit.enabled else null
 	if desired.is_zero_approx() or not _body.is_on_floor():
 		return desired
 	var here := Query.support(_body, false)
