@@ -579,29 +579,35 @@ func _begin_run() -> void:
 	if _preparing_run:
 		return
 	_preparing_run = true
-	if DisplayServer.get_name() != "headless" and not GroundDustScript._render_warmed:
-		# 在开始页遮罩后实际渲染粒子，把首次管线编译放在交战之前。
-		# 不推进波次、不创建敌人，也不更改正式画质和特效参数。
+	var preparation: Script = load("res://scripts/combat_resource_preparation.gd")
+	var graphical := DisplayServer.get_name() != "headless"
+	var cover: ColorRect
+	var message: Label
+	if graphical:
+		# 遮罩覆盖整个重载与最终相机准备，而不是只覆盖旧菜单场景的预热。
 		get_tree().paused = true
-		var cover := ColorRect.new()
+		cover = ColorRect.new()
 		cover.color = Color(0.015, 0.015, 0.018, 1.0)
 		cover.set_anchors_preset(Control.PRESET_FULL_RECT)
 		_root.add_child(cover)
-		var message := Label.new()
+		message = Label.new()
 		message.text = "正在准备战场…"
 		message.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		message.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		message.set_anchors_preset(Control.PRESET_FULL_RECT)
 		cover.add_child(message)
 		_set_overlay_visible(true)
-		await GroundDustScript.warmup(get_viewport())
-		cover.queue_free()
-	_preparing_run = false
+		await get_tree().process_frame
+		await RenderingServer.frame_post_draw
 	_pending_transition.clear()
 	_dismiss_cinematics()
 	RunStateUtil.begin_run()
 	_apply_start_arena(_start_arena)
 	_resume_play()
+	if graphical:
+		get_tree().paused = true
+		_set_overlay_visible(true)
+		MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 	# 【必须重载场景】—— 地形在场景加载时就建好了，而开始菜单是叠在【已经加载
 	# 好的那个场景】之上的。不重载的话，_apply_start_arena 改的只是一个变量：
 	# 玩家永远走在地形最初生成的那张图上，表现就是"选哪一关都是第一关"。
@@ -611,7 +617,35 @@ func _begin_run() -> void:
 	#
 	# 顺序也不能反：_resume_play 先把 state 置为 PLAYING，重载后的
 	# player_spawner 才会在 _ready 里认领"一局已经在跑"并补生成玩家。
+	var previous := get_tree().current_scene
 	get_tree().reload_current_scene()
+	if graphical:
+		while get_tree().current_scene == null or get_tree().current_scene == previous:
+			await get_tree().process_frame
+		# 等延迟挂载的天气／地图与正式玩家相机就绪；波次和物理仍暂停。
+		for _frame in range(3): await get_tree().process_frame
+		# SceneTree暂停也停了物理服务器；在逻辑仍暂停时完成新世界的物理注册。
+		# CharacterBody、AI、波次和计时脚本不会推进，避免首次解除暂停才集中付账。
+		PhysicsServer3D.set_active(true)
+		for _frame in range(3): await get_tree().physics_frame
+		PhysicsServer3D.set_active(false)
+		var scene_path := get_tree().current_scene.scene_file_path
+		await GroundDustScript.warmup(get_viewport())
+		await preparation.warmup(get_viewport(), scene_path, func(text: String): message.text = text)
+		message.text = "正在准备战场…"
+		# 在遮罩内消化首帧提交，等待连续三帧稳定；低帧机器最多等120帧，避免无限等待。
+		var stable := 0
+		for _frame in range(120):
+			var started := Time.get_ticks_usec()
+			await get_tree().process_frame
+			await RenderingServer.frame_post_draw
+			stable = stable + 1 if Time.get_ticks_usec() - started < 33000 else 0
+			if stable >= 3: break
+		cover.queue_free()
+		_set_overlay_visible(false)
+		get_tree().paused = false
+		MouseControl.mode = Input.MOUSE_MODE_CAPTURED
+	_preparing_run = false
 
 
 ## 定下这一局的起始竞技场，并把阶段号对齐到它在表里的位置。

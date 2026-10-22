@@ -21,6 +21,7 @@ extends RefCounted
 ##   6. 弧长重采样用单调游标，不把 APS 的 O(N^2) 弧长查询带进来（移植风险 4）。
 
 const Query := preload("res://scripts/spatial_query.gd")
+const ProjectionCache := preload("res://scripts/nav_projection_cache.gd")
 
 # ───────────────────────────────────────── APS 原样常量（UU ÷ 100 = 米）
 const OFFSET_SCALES := [1.0, 0.875, 0.75, 0.625, 0.5, 0.375, 0.25, 0.125]  # :39
@@ -208,7 +209,7 @@ static func projection_ok(body: CharacterBody3D, navigation_map: RID, point: Vec
 	## map_get_closest_point 不受范围限制，必须自己加几何门限（文档第 5 节）。
 	var half := float(Query.dimensions(body).half_height)
 	var feet := point - Vector3.UP * half
-	var projected := NavigationServer3D.map_get_closest_point(navigation_map, feet)
+	var projected := ProjectionCache.closest_exact(navigation_map, feet)
 	return Vector2(projected.x - feet.x, projected.z - feet.z).length() <= 0.35 and absf(projected.y - feet.y) <= 0.5
 
 static func ground_at(body: CharacterBody3D, navigation_map: RID, point: Vector3, exclude: Array[RID]) -> Dictionary:

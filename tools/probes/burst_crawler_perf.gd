@@ -131,7 +131,7 @@ func _start_formal_scene() -> bool:
 	for _frame in 360:
 		await process_frame
 		if current_scene != null and current_scene != old_scene \
-				and not get_nodes_in_group("player").is_empty():
+				and not get_nodes_in_group("player").is_empty() and not bool(flow.get("_preparing_run")):
 			break
 	if current_scene == null or get_nodes_in_group("player").is_empty():
 		push_error("帧耗诊断：正式场景或玩家未就绪")

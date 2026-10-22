@@ -28,6 +28,7 @@ var attack_pose: Callable
 var _stances: Array[Vector3] = []
 var landing_allowed: Callable
 var _stance_candidates: Array[Vector3] = []
+var _work: Dictionary = {}
 
 func begin(actor: CharacterBody3D, settings: Resource, abilities: Array[Resource], nav_map: RID, destination: Node3D, availability: Dictionary) -> void:
 	body = actor
@@ -86,51 +87,62 @@ func advance(deadline_usec: int) -> void:
 				if _can_attack_at(at) and Query.motion_clear(body, _pose_at(at), Vector3.ZERO) and Query.full_support(body, hit):
 					_stances.append(at)
 			continue
-		if _queue.is_empty() or expansions >= int(profile.maximum_expansions):
-			done = true
-			return
-		_queue.sort_custom(func(a: Dictionary, b: Dictionary): return float(a.cost) < float(b.cost))
-		var state: Dictionary = _queue.pop_front()
-		if not result.is_empty() and float(state.cost) >= float(result.cost):
-			continue
-		expansions += 1
-		var ignored: Array[RID] = []
-		ignored.assign(state.exclude)
-		var state_pose: Transform3D = state.pose
-		var grounded := state_pose.basis.y.normalized().dot(Vector3.UP) > 0.99
-		var walking := walk_route(state.at, goal, ignored) if grounded else {}
-		if not walking.is_empty() and attack_pose.is_valid() and not _can_attack_at(walking.landing):
-			walking.clear()
-		if attack_pose.is_valid() and bool(attack_pose.call(_pose_at(state.at) if grounded else state_pose)):
-			walking = {"kind": "walk", "points": PackedVector3Array([state.at]), "landing": state.at, "cost": 0.0}
-		if walking.is_empty() and grounded:
-			for stance in _stances:
-				walking = walk_route(state.at, stance, ignored)
-				if not walking.is_empty():
-					break
-		if not walking.is_empty():
-			var segments: Array = state.segments.duplicate()
-			segments.append(walking)
-			var cost := float(state.cost) + float(walking.cost)
-			if result.is_empty() or cost < float(result.cost):
-				result = {"segments": segments, "cost": cost, "goal": goal, "expansions": expansions}
-		if state.segments.size() >= 4:
-			continue
-		for ability: Resource in capabilities:
-			if not ability.enabled:
-				continue
+		if _work.is_empty():
+			if _queue.is_empty() or expansions >= int(profile.maximum_expansions):
+				done = true
+				return
+			_queue.sort_custom(func(a: Dictionary, b: Dictionary): return float(a.cost) < float(b.cost))
+			var state: Dictionary = _queue.pop_front()
+			if not result.is_empty() and float(state.cost) >= float(result.cost): continue
+			expansions += 1
+			_work = {"state": state, "phase": 0, "stance": 0, "ability": 0,
+				"grounded": state.pose.basis.y.normalized().dot(Vector3.UP) > 0.99, "walking": {}}
+		_advance_state()
+
+## 一个站位或一个能力后就回到advance的期限检查。保留原候选顺序、完整检查和代价。
+## 单次物理／原生路径查询仍不可中断，但不再在一轮里连续扫完40个站位。
+func _advance_state() -> void:
+	var state: Dictionary = _work.state
+	var grounded: bool = _work.grounded
+	var ignored: Array[RID] = []
+	ignored.assign(state.exclude)
+	match int(_work.phase):
+		0:
+			var walking := walk_route(state.at, goal, ignored) if grounded else {}
+			if not walking.is_empty() and attack_pose.is_valid() and not _can_attack_at(walking.landing): walking.clear()
+			if attack_pose.is_valid() and bool(attack_pose.call(_pose_at(state.at) if grounded else state.pose)):
+				walking = {"kind": "walk", "points": PackedVector3Array([state.at]), "landing": state.at, "cost": 0.0}
+			_work.walking = walking
+			_work.phase = 1 if walking.is_empty() and grounded else 2
+		1:
+			if int(_work.stance) >= _stances.size(): _work.phase = 2; return
+			_work.walking = walk_route(state.at, _stances[int(_work.stance)], ignored)
+			_work.stance += 1
+			if not _work.walking.is_empty(): _work.phase = 2
+		2:
+			var walking: Dictionary = _work.walking
+			if not walking.is_empty():
+				var segments: Array = state.segments.duplicate()
+				segments.append(walking)
+				var cost := float(state.cost) + float(walking.cost)
+				if result.is_empty() or cost < float(result.cost):
+					result = {"segments": segments, "cost": cost, "goal": goal, "expansions": expansions}
+			if state.segments.size() >= 4: _work.clear()
+			else: _work.phase = 3
+		3:
+			if int(_work.ability) >= capabilities.size(): _work.clear(); return
+			var ability: Resource = capabilities[int(_work.ability)]
+			_work.ability += 1
+			if not ability.enabled: return
 			var used: Dictionary = state.used
 			var available := maxf(float(ready_after.get(ability.id, 0.0)), float(used.get(ability.id, 0.0)))
 			var wait := maxf(available - float(state.time), 0.0)
-			if wait > float(profile.max_escape_wait):
-				continue
+			if wait > float(profile.max_escape_wait): return
 			match ability.kind:
 				Capability.Kind.JUMP:
-					if grounded:
-						_expand_jump(state, ability, ignored, wait)
+					if grounded: _expand_jump(state, ability, ignored, wait)
 				Capability.Kind.BREAK:
-					if grounded:
-						_expand_break(state, ability, ignored, wait)
+					if grounded: _expand_break(state, ability, ignored, wait)
 				Capability.Kind.CLIMB, Capability.Kind.FLY, Capability.Kind.CUSTOM:
 					_expand_links(state, ability, ignored, wait)
 

@@ -19,6 +19,7 @@ var _max_ground_seen := 0
 var _max_ground_details: Dictionary = {}
 var _max_untracked_ground := 0
 var _peak_actual_ground_groups := 0
+var _skip_combat_preparation := false
 
 func _uses_formal_population() -> bool:
 	return true
@@ -42,6 +43,9 @@ func _run() -> void:
 			_warm_dust_only = true
 		elif arg.begins_with("--queue-variant="):
 			_queue_variant = arg.trim_prefix("--queue-variant=")
+		elif arg == "--skip-combat-preparation":
+			_skip_combat_preparation = true
+	preload("res://scripts/combat_resource_preparation.gd").enabled = not _skip_combat_preparation
 	# 同一正式入口比较编排候选；所有修改只在当前进程，不写配置文件。
 	var queue_policy := preload("res://scripts/enemy_attack_queue_policy.gd")
 	var queue_config: Dictionary = queue_policy.current().duplicate(true)
@@ -53,11 +57,24 @@ func _run() -> void:
 		push_error(queue_policy.last_error)
 		quit(1)
 		return
+	# 将诊断要求的手绘风格放在开局准备前，避免测量开始才首次切换滤镜。
+	# 流程中的镜头清理会恢复DisplaySettings，需设置当前进程的正式风格。
+	# 不保存个人配置；准备和测量均保持同一种渲染路径。
+	root.get_node("DisplaySettings").post_process_style = SKETCH
+	_set_filter(true)
+	_render_timing = RenderingServer.has_method("viewport_set_measure_render_time")
+	if _render_timing:
+		RenderingServer.call("viewport_set_measure_render_time", root.get_viewport_rid(), true)
 	var startup_started := Time.get_ticks_usec()
 	if not await _start_formal_scene():
 		quit(1)
 		return
 	var startup_ms := (Time.get_ticks_usec() - startup_started) / 1000.0
+	var prepared_style: int = root.get_node("PostProcess").style
+	if prepared_style != SKETCH:
+		push_error("正式准备与测量风格不一致，拒绝使用该轮性能结果")
+		quit(1)
+		return
 	_set_filter(true)
 	var director := _scene.find_child("WaveDirector", true, false)
 	if director == null:
@@ -65,16 +82,21 @@ func _run() -> void:
 		quit(1)
 		return
 	var random: RandomNumberGenerator = director.get("_random")
+	# configure在_ready已取过初始投放角，仅重设RNG不会重置它。
+	# 同时重置投放器初相位，确保准备开／关不会随机落在不同地形上。
 	random.seed = 314159
+	var deployment: RefCounted = director.get("_deployment")
+	deployment.call("configure", director, director.get("_arena"), random, director.get("_spawn_cfg"))
+	seed(271828)
 	if _warm_resources:
 		await _warm_render_resources()
 	for label in ClassDB.class_get_integer_constant_list("Performance"):
 		if "PIPELINE" in label:
 			_pipeline_monitors[label] = ClassDB.class_get_integer_constant("Performance", label)
-	_render_timing = RenderingServer.has_method("viewport_set_measure_render_time")
-	if _render_timing:
-		RenderingServer.call("viewport_set_measure_render_time", root.get_viewport_rid(), true)
 	_player.set_meta(&"experiment_invincible", true)
+	var initial_pipelines := {}
+	for label in _pipeline_monitors:
+		initial_pipelines[label] = Performance.get_monitor(_pipeline_monitors[label])
 	var samples: Array = []
 	var start := Time.get_ticks_usec()
 	var previous := start
@@ -165,8 +187,12 @@ func _run() -> void:
 		"queue_variant": _queue_variant, "queue_config": queue_config,
 		"max_ground_details": _max_ground_details,
 		"max_untracked_ground": _max_untracked_ground, "peak_actual_ground_groups": _peak_actual_ground_groups,
-		"startup_ms": startup_ms,
+		"startup_ms": startup_ms, "prepared_style": prepared_style, "initial_pipelines": initial_pipelines,
 		"formal_dust_warmed": preload("res://scripts/ground_dust.gd")._render_warmed,
+		"combat_preparation_ms": preload("res://scripts/combat_resource_preparation.gd").last_ms,
+		"combat_preparation_runs": preload("res://scripts/combat_resource_preparation.gd").runs,
+		"combat_preparation_resources": preload("res://scripts/combat_resource_preparation.gd").last_resource_count,
+		"combat_preparation_static_bytes": preload("res://scripts/combat_resource_preparation.gd").last_static_bytes,
 		"warm_resources": _warm_resources, "warm_ms": _warm_ms,
 		"retain_fx_resources": _retain_fx, "retained_resources": _retained.size(),
 		"window": DisplayServer.window_get_size(), "render_scale": root.scaling_3d_scale,
@@ -205,14 +231,17 @@ func _seed_population(node: Node) -> void:
 		_seed_serial += 1
 
 func _observe_added(node: Node) -> void:
-	if node is MeshInstance3D or node is CPUParticles3D or node is Label3D:
+	if node is MeshInstance3D or node is CPUParticles3D or node is Label3D or node is Decal:
 		call_deferred("_observe_resource", weakref(node))
 
 func _observe_resource(reference: WeakRef) -> void:
 	var node: Node = reference.get_ref()
 	if not is_instance_valid(node) or not node.is_inside_tree():
 		return
-	_created.append({"path": String(node.get_path()), "type": node.get_class()})
+	var parent := node.get_parent()
+	_created.append({"path": String(node.get_path()), "type": node.get_class(),
+		"script": node.get_script().resource_path if node.get_script() != null else "",
+		"parent_script": parent.get_script().resource_path if parent != null and parent.get_script() != null else ""})
 	if _retain_fx and (node is MeshInstance3D or node is CPUParticles3D):
 		for resource: Resource in [node.mesh, node.material_override, node.material_overlay]:
 			if resource != null:

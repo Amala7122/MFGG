@@ -2,6 +2,7 @@ extends SceneTree
 ## 真正开始游戏的异步预热、重复点击、重开与日志敌人数回归。
 const MainScene := preload("res://scenes/sanctum_main.tscn")
 const Dust := preload("res://scripts/ground_dust.gd")
+const Preparation := preload("res://scripts/combat_resource_preparation.gd")
 var _failed := false
 
 func _initialize() -> void:
@@ -26,10 +27,12 @@ func _run() -> void:
 		and root.find_children("GroundDustWarmup", "", true, false).is_empty(), "预热发射器已释放，不混入战局")
 	if DisplayServer.get_name() != "headless":
 		_check(Dust._render_warmed, "图形开局已实际渲染共享扬尘资源")
+		_check(Preparation.runs == 1 and Preparation.last_resource_count > 0, "正式开局已完成敌人及效果准备")
 	var old := current_scene
+	var prepared_runs := Preparation.runs
 	flow.call("start_run")
-	_check(not bool(flow.get("_preparing_run")), "同进程重开不重复等待管线预热")
 	await _wait_for_run(old)
+	_check(Preparation.runs == prepared_runs, "同配置重开复用资源准备，仅等待最终场景就绪")
 	_check(get_nodes_in_group("player").size() == 1, "重开正常生成玩家")
 	var recorder := root.get_node("PerformanceRecorder")
 	var baseline: int = recorder.call("_enemy_count")
@@ -47,7 +50,11 @@ func _run() -> void:
 func _wait_for_run(previous: Node) -> void:
 	for _frame in range(360):
 		await process_frame
-		if current_scene != null and current_scene != previous and not get_nodes_in_group("player").is_empty():
+		if bool(root.get_node("GameFlow").get("_preparing_run")) and current_scene != null and current_scene != previous:
+			var director := current_scene.find_child("WaveDirector", true, false)
+			if director != null:
+				_check(int(director.get("_wave_spawned")) == 0 and get_nodes_in_group("enemies").is_empty(), "最终场景准备期间不推进正式刷怪")
+		if current_scene != null and current_scene != previous and not get_nodes_in_group("player").is_empty() and not bool(root.get_node("GameFlow").get("_preparing_run")):
 			return
 	_check(false, "正式开局超时")
 

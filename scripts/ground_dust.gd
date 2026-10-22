@@ -25,9 +25,15 @@ static func warmup(viewport: Viewport) -> void:
 	viewport.add_child(fx)
 	fx.global_position = camera.global_transform * Vector3(0, 0, -3)
 	fx._build(Vector3.UP, 0.5)
-	for _frame in range(4):
+	# 非限帧时四帧可能不足一个粒子模拟步；必须让真实粒子出现后完成提交。
+	# 只停掉发射器的回收脚本，子粒子的原生处理继续，避免固定步测试中提前自销毁。
+	fx.set_process(false)
+	var started := Time.get_ticks_usec()
+	var frames := 0
+	while frames < 4 or Time.get_ticks_usec() - started < 120000:
 		await viewport.get_tree().process_frame
 		await RenderingServer.frame_post_draw
+		frames += 1
 	fx.free()
 	_render_warmed = true
 
