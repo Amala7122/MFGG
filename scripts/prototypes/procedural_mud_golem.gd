@@ -1,5 +1,6 @@
 class_name ProceduralMudGolem
 extends CharacterBody3D
+const CpuAudit := preload("res://scripts/enemy_cpu_audit.gd")
 
 signal died(enemy: Node3D)
 const Lifecycle := preload("res://scripts/enemies/enemy_lifecycle.gd")
@@ -106,6 +107,7 @@ func _p(key: String) -> float:
 
 
 func _physics_process(delta: float) -> void:
+	var _cpu_scope := CpuAudit.begin(&"mud.physics") if CpuAudit.enabled else null
 	if current_state == State.ATTACK and not HealthUtil.is_alive(_attack_target):
 		_stop_action()
 		_finish_action()
@@ -354,6 +356,7 @@ func _on_attack_hit_frame() -> void:
 
 
 func _spatial_can_attack() -> bool:
+	var _cpu_scope := CpuAudit.begin(&"mud.attack_probe") if CpuAudit.enabled else null
 	return _spatial_attack_pose(global_transform)
 
 func _spatial_attack_pose(pose: Transform3D) -> bool:
