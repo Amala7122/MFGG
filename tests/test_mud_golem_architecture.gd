@@ -27,7 +27,7 @@ func _check() -> void:
 		enemy.set_physics_process(false)
 		arena.add_child(enemy)
 		actors.append(enemy)
-	var manager := arena.get_node_or_null("MudGolemRenderBatch") as Batch
+	var manager := arena.get_node_or_null("MudGolemRenderBatch") as MudGolemRenderBatch
 	_expect(manager != null, "a single scene-owned renderer exists")
 	if manager == null:
 		quit(1)
