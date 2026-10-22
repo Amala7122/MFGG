@@ -48,7 +48,7 @@ func _ready() -> void:
 
 
 func prepare(pose: Transform3D, spec: Dictionary, amount: float, countdown_duration := 0.0) -> void:
-	var _cpu_scope := CpuAudit.begin(&"attack_area.prepare") if CpuAudit.enabled else null
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"attack_area.prepare") if CpuAudit.enabled else null
 	if is_in_group("combat_dangers"):
 		remove_from_group("combat_dangers")
 	shape = spec.duplicate(true)
@@ -75,7 +75,7 @@ func prepare(pose: Transform3D, spec: Dictionary, amount: float, countdown_durat
 
 
 func _physics_process(delta: float) -> void:
-	var _cpu_scope := CpuAudit.begin(&"attack_area.physics") if CpuAudit.enabled else null
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"attack_area.physics") if CpuAudit.enabled else null
 	SurfaceMesh.process_build_jobs()
 	if _pending_surface and _pending_surface.is_finished():
 		_publish_surface(_pending_surface, _pending_surface.get_meshes(), _pending_pose)
@@ -237,7 +237,7 @@ static func unobstructed(context: Node3D, from: Vector3, to: Vector3) -> bool:
 
 
 static func candidate_can_hit(context: Node3D, pose: Transform3D, spec: Dictionary, actor: Node3D) -> bool:
-	var _cpu_scope := CpuAudit.begin(&"attack_area.candidate") if CpuAudit.enabled else null
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"attack_area.candidate") if CpuAudit.enabled else null
 	if not is_instance_valid(actor):
 		return false
 	# spec已经是世界尺寸，和prepare()同样只保留朝向，不能再乘角色体型。
