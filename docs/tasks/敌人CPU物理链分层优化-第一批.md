@@ -4,7 +4,7 @@
 
 本批只实现两项不降频、不扩大误差、不取消判定的重用：
 
-- `SpatialQuery.support`：当同一物理步、同一目标 `global_transform`、同一世界、相同落地状态/角度及 `Destruction.geometry_revision`，且已命中的**静态**支撑物也未移动时，复用正命中值；空命中、动态支撑物依旧每次原生查询。保持 `remember` 旧语义，支持测试与 A/B 关闭开关。失效含任一姿态改变、下一物理步、地形版本改变、支撑体位姿改变、失效/离树；不按0.3米近似容差。
+- `SpatialQuery.support(..., reuse_within_step=true)`：仅在多个敌人共享的目标支撑查询中启用，其他身体查询保留原生路径。当同一物理步、同一目标 `global_transform`、同一世界、相同落地状态/角度及 `Destruction.geometry_revision`，且已命中的**静态**支撑物也未移动时，复用正命中值；空命中、动态支撑物依旧每次原生查询。保持 `remember` 旧语义，支持测试与 A/B 关闭开关；`CombatSpatialController.tick` 复用目标支撑变量，去掉同回调重复查询。失效含任一姿态改变、下一物理步、地形版本改变、支撑体位姿改变、失效/离树；不按0.3米近似容差。
 - `ProceduralHornet._physics_process`：同一步统一获取本蜂目标悬停高度，供空域更新、盘旋及恢复共同使用；不修改碰撞/飞行/瞄准的反馈频率，不取消任何状态分支。
 
 验证入口：`godot --headless --path . --script res://tests/test_spatial_query_support_cache.gd`（按本机版本替换可执行文件）；并运行原有 `test_combat_spatial_navigation.gd`、`test_navigation_moving_target.gd`、`test_crystal_creature_combat.gd`、`test_new_enemy_visuals.gd`。注意项目已有的 I-354 空间坡道两项和 I-357 图形回归基线问题，必须与改前一致对照，不可放宽断言。
