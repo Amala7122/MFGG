@@ -40,6 +40,8 @@ var max_health: float
 var attack_distance: float
 var attack_interval: float
 @export var ai_enabled := true
+## Cannon-fodder units do not need dozens of permanently visible nameplates.
+@export var always_show_health_label := false
 
 var health: float
 var _tuning: Dictionary = {}
@@ -60,6 +62,7 @@ var _action_tween: Tween
 var _attack_cooldown := 0.0
 var _push_velocity := Vector3.ZERO
 var _health_label: Label3D
+var _health_label_until_msec := 0
 
 
 func _ready() -> void:
@@ -95,6 +98,7 @@ func _ready() -> void:
 	_health_label.pixel_size = 0.006
 	add_child(_health_label)
 	_update_health_label()
+	_health_label.visible = always_show_health_label
 	_render_batch = RenderBatch.acquire(self)
 	_render_batch.register(self, visual_root, torso_pivot, head_core, left_arm_pivot,
 		right_arm_pivot, left_leg_pivot, right_leg_pivot)
@@ -108,7 +112,11 @@ func _exit_tree() -> void:
 
 ## Only presentation reads this timer. Damage and combat timing never depend on rendering.
 func visual_flash_strength() -> float:
-	return _p("hit_flash_strength") if Time.get_ticks_msec() < _flash_until_msec else 0.0
+	var now := Time.get_ticks_msec()
+	# This method runs once per displayed golem, so no per-enemy UI timer is needed.
+	if not always_show_health_label and is_instance_valid(_health_label) and _health_label.visible and now >= _health_label_until_msec:
+		_health_label.visible = false
+	return _p("hit_flash_strength") if now < _flash_until_msec else 0.0
 
 
 ## Attack observation reads the same live anchor used to draw the batched fist.
@@ -357,6 +365,9 @@ func take_damage(amount: float) -> void:
 	Telemetry.enemy_damaged(self, before)
 	if health < before:
 		_flash_until_msec = Time.get_ticks_msec() + ceili(_p("hit_flash_duration") * 1000.0)
+		_health_label_until_msec = Time.get_ticks_msec() + 1500
+		if is_instance_valid(_health_label):
+			_health_label.visible = true
 	if bool(get_meta(&"experiment_invincible", false)):
 		health = maxf(health, 1.0)
 	_update_health_label()
