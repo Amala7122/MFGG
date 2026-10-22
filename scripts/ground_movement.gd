@@ -5,7 +5,7 @@ const STEP_HEIGHT := 0.3
 
 
 static func move(body: CharacterBody3D, delta: float, allow_step := true) -> bool:
-	var _cpu_scope := CpuAudit.begin(&"ground.move") if CpuAudit.enabled else null
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"ground.move") if CpuAudit.enabled else null
 	body.floor_snap_length = maxf(body.floor_snap_length, STEP_HEIGHT)
 	var start := body.global_transform
 	var grounded := body.is_on_floor()
@@ -29,7 +29,7 @@ static func move(body: CharacterBody3D, delta: float, allow_step := true) -> boo
 
 
 static func step_landing(body: CharacterBody3D, start: Transform3D, horizontal: Vector3) -> Dictionary:
-	var _cpu_scope := CpuAudit.begin(&"ground.step_landing") if CpuAudit.enabled else null
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"ground.step_landing") if CpuAudit.enabled else null
 	if not body.test_move(start, horizontal):
 		return {}
 	# 撞边后的速度会被清零，加速首帧只有几毫米；落脚探针需越过碰撞圆角。
