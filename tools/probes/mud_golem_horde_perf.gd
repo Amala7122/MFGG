@@ -4,8 +4,6 @@ extends "res://tools/probes/burst_crawler_perf.gd"
 ## --count=30 for first acceptance, --count=100 for cannon-fodder scale.
 ## --realtime is essential for observing physics catch-up rather than fixed-tick sim.
 
-const Artifacts := preload("res://scripts/artifact_paths.gd")
-
 
 func _initialize() -> void:
 	_count = 30
