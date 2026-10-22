@@ -3,8 +3,9 @@ extends CharacterBody3D
 
 signal died(enemy: Node3D)
 const Lifecycle := preload("res://scripts/enemies/enemy_lifecycle.gd")
-const HitFlash := preload("res://scripts/enemies/enemy_hit_flash.gd")
-var _hit_flash: Node
+const RenderBatch := preload("res://scripts/prototypes/mud_golem_render_batch.gd")
+var _render_batch: MudGolemRenderBatch
+var _flash_until_msec := 0
 
 const HealthUtil := preload("res://scripts/health_util.gd")
 const Targeting := preload("res://scripts/targeting.gd")
@@ -14,7 +15,8 @@ const SpatialProfile := preload("res://scripts/combat_spatial_profile.gd")
 @export var combat_spatial_profile: SpatialProfile = preload("res://data/combat_spatial/ground.tres")
 var _steering := Nav.new()
 const AttackArea := preload("res://scripts/enemy_attack_area.gd")
-var _attack_area := AttackArea.new()
+const Melee := preload("res://scripts/prototypes/mud_golem_melee.gd")
+var _attack_area := Melee.new()
 var _attack_target: Node3D
 ## 粘贴的程序化泥土傀儡原型，适配独立战斗测试场的敌人接口。
 
@@ -38,6 +40,8 @@ var max_health: float
 var attack_distance: float
 var attack_interval: float
 @export var ai_enabled := true
+## Cannon-fodder units do not need dozens of permanently visible nameplates.
+@export var always_show_health_label := false
 
 var health: float
 var _tuning: Dictionary = {}
@@ -47,22 +51,22 @@ var _armor := 0.0
 var _damage_scale := 1.0
 var visual_root: Node3D
 var torso_pivot: Node3D
-var head_core: MeshInstance3D
+var head_core: Node3D
 var left_arm_pivot: Node3D
 var right_arm_pivot: Node3D
 var left_leg_pivot: Node3D
 var right_leg_pivot: Node3D
-var body_parts: Array[MeshInstance3D] = []
 var anim_clock := 0.0
 var _collision: CollisionShape3D
 var _action_tween: Tween
 var _attack_cooldown := 0.0
 var _push_velocity := Vector3.ZERO
 var _health_label: Label3D
+var _health_label_until_msec := 0
 
 
 func _ready() -> void:
-	add_child(_attack_area)
+	_attack_area.setup(self)
 	_tuning = Tuning.resolve(self, PROFILE_ID)
 	if _tuning.is_empty():
 		queue_free()
@@ -94,11 +98,30 @@ func _ready() -> void:
 	_health_label.pixel_size = 0.006
 	add_child(_health_label)
 	_update_health_label()
-	_hit_flash = HitFlash.new()
-	_hit_flash.name = "EnemyHitFlash"
-	add_child(_hit_flash)
-	_hit_flash.setup(visual_root, _tuning)
+	_health_label.visible = always_show_health_label
+	_render_batch = RenderBatch.acquire(self)
+	_render_batch.register(self, visual_root, torso_pivot, head_core, left_arm_pivot,
+		right_arm_pivot, left_leg_pivot, right_leg_pivot)
 	_reactions.setup(self, combat_reaction_profile, _collision)
+
+
+func _exit_tree() -> void:
+	if is_instance_valid(_render_batch):
+		_render_batch.unregister(self)
+
+
+## Only presentation reads this timer. Damage and combat timing never depend on rendering.
+func visual_flash_strength() -> float:
+	var now := Time.get_ticks_msec()
+	# This method runs once per displayed golem, so no per-enemy UI timer is needed.
+	if not always_show_health_label and is_instance_valid(_health_label) and _health_label.visible and now >= _health_label_until_msec:
+		_health_label.visible = false
+	return _p("hit_flash_strength") if now < _flash_until_msec else 0.0
+
+
+## Attack observation reads the same live anchor used to draw the batched fist.
+func attack_motion_point() -> Vector3:
+	return right_arm_pivot.to_global(Vector3(0.15, -0.3, 0.0))
 
 
 func _p(key: String) -> float:
@@ -188,101 +211,43 @@ func _stop_action(keep_reservation := false) -> void:
 	_action_tween = null
 
 
+## Pure pose anchors: visual geometry is shared, not owned by the actor.
+## Compatible with the original animation and melee Tween targets.
 func _build_procedural_mesh() -> void:
 	visual_root = Node3D.new()
 	visual_root.name = "VisualRoot"
 	add_child(visual_root)
 
-	# --- 材质定义（纯色、粗糙、无高光塑料感） ---
-	var mat_mud := StandardMaterial3D.new()
-	mat_mud.albedo_color = Color(0.28, 0.32, 0.22) # 苔藓深泥色
-	mat_mud.roughness = 0.95
-	mat_mud.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
-
-	var mat_stone := StandardMaterial3D.new()
-	mat_stone.albedo_color = Color(0.42, 0.44, 0.45) # 岩石灰
-	mat_stone.roughness = 0.9
-	mat_stone.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
-
-	var mat_core := StandardMaterial3D.new()
-	mat_core.albedo_color = Color(0.1, 0.85, 0.9) # 亮青色晶核
-	mat_core.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED # 自发光无视光照
-
-	# --- 躯干基准点 (Torso Pivot) ---
 	torso_pivot = Node3D.new()
+	torso_pivot.name = "TorsoPivot"
 	torso_pivot.position.y = 0.75
 	visual_root.add_child(torso_pivot)
 
-	# 躯干：使用 5 棱圆台（极具低多边形切面感）
-	var torso_mesh := CylinderMesh.new()
-	torso_mesh.top_radius = 0.4
-	torso_mesh.bottom_radius = 0.25
-	torso_mesh.height = 0.6
-	torso_mesh.radial_segments = 5 # 关键：5面硬棱角
-	torso_mesh.rings = 0
-	var torso_node := _create_part("Torso", torso_mesh, mat_mud, torso_pivot)
-	torso_node.position.y = 0.0
-
-	# 核心/眼睛：内嵌发光四方晶石
-	var core_mesh := BoxMesh.new()
-	core_mesh.size = Vector3(0.16, 0.16, 0.16)
-	head_core = _create_part("Core", core_mesh, mat_core, torso_pivot)
+	head_core = Node3D.new()
+	head_core.name = "CoreAnchor"
 	head_core.position = Vector3(0.0, 0.12, 0.32)
-	head_core.rotation_degrees = Vector3(45, 45, 0) # 菱形斜角嵌入
+	head_core.rotation_degrees = Vector3(45.0, 45.0, 0.0)
+	torso_pivot.add_child(head_core)
 
-	# --- 手臂与拳头 (Arms) ---
-	# 左臂 Pivot
 	left_arm_pivot = Node3D.new()
+	left_arm_pivot.name = "LeftArm"
 	left_arm_pivot.position = Vector3(-0.45, 0.15, 0.0)
 	torso_pivot.add_child(left_arm_pivot)
-	var l_fist := _create_fist_mesh(mat_stone)
-	l_fist.position = Vector3(-0.15, -0.3, 0.0)
-	left_arm_pivot.add_child(l_fist)
-	body_parts.append(l_fist)
 
-	# 右臂 Pivot（主攻击手，略大一点）
 	right_arm_pivot = Node3D.new()
+	right_arm_pivot.name = "RightArm"
 	right_arm_pivot.position = Vector3(0.45, 0.15, 0.0)
 	torso_pivot.add_child(right_arm_pivot)
-	var r_fist := _create_fist_mesh(mat_stone)
-	r_fist.position = Vector3(0.15, -0.3, 0.0)
-	r_fist.scale = Vector3(1.15, 1.15, 1.15)
-	right_arm_pivot.add_child(r_fist)
-	body_parts.append(r_fist)
-
-	# --- 短腿 (Legs) ---
-	var leg_mesh := BoxMesh.new()
-	leg_mesh.size = Vector3(0.18, 0.35, 0.22)
 
 	left_leg_pivot = Node3D.new()
+	left_leg_pivot.name = "LeftLeg"
 	left_leg_pivot.position = Vector3(-0.22, 0.35, 0.0)
 	visual_root.add_child(left_leg_pivot)
-	var l_leg := _create_part("LeftLeg", leg_mesh, mat_mud, left_leg_pivot)
-	l_leg.position.y = -0.15
 
 	right_leg_pivot = Node3D.new()
+	right_leg_pivot.name = "RightLeg"
 	right_leg_pivot.position = Vector3(0.22, 0.35, 0.0)
 	visual_root.add_child(right_leg_pivot)
-	var r_leg := _create_part("RightLeg", leg_mesh, mat_mud, right_leg_pivot)
-	r_leg.position.y = -0.15
-
-# 辅助生成器：构造具有切面厚重感的大拳头
-func _create_fist_mesh(mat: Material) -> MeshInstance3D:
-	var fist := MeshInstance3D.new()
-	var mesh := BoxMesh.new()
-	mesh.size = Vector3(0.28, 0.42, 0.32)
-	fist.mesh = mesh
-	fist.material_override = mat
-	return fist
-
-func _create_part(part_name: String, mesh: Mesh, mat: Material, parent: Node3D) -> MeshInstance3D:
-	var mi := MeshInstance3D.new()
-	mi.name = part_name
-	mi.mesh = mesh
-	mi.material_override = mat
-	parent.add_child(mi)
-	body_parts.append(mi)
-	return mi
 
 
 func _setup_collision() -> void:
@@ -331,6 +296,7 @@ func trigger_attack(target_pos: Vector3) -> void:
 	velocity.z = 0.0
 	_attack_area.prepare(global_transform, _attack_spec(), attack_damage * _damage_scale,
 		_p("attack_windup") + _p("attack_swing"))
+	Telemetry.enemy_attack_started(self, "傀儡挥拳")
 	_action_tween = create_tween().set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
 	_action_tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	_action_tween.tween_property(right_arm_pivot, "rotation_degrees", Vector3(-95, 20, 0), _p("attack_windup"))
@@ -347,8 +313,8 @@ func trigger_attack(target_pos: Vector3) -> void:
 func _on_attack_hit_frame() -> void:
 	if current_state != State.ATTACK or not _attack_area.strike():
 		return
-	if _attack_area.can_hit(_attack_target, _attack_area.global_position):
-		Telemetry.hurt_player(_attack_target, _attack_area.damage, _attack_area.global_position, 1.0,
+	if _attack_area.can_hit(_attack_target, _attack_area.origin):
+		Telemetry.hurt_player(_attack_target, _attack_area.damage, _attack_area.origin, 1.0,
 			Telemetry.source_info(self, "傀儡挥拳"))
 	_attack_area.recover()
 
@@ -398,7 +364,10 @@ func take_damage(amount: float) -> void:
 	health = maxf(health - preload("res://scripts/combat_damage.gd").armored(self, amount, _armor), 0.0)
 	Telemetry.enemy_damaged(self, before)
 	if health < before:
-		_hit_flash.play()
+		_flash_until_msec = Time.get_ticks_msec() + ceili(_p("hit_flash_duration") * 1000.0)
+		_health_label_until_msec = Time.get_ticks_msec() + 1500
+		if is_instance_valid(_health_label):
+			_health_label.visible = true
 	if bool(get_meta(&"experiment_invincible", false)):
 		health = maxf(health, 1.0)
 	_update_health_label()
@@ -448,7 +417,7 @@ func trigger_death_scatter() -> void:
 		return
 	current_state = State.DEAD
 	health = 0.0
-	_hit_flash.clear()
+	_flash_until_msec = 0
 	Lifecycle.begin_death(self)
 	_stop_action()
 	_collision.set_deferred("disabled", true)
@@ -459,10 +428,12 @@ func trigger_death_scatter() -> void:
 	if debris_parent == null:
 		debris_parent = get_parent()
 	preload("res://scripts/combat_fx.gd").spawn_ground_burst(debris_parent, global_position, 1.2)
-	for part in body_parts:
-		if not is_instance_valid(part):
-			continue
-		var world_transform := part.global_transform
+	var debris: Array[Dictionary] = _render_batch.debris_parts(self) if is_instance_valid(_render_batch) else []
+	# Remove the world batch instance before spawning rigidbody fragments.
+	if is_instance_valid(_render_batch):
+		_render_batch.unregister(self)
+	for part in debris:
+		var world_transform: Transform3D = part.transform
 		var rb := RigidBody3D.new()
 		rb.name = "MudGolemDebris"
 		rb.mass = _p("debris_mass")
@@ -474,11 +445,15 @@ func trigger_death_scatter() -> void:
 		Lifecycle.register_effect(self, rb)
 		# 把世界缩放保留在网格，刚体仅保留位置和旋转，避免物理缩放。
 		rb.global_transform = Transform3D(world_transform.basis.orthonormalized(), world_transform.origin)
-		part.reparent(rb, false)
-		part.transform = Transform3D(Basis.from_scale(world_transform.basis.get_scale()), Vector3.ZERO)
+		var fragment := MeshInstance3D.new()
+		fragment.name = "MudGolemFragment"
+		fragment.mesh = part.mesh
+		fragment.material_override = part.material
+		fragment.transform = Transform3D(Basis.from_scale(world_transform.basis.get_scale()), Vector3.ZERO)
+		rb.add_child(fragment)
 		var col := CollisionShape3D.new()
 		var box := BoxShape3D.new()
-		box.size = part.mesh.get_aabb().size * world_transform.basis.get_scale().abs()
+		box.size = (part.mesh as Mesh).get_aabb().size * world_transform.basis.get_scale().abs()
 		col.shape = box
 		rb.add_child(col)
 		var horizontal := _p("scatter_horizontal")
