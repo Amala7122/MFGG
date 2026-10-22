@@ -2,7 +2,56 @@ extends RefCounted
 ## 只查询真实支撑、身体净空与轨迹，不创建显示网格。
 const Landing := preload("res://scripts/jump_landing.gd")
 const Ground := preload("res://scripts/ground_movement.gd")
+const Destruction := preload("res://scripts/environment_destruction.gd")
+const SUPPORT_CACHE_META := &"spatial_support_frame"
 static var _last_support: Dictionary = {}
+## Exact, one-physics-step support reuse for a stationary pose on a static collider.
+## Keep negative results and moving surfaces on the original native-query path.
+static var support_cache_enabled := true
+static var support_cache_hits := 0
+static var support_cache_misses := 0
+
+static func reset_support_cache_counters() -> void:
+	support_cache_hits = 0
+	support_cache_misses = 0
+
+static func _cached_support(body: Node3D, frame: int, revision: int) -> Dictionary:
+	if not support_cache_enabled or not body.has_meta(SUPPORT_CACHE_META):
+		return {}
+	var entry: Dictionary = body.get_meta(SUPPORT_CACHE_META)
+	if int(entry.frame) != frame or int(entry.revision) != revision:
+		return {}
+	if entry.pose != body.global_transform or entry.world != body.get_world_3d():
+		return {}
+	var is_grounded := body is CharacterBody3D and (body as CharacterBody3D).is_on_floor()
+	var floor_angle := (body as CharacterBody3D).floor_max_angle if body is CharacterBody3D else 0.0
+	if bool(entry.on_floor) != is_grounded or float(entry.floor_angle) != floor_angle:
+		return {}
+	var collider := entry.collider as StaticBody3D
+	if not is_instance_valid(collider) or collider.is_queued_for_deletion():
+		return {}
+	if collider.global_transform != entry.collider_pose:
+		return {}
+	return entry.hit.duplicate()
+
+static func _remember_support(body: Node3D, hit: Dictionary) -> void:
+	if not body.has_meta(&"spatial_support_cleanup"):
+		body.set_meta(&"spatial_support_cleanup", true)
+		body.tree_exiting.connect(func(): forget(body), CONNECT_ONE_SHOT)
+	_last_support[body.get_instance_id()] = {"body": weakref(body), "hit": hit}
+
+static func _store_support(body: Node3D, hit: Dictionary, frame: int, revision: int) -> void:
+	if not support_cache_enabled:
+		return
+	var collider := hit.get("collider") as StaticBody3D
+	if not is_instance_valid(collider) or collider.is_queued_for_deletion():
+		return
+	body.set_meta(SUPPORT_CACHE_META, {
+		"frame": frame, "revision": revision, "pose": body.global_transform, "world": body.get_world_3d(),
+		"on_floor": body is CharacterBody3D and (body as CharacterBody3D).is_on_floor(),
+		"floor_angle": (body as CharacterBody3D).floor_max_angle if body is CharacterBody3D else 0.0,
+		"collider": collider, "collider_pose": collider.global_transform, "hit": hit.duplicate(),
+	})
 static var debug := false
 
 static func parts(body: Node3D) -> Array[CollisionShape3D]:
@@ -80,17 +129,25 @@ static func _floor_ray(context: Node3D, expected: Vector3, depth: float, exclude
 	return {}
 
 static func support(body: Node3D, remember := true) -> Dictionary:
+	var frame := Engine.get_physics_frames()
+	var revision := Destruction.geometry_revision
+	var cached := _cached_support(body, frame, revision)
+	if not cached.is_empty():
+		support_cache_hits += 1
+		if remember:
+			_remember_support(body, cached)
+		return cached
+	if support_cache_enabled:
+		support_cache_misses += 1
 	var depth := 0.65
 	if body is CharacterBody3D and body.is_on_floor():
 		depth = maxf(depth, float(dimensions(body).radius) * tan(body.floor_max_angle) + 0.2)
 	var hit := floor_at(body, feet(body), depth)
 	var key := body.get_instance_id()
 	if not hit.is_empty():
+		_store_support(body, hit, frame, revision)
 		if remember:
-			if not body.has_meta(&"spatial_support_cleanup"):
-				body.set_meta(&"spatial_support_cleanup", true)
-				body.tree_exiting.connect(func(): forget(body), CONNECT_ONE_SHOT)
-			_last_support[key] = {"body": weakref(body), "hit": hit}
+			_remember_support(body, hit)
 		return hit
 	if remember and _last_support.has(key):
 		var saved: Dictionary = _last_support[key]
@@ -108,6 +165,8 @@ static func support(body: Node3D, remember := true) -> Dictionary:
 
 static func forget(body: Node3D) -> void:
 	_last_support.erase(body.get_instance_id())
+	if body.has_meta(SUPPORT_CACHE_META):
+		body.remove_meta(SUPPORT_CACHE_META)
 	if body.has_meta(&"spatial_support_cleanup"):
 		body.remove_meta(&"spatial_support_cleanup")
 	if body.has_meta(&"spatial_dimensions"):
