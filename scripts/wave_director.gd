@@ -1,4 +1,5 @@
 extends Node
+const CpuAudit := preload("res://scripts/enemy_cpu_audit.gd")
 ## 波次推进器：替代纯无尽的 DDA 刷怪（第五项）。
 ##
 ## ── 职责边界 ──────────────────────────────────────────────────────
@@ -258,6 +259,7 @@ func _build_anchors() -> void:
 # ---------------------------------------------------------------- 主循环
 
 func _process(delta: float) -> void:
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"wave.process") if CpuAudit.enabled else null
 	# 战局没开始就不推进。
 	#
 	# 这里刻意【不依赖 SceneTree.paused】：实测暂停对本节点的 _process 生效时机
@@ -522,6 +524,7 @@ func _count_for_wave(wave: int) -> int:
 # ---------------------------------------------------------------- 生成
 
 func _spawn_one() -> void:
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"wave.spawn") if CpuAudit.enabled else null
 	var entry := _pick_entry()
 	if entry.is_empty():
 		# 图鉴里没有当前等级可用的敌人 —— 直接算这波出完，避免永远等下去。

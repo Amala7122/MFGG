@@ -13,6 +13,7 @@ const TerrainFieldUtil := preload("res://scripts/terrain_field.gd")
 const MELEE_SCENE: PackedScene = preload("res://scenes/melee_enemy.tscn")
 const RANGED_SCENE: PackedScene = preload("res://scenes/ranged_enemy.tscn")
 const Artifacts := preload("res://scripts/artifact_paths.gd")
+const CpuAudit := preload("res://scripts/enemy_cpu_audit.gd")
 
 const SAMPLE_INTERVAL := 0.5
 const FLUSH_INTERVAL := 5.0
@@ -26,6 +27,10 @@ var _benchmark_active := false
 var _recording := false
 var _log: FileAccess
 var _log_path := ""
+var _detail_log: FileAccess
+var _cpu_log: FileAccess
+var _last_render_usec := 0
+var _last_physics_frame := -1
 var _sample_time := 0.0
 var _flush_time := 0.0
 var _elapsed := 0.0
@@ -42,7 +47,7 @@ var _peak_enemies := 0
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_benchmark_mode = _argument_value("--perf-benchmark=")
-	_enabled = _has_argument("--perf-log") or _benchmark_mode == "single"
+	_enabled = _has_argument("--perf-log") or _benchmark_mode == "single" or _has_argument("--perf-detail") or CpuAudit.enabled
 	if not _enabled:
 		set_process(false)
 		return
@@ -54,6 +59,12 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	var render_now_usec := Time.get_ticks_usec()
+	var physics_now := Engine.get_physics_frames()
+	var wall_ms := float(render_now_usec - _last_render_usec) / 1000.0 if _last_render_usec > 0 else 0.0
+	var physics_steps := physics_now - _last_physics_frame if _last_physics_frame >= 0 else 0
+	_last_render_usec = render_now_usec
+	_last_physics_frame = physics_now
 	if _benchmark_active:
 		_keep_players_alive()
 	if not _recording:
@@ -78,13 +89,25 @@ func _process(delta: float) -> void:
 	_peak_draw = maxi(_peak_draw, draw)
 	_peak_nodes = maxi(_peak_nodes, nodes)
 	_peak_enemies = maxi(_peak_enemies, enemies)
+	if _detail_log != null and wall_ms > 0.0:
+		_detail_log.store_csv_line(PackedStringArray([
+			"%.3f" % _elapsed,
+			"%.3f" % wall_ms,
+			"%.3f" % (delta * 1000.0),
+			str(physics_steps), str(enemies), "%.3f" % process_ms, "%.3f" % physics_ms,
+			str(draw), str(primitives), str(nodes),
+		]))
 
 	if _sample_time >= SAMPLE_INTERVAL:
 		_sample_time = 0.0
 		_write_sample(safe_delta, draw, primitives, nodes, enemies, process_ms, physics_ms)
+		if _cpu_log != null:
+			_write_cpu_window()
 	if _flush_time >= FLUSH_INTERVAL and _log != null:
 		_flush_time = 0.0
 		_log.flush()
+		if _detail_log != null: _detail_log.flush()
+		if _cpu_log != null: _cpu_log.flush()
 	if not _benchmark_mode.is_empty() and _elapsed >= BENCHMARK_DURATION:
 		_finish_benchmark()
 
@@ -129,6 +152,39 @@ func _open_log() -> void:
 		"enemies", "process_ms", "physics_ms", "viewport_w", "viewport_h"
 	]))
 	print("[PERF] 独立日志：", ProjectSettings.globalize_path(_log_path))
+	if _has_argument("--perf-detail"):
+		_detail_log = FileAccess.open("%s/perf_%s_%s_frames.csv" % [output_dir, mode, stamp], FileAccess.WRITE)
+		if _detail_log != null:
+			_detail_log.store_csv_line(PackedStringArray([
+				"elapsed_s", "wall_frame_ms", "engine_delta_ms", "physics_steps",
+				"enemies", "process_monitor_ms", "physics_monitor_ms", "draw_calls",
+				"primitives", "nodes",
+			]))
+			print("[PERF] 逐帧明细：", _detail_log.get_path_absolute())
+	if CpuAudit.enabled:
+		_cpu_log = FileAccess.open("%s/perf_%s_%s_enemy_cpu.csv" % [output_dir, mode, stamp], FileAccess.WRITE)
+		if _cpu_log != null:
+			_cpu_log.store_line("# sampled every 8 physics ticks, inclusive time: rows must NOT be summed across nested methods")
+			_cpu_log.store_csv_line(PackedStringArray([
+				"elapsed_s", "scope", "sampled_calls", "inclusive_total_ms", "max_call_ms",
+			]))
+			print("[PERF] 敌人CPU抽样：", _cpu_log.get_path_absolute())
+
+
+func _write_cpu_window() -> void:
+	var events: Dictionary = CpuAudit.drain_events()
+	for family: String in events:
+		_cpu_log.store_csv_line(PackedStringArray([
+			"%.3f" % _elapsed, "attack_starts." + family, str(events[family]), "0", "0",
+		]))
+	var rows: Dictionary = CpuAudit.drain()
+	for label: StringName in rows:
+		var row: Dictionary = rows[label]
+		_cpu_log.store_csv_line(PackedStringArray([
+			"%.3f" % _elapsed, String(label), str(row.calls),
+			"%.3f" % (float(row.total_usec) / 1000.0),
+			"%.3f" % (float(row.max_usec) / 1000.0),
+		]))
 
 
 func _write_sample(
@@ -220,6 +276,9 @@ func _keep_players_alive() -> void:
 
 func _reset_metrics() -> void:
 	_frame_times.clear()
+	_last_render_usec = 0
+	_last_physics_frame = -1
+	if CpuAudit.enabled: CpuAudit.drain()
 	_elapsed = 0.0
 	_sample_time = 0.0
 	_flush_time = 0.0
@@ -273,6 +332,15 @@ func _finish_benchmark() -> void:
 		_log.flush()
 		_log.close()
 	_log = null
+	if _detail_log != null:
+		_detail_log.flush()
+		_detail_log.close()
+		_detail_log = null
+	if _cpu_log != null:
+		_write_cpu_window()
+		_cpu_log.flush()
+		_cpu_log.close()
+		_cpu_log = null
 	get_tree().quit()
 
 
@@ -299,7 +367,18 @@ func _argument_value(prefix: String) -> String:
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_PREDELETE and _log != null:
+	if what != NOTIFICATION_PREDELETE:
+		return
+	if _log != null:
 		_log.flush()
 		_log.close()
 		_log = null
+	if _detail_log != null:
+		_detail_log.flush()
+		_detail_log.close()
+		_detail_log = null
+	if _cpu_log != null:
+		_write_cpu_window()
+		_cpu_log.flush()
+		_cpu_log.close()
+		_cpu_log = null

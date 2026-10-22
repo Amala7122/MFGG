@@ -1,4 +1,5 @@
 extends RefCounted
+const CpuAudit := preload("res://scripts/enemy_cpu_audit.gd")
 ## 空中接战策略：按真实空域缩小盘旋半径，遮挡时先飞到目标上空再下降。
 ## 可赋给任意飞行角色，不使用物种、坑名或世界零高度。
 const Query := preload("res://scripts/spatial_query.gd")
@@ -26,6 +27,7 @@ func setup(body: CharacterBody3D, profile: Resource, values: Dictionary, attack_
 			break
 
 func hover_height(target: Node3D, altitude: float) -> float:
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"air.hover") if CpuAudit.enabled else null
 	var height := target.global_position.y + altitude
 	var floor := Query.floor_at(_body, target.global_position, 20.0)
 	if not floor.is_empty():
@@ -33,6 +35,7 @@ func hover_height(target: Node3D, altitude: float) -> float:
 	return height
 
 func update(delta: float, target: Node3D, height: float, preferred_radius: float) -> void:
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"air.update") if CpuAudit.enabled else null
 	_target = target
 	_height = height
 	_timer -= delta
@@ -76,6 +79,7 @@ func _clear(pose: Transform3D, motion: Vector3) -> bool:
 	return Query.motion_clear(_body, pose, motion, [], 0.0002)
 
 func steer(desired: Vector3, delta: float) -> Vector3:
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"air.steer") if CpuAudit.enabled else null
 	if _ability == null or not _ability.enabled or not is_instance_valid(_target):
 		return Vector3.ZERO
 	var offset := _body.global_position - _target.global_position

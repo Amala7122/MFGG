@@ -1,4 +1,5 @@
 extends Node
+const CpuAudit := preload("res://scripts/enemy_cpu_audit.gd")
 ## 每个战斗现场一份、主动轮询的公平起手队列。获准之前不建立预警、不推进技能。
 const Policy := preload("res://scripts/enemy_attack_queue_policy.gd")
 const Health := preload("res://scripts/health_util.gd")
@@ -48,10 +49,12 @@ static func shared(body: Node, create := true) -> Node:
 	return service
 
 func _physics_process(delta: float) -> void:
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"queue.physics") if CpuAudit.enabled else null
 	clock += delta
 	_prune(true)
 
 func request(body: Node3D, target: Node3D, profile: String, skill: String, reserve := "", continuation := false) -> bool:
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"queue.request") if CpuAudit.enabled else null
 	if not _living(body) or not _living(target) or get_tree().paused: return false
 	if not Policy.REGISTRY.has(profile) or not Policy.REGISTRY[profile].has(skill):
 		push_error("正式敌人缺少起手队列技能登记：" + profile + "/" + skill)
@@ -141,6 +144,7 @@ func release(body: Node) -> void:
 
 ## 仅优化已排队者；不是施放许可。名额可用时必须回宿主完整复核再request。
 func defer_check(body: Node3D, target: Node3D) -> bool:
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"queue.defer") if CpuAudit.enabled else null
 	var config := Policy.current()
 	if not bool(config.enabled) or not _living(target): return false
 	var row: Dictionary = _pending_by_owner.get(body.get_instance_id(), {})
@@ -247,6 +251,7 @@ func _counts(target: Node = null) -> Dictionary:
 	return result
 
 func _prune(force := false) -> void:
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"queue.prune") if CpuAudit.enabled else null
 	# 整个现场离树进入专业台时，队列与占位原样保留，不能视为敌人退场。
 	if not is_inside_tree(): return
 	var frame := Engine.get_physics_frames()

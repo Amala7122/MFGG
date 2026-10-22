@@ -1,4 +1,5 @@
 extends CharacterBody3D
+const CpuAudit := preload("res://scripts/enemy_cpu_audit.gd")
 ## 新三种昆虫的公共战斗宿主；动作、外形和命名方案仍使用原视觉脚本。
 signal died(enemy: Node3D)
 const Tuning := preload("res://scripts/prototypes/enemy_tuning.gd")
@@ -134,6 +135,7 @@ func p(key: String) -> float:
 
 
 func _physics_process(delta: float) -> void:
+	var _cpu_scope: RefCounted = CpuAudit.begin(StringName(profile_id() + ".physics")) if CpuAudit.enabled else null
 	if current_state == State.DEAD:
 		return
 	_crowd.tick(delta)
@@ -205,6 +207,7 @@ func _pose(_delta: float) -> void:
 	visual.sample_combat_pose(anim_clock)
 
 func _process(_delta: float) -> void:
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"crystal.render_pose") if CpuAudit.enabled else null
 	if current_state != State.DEAD and is_instance_valid(visual): visual.flush_limb_pose()
 
 
@@ -221,6 +224,7 @@ func face(point: Vector3, delta: float) -> void:
 
 
 func navigate(goal: Vector3, speed: float, delta: float) -> Vector3:
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"crystal.navigate") if CpuAudit.enabled else null
 	var flat := goal - global_position
 	flat.y = 0.0
 	var desired := flat.normalized() * speed

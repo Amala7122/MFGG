@@ -1,6 +1,7 @@
 extends RefCounted
 
 const HealthUtil := preload("res://scripts/health_util.gd")
+const CpuAudit := preload("res://scripts/enemy_cpu_audit.gd")
 ## 可选的结算观察入口；只有实验场给实例挂记录器，正式战斗为空操作。
 
 const RECORDER := &"combat_recorder"
@@ -13,6 +14,7 @@ static func recorder(node: Object) -> RefCounted:
 	return node.get_meta(RECORDER, null) as RefCounted
 
 static func enemy_attack_started(host: Node, attack: String) -> void:
+	if CpuAudit.enabled: CpuAudit.mark_attack(host)
 	var stats := recorder(host)
 	if stats == null:
 		return
