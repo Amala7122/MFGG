@@ -524,6 +524,9 @@ func tick(delta: float, can_act: bool, target: Node3D, speed: float) -> bool:
 	if not can_act or not is_instance_valid(target):
 		return false
 	var here := Query.support(_body, false)
+	# Many enemies share the same target. Sample its exact static support once
+	# per physics step while keeping each enemy's own support on the native path.
+	var target_support := Query.support(target, true, true)
 	if _attached.is_empty() and not here.is_empty() and _body.is_on_floor():
 		if _has_last_ground and not _has_exit_anchor and _last_ground.y - _body.global_position.y > float(profile.safe_drop) + 0.1:
 			_has_exit_anchor = true
@@ -542,7 +545,7 @@ func tick(delta: float, can_act: bool, target: Node3D, speed: float) -> bool:
 		var anchor_feet := _exit_anchor.y - float(Query.dimensions(_body).half_height)
 		if float(here.position.y) >= anchor_feet - float(profile.safe_drop):
 			_release_escape()
-		elif not Query.support(target).is_empty() and float(Query.support(target).position.y) > float(here.position.y) + float(profile.safe_drop):
+		elif not target_support.is_empty() and float(target_support.position.y) > float(here.position.y) + float(profile.safe_drop):
 			status = "escaping"
 			# 出口实体或导航改变后必须从实际坑内位置重验，不能用旧计划承诺安全。
 			if _exit_check_timer <= 0.0 or _revision != Destruction.geometry_revision:
@@ -569,7 +572,6 @@ func tick(delta: float, can_act: bool, target: Node3D, speed: float) -> bool:
 					return _move_override(exit_route, speed, delta)
 	var nav_map := _nav_map()
 	var nav_version := NavigationServer3D.map_get_iteration_id(nav_map) if nav_map.is_valid() else 0
-	var target_support := Query.support(target)
 	# 只有两侧都拿到真实支撑才谈得上「同层」；拿不到时按未知处理（-1），交给规划器判跳跃 / 攀爬。
 	var paired := not here.is_empty() and not target_support.is_empty()
 	_level_gap = absf(float(here.position.y) - float(target_support.position.y)) if paired else -1.0
