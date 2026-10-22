@@ -27,7 +27,7 @@ func setup(body: CharacterBody3D, profile: Resource, values: Dictionary, attack_
 			break
 
 func hover_height(target: Node3D, altitude: float) -> float:
-	var _cpu_scope := CpuAudit.begin(&"air.hover") if CpuAudit.enabled else null
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"air.hover") if CpuAudit.enabled else null
 	var height := target.global_position.y + altitude
 	var floor := Query.floor_at(_body, target.global_position, 20.0)
 	if not floor.is_empty():
@@ -35,7 +35,7 @@ func hover_height(target: Node3D, altitude: float) -> float:
 	return height
 
 func update(delta: float, target: Node3D, height: float, preferred_radius: float) -> void:
-	var _cpu_scope := CpuAudit.begin(&"air.update") if CpuAudit.enabled else null
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"air.update") if CpuAudit.enabled else null
 	_target = target
 	_height = height
 	_timer -= delta
@@ -79,7 +79,7 @@ func _clear(pose: Transform3D, motion: Vector3) -> bool:
 	return Query.motion_clear(_body, pose, motion, [], 0.0002)
 
 func steer(desired: Vector3, delta: float) -> Vector3:
-	var _cpu_scope := CpuAudit.begin(&"air.steer") if CpuAudit.enabled else null
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"air.steer") if CpuAudit.enabled else null
 	if _ability == null or not _ability.enabled or not is_instance_valid(_target):
 		return Vector3.ZERO
 	var offset := _body.global_position - _target.global_position
