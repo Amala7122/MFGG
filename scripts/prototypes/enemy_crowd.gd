@@ -1,4 +1,5 @@
 extends RefCounted
+const CpuAudit := preload("res://scripts/enemy_cpu_audit.gd")
 
 const HealthUtil := preload("res://scripts/health_util.gd")
 const Layout := preload("res://scripts/testing/enemy_parameter_layout.gd")
@@ -114,6 +115,7 @@ func waiting_velocity(goal: Vector3, speed: float, delta: float) -> Vector3:
 
 
 func steer(base_velocity: Vector3, goal: Vector3, delta: float, approaching := true) -> Vector3:
+	var _cpu_scope := CpuAudit.begin(&"crowd.steer") if CpuAudit.enabled else null
 	base_velocity.y = 0.0
 	if not enabled() or base_velocity.is_zero_approx():
 		_correction = Vector3.ZERO
@@ -222,6 +224,7 @@ func request_attack(skill := "", reserve := "", continuation := false) -> bool:
 
 
 func defer_attack_check(target: Node3D) -> bool:
+	var _cpu_scope := CpuAudit.begin(&"crowd.defer") if CpuAudit.enabled else null
 	if not AttackQueue.applies(_body): return false
 	var queue := AttackQueue.shared(_body, false)
 	return queue != null and queue.defer_check(_body, target)
@@ -246,6 +249,7 @@ func _overlap_direction(other_id: int) -> Vector3:
 
 
 func _neighbors(radius: float) -> Array[Dictionary]:
+	var _cpu_scope := CpuAudit.begin(&"crowd.neighbors") if CpuAudit.enabled else null
 	var snapshot := _snapshot(_body.get_tree())
 	var cells: Dictionary = snapshot.cells
 	var point := _body.global_position
@@ -268,6 +272,7 @@ func _neighbors(radius: float) -> Array[Dictionary]:
 
 
 static func _snapshot(tree: SceneTree) -> Dictionary:
+	var _cpu_scope := CpuAudit.begin(&"crowd.snapshot") if CpuAudit.enabled else null
 	var key := tree.get_instance_id()
 	var frame := Engine.get_physics_frames()
 	if _snapshots.has(key) and int(_snapshots[key].frame) == frame:
