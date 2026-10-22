@@ -172,6 +172,11 @@ func _open_log() -> void:
 
 
 func _write_cpu_window() -> void:
+	var events: Dictionary = CpuAudit.drain_events()
+	for family: String in events:
+		_cpu_log.store_csv_line(PackedStringArray([
+			"%.3f" % _elapsed, "attack_starts." + family, str(events[family]), "0", "0",
+		]))
 	var rows: Dictionary = CpuAudit.drain()
 	for label: StringName in rows:
 		var row: Dictionary = rows[label]
