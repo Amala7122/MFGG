@@ -1,5 +1,6 @@
 class_name ProceduralHornet
 extends CharacterBody3D
+const CpuAudit := preload("res://scripts/enemy_cpu_audit.gd")
 
 signal died(enemy: Node3D)
 const Lifecycle := preload("res://scripts/enemies/enemy_lifecycle.gd")
@@ -130,6 +131,7 @@ func _target_alive() -> bool:
 
 
 func _physics_process(delta: float) -> void:
+	var _cpu_scope := CpuAudit.begin(&"hornet.physics") if CpuAudit.enabled else null
 	if current_state == State.DEAD:
 		return
 	_crowd.tick(delta)
@@ -226,10 +228,12 @@ func _physics_process(delta: float) -> void:
 
 
 func _hover_height() -> float:
+	var _cpu_scope := CpuAudit.begin(&"hornet.hover_height") if CpuAudit.enabled else null
 	return _air.hover_height(target, _p("hover_altitude") + _crowd.air_height()) if _target_alive() else global_position.y
 
 
 func _orbital_velocity(delta: float) -> Vector3:
+	var _cpu_scope := CpuAudit.begin(&"hornet.orbit") if CpuAudit.enabled else null
 	var offset := global_position - target.global_position
 	offset.y = 0.0
 	var distance := offset.length()
