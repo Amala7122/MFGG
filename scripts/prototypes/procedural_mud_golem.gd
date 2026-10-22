@@ -44,6 +44,8 @@ var attack_interval: float
 @export var experimental_walk_only := false
 var _walk_trial_map_revision := -1
 var _walk_trial_geometry_revision := -1
+var _walk_trial_no_path_time := 0.0
+var _walk_trial_full_retry_time := 0.0
 static var _walk_trial_steps := 0
 static var _walk_trial_fast_steps := 0
 static var _walk_trial_fallback_steps := 0
@@ -131,6 +133,8 @@ func _physics_process(delta: float) -> void:
 		return
 	var queue_wait := ai_enabled and current_state in [State.IDLE, State.WALK] and _crowd.defer_attack_check(target)
 	var can_plan := ai_enabled and not queue_wait and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK]
+	if experimental_walk_only:
+		_walk_trial_full_retry_time = maxf(_walk_trial_full_retry_time - delta, 0.0)
 	# Compare two complete runtime paths. In the trial, the WALK-only enemy keeps
 	# its combat/reaction/physics steps, but avoids the full traversal planner
 	# while a synced navigation map and conservative mobility gates are valid.
@@ -197,7 +201,7 @@ func _physics_process(delta: float) -> void:
 ## - Map / destructible geometry changes force native repath. When the safety
 ##   gate reports unsafe_drop, immediately fall back to full planner next step.
 func _walk_trial_can_use() -> bool:
-	if not is_on_floor() or _steering.spatial == null:
+	if _walk_trial_full_retry_time > 0.0 or not is_on_floor() or _steering.spatial == null:
 		return false
 	var controller: RefCounted = _steering.spatial
 	if controller.status != "approach" or controller._job != null or not controller._active.is_empty() or not controller._attached.is_empty() or controller._has_exit_anchor or controller._planning_suspended:
@@ -226,7 +230,15 @@ func _walk_trial_velocity(goal: Vector3, desired: Vector3, delta: float) -> Vect
 	# planner, repeated nearest-point topology checks and plan reconstruction.
 	var direction: Vector3 = _steering.direction_to(goal, desired.normalized(), delta)
 	if direction.is_zero_approx():
+		# A native path ending near an unreachable target must not leave this
+		# enemy standing forever. Give the original full planner a recovery
+		# window, which may search for a safe route/alternative contact.
+		_walk_trial_no_path_time += delta
+		if _walk_trial_no_path_time >= 0.3:
+			_walk_trial_full_retry_time = 1.0
+			_walk_trial_no_path_time = 0.0
 		return Vector3.ZERO
+	_walk_trial_no_path_time = 0.0
 	return _steering.spatial.gate_motion(direction * desired.length(), delta)
 
 
