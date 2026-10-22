@@ -99,9 +99,14 @@ static func motion_points(actor: Variant) -> Dictionary:
 	var points := {}
 	match profile(actor):
 		"PrototypeMudGolem":
-			var pivot: Variant = actor.get("right_arm_pivot")
-			if is_instance_valid(pivot) and pivot.get_child_count() > 0:
-				_point(points,"right_fist",pivot.get_child(0))
+			# Horde batch has no fist MeshInstance3D per actor. Use the LIVE
+			# anchor driving its MultiMesh transform, not an invented trace.
+			if actor.has_method("attack_motion_point"):
+				points["right_fist"] = actor.call("attack_motion_point")
+			else:
+				var pivot: Variant = actor.get("right_arm_pivot")
+				if is_instance_valid(pivot) and pivot.get_child_count() > 0:
+					_point(points,"right_fist",pivot.get_child(0))
 		"PrototypeSedimentTitan":
 			var forearm: Variant = actor.get("right_forearm")
 			if is_instance_valid(forearm): _point(points,"right_fist",forearm.get_node_or_null("MassiveFist"))
