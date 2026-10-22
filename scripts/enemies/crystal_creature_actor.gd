@@ -135,7 +135,7 @@ func p(key: String) -> float:
 
 
 func _physics_process(delta: float) -> void:
-	var _cpu_scope: RefCounted = CpuAudit.begin(&"crystal.physics") if CpuAudit.enabled else null
+	var _cpu_scope: RefCounted = CpuAudit.begin(StringName(profile_id() + ".physics")) if CpuAudit.enabled else null
 	if current_state == State.DEAD:
 		return
 	_crowd.tick(delta)
