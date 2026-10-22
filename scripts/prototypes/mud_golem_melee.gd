@@ -53,7 +53,7 @@ func recover() -> void:
 func cancel() -> void:
 	phase = Phase.IDLE
 	_spent = true
-	shape.clear()
+	# Original AttackArea.cancel() keeps the last shape for observation tools.
 
 
 func can_reach(point: Vector3) -> bool:
