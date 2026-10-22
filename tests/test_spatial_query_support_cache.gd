@@ -17,6 +17,8 @@ func _run() -> void:
 	root.add_child(floor_body)
 	floor_body.global_position = Vector3(0.0, -0.5, 0.0)
 	var target := CharacterBody3D.new()
+	# This test is about real floor support, not a ray colliding with the probe body.
+	target.collision_layer = 0
 	var target_shape := CollisionShape3D.new()
 	var capsule := CapsuleShape3D.new()
 	capsule.radius = 0.4
