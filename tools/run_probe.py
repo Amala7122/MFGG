@@ -18,6 +18,7 @@ def main() -> int:
     parser.add_argument("--project", type=Path, default=Path(__file__).resolve().parent.parent)
     parser.add_argument("--godot", type=Path)
     parser.add_argument("--graphics", action="store_true")
+    parser.add_argument("--realtime", action="store_true", help="按真实墙钟推进，不固定每渲染帧的模拟步长（性能诊断）")
     parser.add_argument("--timeout", type=float, default=180)
     parser.add_argument("--task", default="probe")
     parser.add_argument("--output", type=Path)
@@ -44,7 +45,8 @@ def main() -> int:
         # 实战 NPC 有真实毫秒限流；无头不应等于加速模拟。机制快测须显式请求 fast。
         sparring = script.stem in {"combat_sparring", "titan_sparring", "sparring_human_check", "titan_rage_movement"}
         fast = "--pacing=fast" in args.args
-        pacing = ["--max-fps", "60"] if sparring and not fast else ["--fixed-fps", "60"]
+        pacing = (["--max-fps", "0"] if args.realtime else
+                  ["--max-fps", "60"] if sparring and not fast else ["--fixed-fps", "60"])
         command = [*pacing, "--script", "res://" + script.relative_to(project).as_posix(),
                    "--", "--artifact-dir=" + str(run), *args.args]
         results.append(run_check(godot, isolated, run / "logs", script.stem, command, args.timeout, args.graphics))

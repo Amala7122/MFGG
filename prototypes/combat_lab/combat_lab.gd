@@ -209,6 +209,7 @@ func _ready() -> void:
 	if OS.get_cmdline_user_args().has("--lab-demo"):
 		generate_round()
 	if has_meta("workspace_profile"):
+		_tuning_panel.target_id = get_meta("workspace_target_id", "")
 		_show_enemy_tuning(get_meta("workspace_profile"))
 
 
@@ -874,6 +875,7 @@ func _on_tuning_closed() -> void:
 
 
 func _show_enemy_tuning(id: String) -> void:
+	_tuning_panel.target_id = String(get_meta("workspace_target_id", "")) if get_meta("workspace_profile", "") == id else ""
 	_show_configuration()
 	_tuning_open = true
 	_panel.visible = false

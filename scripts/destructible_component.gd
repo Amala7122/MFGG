@@ -154,6 +154,7 @@ func reset_destruction() -> void:
 
 
 func _exit_tree() -> void:
+	if preload("res://scripts/testing/workspace_suspension.gd").suspended(self): return
 	for body in _bodies:
 		if is_instance_valid(body) and body.has_meta(OWNER_META) and body.get_meta(OWNER_META).get_ref() == self:
 			body.remove_meta(OWNER_META)

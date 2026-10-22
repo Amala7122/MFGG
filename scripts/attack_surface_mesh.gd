@@ -513,6 +513,9 @@ func _add_triangle(a: Vector2, b: Vector2, c: Vector2, key: Vector2i, depth := 0
 	for p: Vector3 in vertices:
 		_fill.append(p)
 		_fill_uv.append(Vector2(p.x, p.z))
+	# 毒池只显示填充，仍保留完全相同的三角形与可达性，省掉不用的边界构建。
+	if not bool(_spec.get("build_border", true)):
+		return
 	for i in range(3):
 		var start := vertices[i]
 		var end := vertices[(i + 1) % 3]

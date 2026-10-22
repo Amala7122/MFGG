@@ -54,7 +54,7 @@ func _rebuild() -> void:
 	var outline := PackedVector2Array()
 	for i in range(32):
 		outline.append(Vector2.from_angle(TAU * float(i) / 32.0) * radius)
-	var meshes: Dictionary = _surface.build(self, outline, {"kind": "circle", "radius": radius, "height": hit_height, "source_height": 0.2})
+	var meshes: Dictionary = _surface.build(self, outline, {"kind": "circle", "radius": radius, "height": hit_height, "source_height": 0.2, "build_border": false})
 	_mesh.mesh = meshes.fill
 	_revision = Destruction.geometry_revision
 

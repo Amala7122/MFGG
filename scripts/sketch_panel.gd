@@ -14,19 +14,22 @@ var _building := false
 var _mouse := Input.MOUSE_MODE_VISIBLE
 var _previous_style := 0
 var _scene: Node
+var _paused := false
 
 func setup(effect: CanvasLayer) -> void:
 	_effect = effect
-	layer = 120
+	layer = 125
 	process_mode = Node.PROCESS_MODE_ALWAYS
 
 func _player() -> Node:
 	return get_tree().get_first_node_in_group("player")
 
 func _can_open() -> bool:
+	if preload("res://scripts/testing/professional_navigation.gd").modal(get_tree()): return false
 	var greybox := get_node_or_null("/root/GreyboxDirector")
 	if greybox != null and greybox.is_active: return false
 	var player := _player()
+	if player == null or get_tree().paused: return true
 	return is_instance_valid(player) and is_instance_valid(player._melee) and player._melee.can_control()
 
 func _input(event: InputEvent) -> void:
@@ -47,13 +50,16 @@ func open() -> void:
 		return
 	_saved = Settings.load_values()
 	_mouse = MouseControl.mode
+	_paused = get_tree().paused
 	_previous_style = _effect.style
 	_scene = get_tree().current_scene
 	if is_instance_valid(_scene):
 		_scene.tree_exiting.connect(close, CONNECT_ONE_SHOT)
 	get_node("/root/GameFlow").set_meta(MODAL, true)
-	_player()._melee.cancel()
+	var player := _player()
+	if is_instance_valid(player) and is_instance_valid(player.get("_melee")): player._melee.cancel()
 	opened = true
+	preload("res://scripts/testing/professional_navigation.gd").shared(get_tree()).enter_module(close, "当前工作区")
 	get_tree().paused = true
 	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 	_effect.set_style(5)
@@ -215,7 +221,7 @@ func close() -> void:
 	var flow := get_node_or_null("/root/GameFlow")
 	if flow != null:
 		flow.remove_meta(MODAL)
-	get_tree().paused = false
+	get_tree().paused = _paused
 	MouseControl.mode = _mouse
 	if is_instance_valid(_effect):
 		_effect.set_style(_previous_style)
@@ -223,6 +229,7 @@ func close() -> void:
 		_root.queue_free()
 	_fields.clear()
 	_colors.clear()
+	preload("res://scripts/testing/professional_navigation.gd").shared(get_tree()).leave_module()
 
 func _exit_tree() -> void:
 	close()

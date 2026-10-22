@@ -18,6 +18,7 @@ var _readonly: Dictionary = {}
 const Layout := preload("res://scripts/testing/enemy_parameter_layout.gd")
 var _session: RefCounted
 var draft_id := ""
+var target_id := ""
 var _source_info: Label
 var _search: LineEdit
 var _formal: Button
@@ -135,7 +136,7 @@ func open_enemy(id: String) -> void:
 	if not draft_id.is_empty(): _pending_cache[draft_id] = _pending_text.duplicate()
 	_session.store_view(draft_id, DOMAIN, {"pending": _pending_text.duplicate()})
 	enemy_id = id
-	draft_id = _session.open_profile(id)
+	draft_id = _session.open_profile(id, "", target_id)
 	_select_enemy(id)
 	_refresh_presets(_session.record(draft_id).preset)
 	_build_fields(_session.values(draft_id))
@@ -197,7 +198,7 @@ func _load_preset(name: String) -> void:
 	if not _commit_inputs():
 		_refresh_presets(_session.record(draft_id).preset)
 		return
-	var next: String = _session.open_profile(enemy_id, name)
+	var next: String = _session.open_profile(enemy_id, name, target_id)
 	if next.is_empty(): _show_failure("提交／保存草稿", _session.error); return
 	draft_id = next
 	_refresh_presets(name)

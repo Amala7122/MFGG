@@ -24,6 +24,7 @@ func _physics_process(delta: float) -> void:
 		strength = 0.0
 
 func _exit_tree() -> void:
+	if preload("res://scripts/testing/workspace_suspension.gd").suspended(self): return
 	var camera := get_parent() as Camera3D
 	if is_instance_valid(camera):
 		camera.position -= _offset

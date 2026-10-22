@@ -1,0 +1,64 @@
+{
+	"version": 1,
+	"enabled": true,
+	"global": {
+		"max_active": 3,
+		"max_ground": 2,
+		"starts_per_frame": 1,
+		"start_gap": 0.35,
+		"waiting_speed_scale": 0.0
+	},
+	"profiles": {
+		"PrototypeMudGolem": {
+			"max_active": 2,
+			"skills": {
+				"punch": 1
+			}
+		},
+		"PrototypeFastBeast": {
+			"max_active": 2,
+			"skills": {
+				"pounce": 1,
+				"normal_attack": 1
+			}
+		},
+		"PrototypeHornet": {
+			"max_active": 2,
+			"skills": {
+				"needle": 1,
+				"dive": 1
+			}
+		},
+		"VisualBurstCrawler": {
+			"max_active": 2,
+			"skills": {
+				"lob": 1,
+				"poison": 1
+			}
+		},
+		"VisualPrismSpider": {
+			"max_active": 2,
+			"skills": {
+				"snipe": 1
+			}
+		},
+		"VisualChargeBeetle": {
+			"max_active": 2,
+			"skills": {
+				"charge": 1,
+				"contact": 1
+			}
+		},
+		"PrototypeSedimentTitan": {
+			"max_active": 2,
+			"skills": {
+				"slam": 1,
+				"sweep": 1,
+				"thrust": 1,
+				"leap": 1,
+				"triple_slam": 1,
+				"normal_attack": 1
+			}
+		}
+	}
+}

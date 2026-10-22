@@ -154,6 +154,7 @@ func detonate() -> void:
 	if not _poison_values.is_empty():
 		var pool := Puddle.new()
 		get_parent().add_child(pool)
+		preload("res://scripts/enemy_attack_queue.gd").track_effect(self, pool, "poison")
 		pool.configure(global_position, _poison_values, source_info)
 	queue_free()
 
@@ -163,5 +164,6 @@ func deflect() -> void:
 
 
 func _exit_tree() -> void:
+	if preload("res://scripts/testing/workspace_suspension.gd").suspended(self): return
 	if is_instance_valid(_warning):
 		_warning.queue_free()

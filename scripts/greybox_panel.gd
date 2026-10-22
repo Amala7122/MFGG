@@ -13,10 +13,11 @@ var _colors: Dictionary = {}
 var _building := false
 var _mouse := Input.MOUSE_MODE_VISIBLE
 var _was_active := false
+var _paused := false
 
 func setup(director: Node) -> void:
 	_director = director
-	layer = 121
+	layer = 126
 	process_mode = Node.PROCESS_MODE_ALWAYS
 
 func _input(event: InputEvent) -> void:
@@ -30,13 +31,15 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 func open() -> void:
-	if opened or get_tree().paused or _director._other_modal(): return
+	if opened or preload("res://scripts/testing/professional_navigation.gd").modal(get_tree()): return
 	_saved = Settings.load_values()
 	_mouse = MouseControl.mode
+	_paused = get_tree().paused
 	_was_active = _director.is_active
 	if not _was_active: _director.activate()
 	get_node("/root/GameFlow").set_meta(MODAL,true)
 	opened = true
+	preload("res://scripts/testing/professional_navigation.gd").shared(get_tree()).enter_module(close, "当前工作区")
 	get_tree().paused = true
 	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 	_build()
@@ -157,12 +160,13 @@ func close() -> void:
 	opened = false
 	var flow := get_node_or_null("/root/GameFlow")
 	if flow != null: flow.remove_meta(MODAL)
-	get_tree().paused = false
+	get_tree().paused = _paused
 	MouseControl.mode = _mouse
 	if is_instance_valid(_root): _root.queue_free()
 	if not _was_active and _director.is_active: _director.deactivate()
 	_fields.clear()
 	_colors.clear()
+	preload("res://scripts/testing/professional_navigation.gd").shared(get_tree()).leave_module()
 
 func _exit_tree() -> void:
 	close()

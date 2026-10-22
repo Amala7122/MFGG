@@ -231,6 +231,7 @@ func _on_player_died(_survival: float, _kills: int) -> void:
 
 
 func _exit_tree() -> void:
+	if preload("res://scripts/testing/workspace_suspension.gd").suspended(self): return
 	_cancel_clear_cinematic()
 	if instance == self:
 		instance = null

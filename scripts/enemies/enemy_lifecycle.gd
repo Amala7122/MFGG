@@ -14,6 +14,7 @@ var _elapsed := 0.0
 
 
 static func credit_player(enemy: Node3D, preferred: Node3D) -> void:
+	if enemy.get_meta("workspace_trial", false): return
 	if not Telemetry.credits_player(enemy) or bool(enemy.get_meta(&"kill_credited", false)):
 		return
 	var player := preferred if is_instance_valid(preferred) else Targeting.nearest_player(enemy)

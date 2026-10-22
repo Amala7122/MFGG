@@ -118,11 +118,15 @@ func _physics_process(delta: float) -> void:
 	_attack_cooldown = maxf(_attack_cooldown - delta, 0.0)
 	if _reactions.step(delta, ai_enabled and current_state in [State.IDLE, State.WALK, State.ATTACK], move_speed):
 		return
-	if _steering.tick(delta, ai_enabled and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK], target, move_speed):
+	var queue_wait := ai_enabled and current_state in [State.IDLE, State.WALK] and _crowd.defer_attack_check(target)
+	if _steering.tick(delta, ai_enabled and not queue_wait and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK], target, move_speed):
 		_animate_walk(anim_clock)
 		return
 	var desired := Vector3.ZERO
-	if ai_enabled and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK]:
+	if queue_wait:
+		desired = _steering.spatial.gate_motion(_crowd.waiting_velocity(target.global_position, move_speed, delta), delta)
+		_set_locomotion(State.IDLE if desired.is_zero_approx() else State.WALK)
+	elif ai_enabled and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK]:
 		if HealthUtil.is_alive(target):
 			var offset := target.global_position - global_position
 			offset.y = 0.0
@@ -139,8 +143,8 @@ func _physics_process(delta: float) -> void:
 				elif _attack_cooldown <= 0.0:
 					trigger_attack(target.global_position)
 					if current_state != State.ATTACK and _crowd.enabled():
-						_set_locomotion(State.WALK)
 						desired = _crowd.waiting_velocity(target.global_position, move_speed, delta)
+						_set_locomotion(State.IDLE if desired.is_zero_approx() else State.WALK)
 				else:
 					_set_locomotion(State.IDLE)
 		else:
@@ -176,9 +180,9 @@ func _reset_pose() -> void:
 	right_leg_pivot.rotation = Vector3.ZERO
 
 
-func _stop_action() -> void:
+func _stop_action(keep_reservation := false) -> void:
 	_attack_area.cancel()
-	_crowd.release_attack()
+	if not keep_reservation: _crowd.release_attack()
 	if _action_tween != null and _action_tween.is_valid():
 		_action_tween.kill()
 	_action_tween = null
@@ -311,9 +315,9 @@ func _animate_walk(t: float) -> void:
 func trigger_attack(target_pos: Vector3) -> void:
 	if current_state not in [State.IDLE, State.WALK]:
 		return
-	_stop_action()
-	if not _crowd.request_attack():
+	if not _crowd.request_attack("punch"):
 		return
+	_stop_action(true)
 	_reset_pose()
 	var direction := target_pos - global_position
 	direction.y = 0.0

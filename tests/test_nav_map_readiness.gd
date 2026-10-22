@@ -23,6 +23,7 @@ func _run() -> void:
 		_check(not Cache.owner_valid(maps[0], point), "空地图在不同位置仍为空")
 		_check(Cache.owner_valid(maps[1], point), "远离导航面不等于地图无面")
 	_check(Cache.owner_misses == 2 and Cache.owner_hits == 4, "每个地图版本只查一次，空结果也复用")
+	await _verify_exact(maps[1], maps[0])
 	# 最近点缓存切换地图不能清掉另一个地图的存在性缓存。
 	Cache.closest(maps[1], Vector3.ZERO)
 	Cache.closest(maps[0], Vector3.ZERO)
@@ -34,9 +35,12 @@ func _run() -> void:
 	await _synced(maps[0], version, true)
 	_check(Cache.owner_valid(maps[0], Vector3.ZERO), "新增可用导航面后重新判断")
 	version = NavigationServer3D.map_get_iteration_id(maps[1])
+	Cache.closest_exact(maps[1], Vector3(0.4, 0.7, 0.2))
 	b.navigation_mesh = null
 	await _synced(maps[1], version, false)
 	_check(not Cache.owner_valid(maps[1], Vector3.ZERO), "移除最后一个几何面后缓存失效")
+	_check(Cache.closest_exact(maps[1], Vector3(0.4, 0.7, 0.2)) == Vector3.ZERO,
+		"移除导航面后精确缓存也按地图版本失效")
 	version = NavigationServer3D.map_get_iteration_id(maps[1])
 	b.navigation_mesh = mesh
 	await _synced(maps[1], version, true)
@@ -61,6 +65,30 @@ func _run() -> void:
 		NavigationServer3D.free_rid(map)
 	print("[导航面存在性] ", "FAIL" if failed else "PASS")
 	quit(1 if failed else 0)
+
+func _verify_exact(map: RID, empty_map: RID) -> void:
+	var point := Vector3(0.4, 0.7, 0.2)
+	var nearby := point + Vector3.RIGHT * 0.02
+	var misses: int = Cache.exact_misses
+	var hits: int = Cache.exact_hits
+	var expected := NavigationServer3D.map_get_closest_point(map, point)
+	_check(Cache.closest_exact(map, point) == expected and Cache.closest_exact(map, point) == expected,
+		"同帧相同输入共享原生精确投影")
+	_check(Cache.exact_misses == misses + 1 and Cache.exact_hits == hits + 1,
+		"多宿主相同查询只执行一次原生最近点搜索")
+	_check(Cache.closest_exact(map, nearby) == NavigationServer3D.map_get_closest_point(map, nearby)
+		and Cache.exact_misses == misses + 2, "相差2cm也不使用量化容差结果")
+	await physics_frame
+	Cache.closest_exact(map, point)
+	_check(Cache.exact_misses == misses + 3, "下一物理帧重新查询，不复用过期位置")
+	_check(Cache.closest_exact(empty_map, point) == Vector3.ZERO, "换成空地图不沿用旧地图投影")
+	_check(Cache.closest_exact(map, point) == expected, "切回原地图仍返回准确投影")
+	Cache.enabled = false
+	misses = Cache.exact_misses
+	hits = Cache.exact_hits
+	_check(Cache.closest_exact(map, nearby) == NavigationServer3D.map_get_closest_point(map, nearby)
+		and Cache.exact_hits == hits and Cache.exact_misses == misses, "关闭缓存直接走原生精确查询")
+	Cache.enabled = true
 
 func _stage(with_mesh: bool) -> NavigationRegion3D:
 	var map := NavigationServer3D.map_create()

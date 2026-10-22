@@ -67,7 +67,8 @@ func _process(delta: float) -> void:
 	var draw := int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
 	var primitives := int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))
 	var nodes := int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))
-	var enemies := get_tree().get_nodes_in_group("dynamic_enemies").size()
+	# 正式新怪只在enemies组；旧压力样本还在dynamic_enemies，按实例去重。
+	var enemies := _enemy_count()
 	var process_ms := Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
 	var physics_ms := Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
 	_draw_sum += draw
@@ -86,6 +87,14 @@ func _process(delta: float) -> void:
 		_log.flush()
 	if not _benchmark_mode.is_empty() and _elapsed >= BENCHMARK_DURATION:
 		_finish_benchmark()
+
+
+func _enemy_count() -> int:
+	var ids: Dictionary = {}
+	for group in [&"enemies", &"dynamic_enemies"]:
+		for enemy in get_tree().get_nodes_in_group(group):
+			ids[enemy.get_instance_id()] = true
+	return ids.size()
 
 
 func _open_log() -> void:

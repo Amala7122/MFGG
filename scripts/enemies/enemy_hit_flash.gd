@@ -45,4 +45,5 @@ func _process(delta: float) -> void:
 
 
 func _exit_tree() -> void:
+	if preload("res://scripts/testing/workspace_suspension.gd").suspended(self): return
 	clear()

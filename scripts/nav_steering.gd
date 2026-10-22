@@ -369,8 +369,8 @@ func needs_route(goal: Vector3) -> bool:
 	if NavigationServer3D.map_get_iteration_id(nav_map) == 0:
 		return false
 	var feet := _body.to_global(Vector3(0, -_body_height * 0.5, 0))
-	var floor_here := NavigationServer3D.map_get_closest_point(nav_map, feet)
-	var floor_goal := NavigationServer3D.map_get_closest_point(nav_map, goal)
+	var floor_here := ProjCache.closest_exact(nav_map, feet)
+	var floor_goal := ProjCache.closest_exact(nav_map, goal)
 	if absf(floor_here.y - floor_goal.y) > 0.4:
 		return true
 	return not _body.get_world_3d().direct_space_state.intersect_ray(

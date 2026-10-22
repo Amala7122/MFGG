@@ -570,6 +570,7 @@ func _bind_sky_time() -> void:
 
 
 func _on_sky_time_node_added(node: Node) -> void:
+	if not is_inside_tree(): return
 	if _is_sky_time_node(node):
 		_attach_sky_time(node)
 

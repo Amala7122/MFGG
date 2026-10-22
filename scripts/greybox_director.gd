@@ -66,7 +66,7 @@ func _input(event: InputEvent) -> void:
 func _other_modal() -> bool:
 	var flow := get_node_or_null("/root/GameFlow")
 	if flow == null: return false
-	for key in [&"player_melee_tuning_modal", &"player_visual_tuning_modal", &"sketch_tuning_modal", &"greybox_tuning_modal"]:
+	for key in [&"player_melee_tuning_modal", &"player_visual_tuning_modal", &"sketch_tuning_modal", &"greybox_tuning_modal", &"workspace_global_modal"]:
 		if bool(flow.get_meta(key,false)): return true
 	return false
 

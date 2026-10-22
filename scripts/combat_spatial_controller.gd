@@ -383,7 +383,9 @@ func _request_route() -> void:
 	status = "checking"
 
 static func process_jobs() -> void:
-	var frame := Engine.get_physics_frames()
+	# 一次慢渲染帧可能补算8个物理步；异步规划预算只能花一次，不能跟着补8份。
+	# 移动／碰撞／技能仍逐物理步执行，只有共享规划队列按渲染帧让出时间。
+	var frame := Engine.get_process_frames()
 	if _job_frame == frame:
 		return
 	_job_frame = frame

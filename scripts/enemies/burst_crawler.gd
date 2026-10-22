@@ -28,11 +28,25 @@ func _setup_species() -> void:
 func _think(delta: float) -> Vector3:
 	var offset := global_basis.orthonormalized().inverse() * (target.global_position - global_position)
 	var behavior: RefCounted = visual.behavior
-	if behavior.state == Behavior.State.IDLE and offset.length() <= p("attack_range") and behavior.cooldown <= 0.0:
-		if not _crowd.request_attack():
-			face(target.global_position, delta)
-			return navigate(target.global_position, move_speed * p("crowd_wait_speed"), delta)
-	var result: Dictionary = visual.update_combat(delta, offset, can_attack_from(global_transform))
+	var can_throw := can_attack_from(global_transform)
+	var awaiting_admission := false
+	var line_clear := can_throw
+	if behavior.state in [Behavior.State.IDLE, Behavior.State.RETREAT]:
+		# 冷却在Behavior.update内部递减，RETREAT也可在同一次update退出并起手。
+		# 所有可能进入TURN的边都必须先取得许可，不能只检查更新前的IDLE/cooldown=0。
+		var leaving_retreat: bool = behavior.state == Behavior.State.IDLE or Vector2(offset.x, offset.z).length() >= p("retreat_exit_range")
+		line_clear = false
+		if can_throw and leaving_retreat and behavior.cooldown <= delta:
+			var residual := "poison" if p("poison_duration") > 0.0 and p("poison_radius") > 0.0 else ""
+			line_clear = _crowd.request_attack("lob", residual)
+			awaiting_admission = not line_clear
+	var result: Dictionary = visual.update_combat(delta, offset, line_clear, true)
+	if awaiting_admission:
+		face(target.global_position, delta)
+		set_state(State.APPROACH)
+		if _crowd.waiting_for_attack():
+			return _steering.spatial.gate_motion(_crowd.waiting_velocity(target.global_position, move_speed, delta), delta)
+		return navigate(target.global_position, move_speed * p("crowd_wait_speed"), delta)
 	match int(result.state):
 		Behavior.State.RETREAT:
 			_crowd.release_attack()
@@ -87,6 +101,7 @@ func _throw_sac() -> void:
 		return
 	var projectile := Projectile.new()
 	get_tree().current_scene.add_child(projectile)
+	preload("res://scripts/enemy_attack_queue.gd").track_effect(self, projectile)
 	projectile.configure_lob(origin, surface.position, _tuning, Telemetry.source_info(self, "转身抛爆囊"))
 	throws += 1
 	Telemetry.enemy_attack_started(self, "转身抛爆囊")

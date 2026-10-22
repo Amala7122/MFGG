@@ -20,6 +20,9 @@ var death_fx: Node3D
 var model_bounds: AABB
 var _runtime_death := false
 var _death_completed := false
+var _limb_pending := false
+var _limb_time := 0.0
+var _limb_walk := 0.0
 
 func profile_id() -> String:
 	return ""
@@ -132,6 +135,15 @@ func reset_death_preview() -> void:
 	set_preview_pose(0)
 
 func sample_pose(time: float) -> void:
+	_sample_pose(time, false)
+
+## 战斗宿主：身体、囊体、眼睛与角仍逐物理步更新；纯装饰腿只提交最终显示姿态。
+## 公开观察／逐帧接口sample_pose始终即时更新全部节点。
+func sample_combat_pose(time: float) -> void:
+	_sample_pose(time, true)
+
+func _sample_pose(time: float, defer_limbs: bool) -> void:
+	_limb_pending = false
 	if not is_instance_valid(body):
 		return
 	body.position = Vector3.ZERO
@@ -149,21 +161,43 @@ func sample_pose(time: float) -> void:
 	var walk := 1.0 if preview_pose == 1 else 0.0
 	animate_creature(time, walk, charge_at(time), breath)
 	walk = gait_amount(time, walk)
+	if defer_limbs:
+		_limb_pending = true
+		_limb_time = time
+		_limb_walk = walk
+	else:
+		_sample_limbs(time, walk)
+
+func flush_limb_pose() -> void:
+	if not _limb_pending or not is_instance_valid(body): return
+	_limb_pending = false
+	_sample_limbs(_limb_time, _limb_walk)
+
+func _sample_limbs(time: float, walk: float) -> void:
+	# 同一次姿态采样的曲线／身体变换对所有腿相同；保留原采样时间和计算顺序。
+	var gait_phase := time * TAU * p("gait_rate")
+	var stride := p("stride")
+	var lift := p("foot_lift")
+	var charge := charge_at(time)
+	var release := release_at(time)
+	var torso := body.transform
 	for leg in legs:
 		var node: Node3D = leg.node
-		var phase := time * TAU * p("gait_rate") + float(leg.phase)
+		var phase := gait_phase + float(leg.phase)
 		# Hip follows the acting torso; planted feet remain in rig space.
 		# This lets a rearing pose really straighten its support legs.
-		var hip: Vector3 = body.transform * (leg.hip as Vector3)
+		var hip: Vector3 = torso * (leg.hip as Vector3)
 		var knee: Vector3 = (leg.hip as Vector3) + (leg.knee as Vector3)
 		var foot: Vector3 = (leg.hip as Vector3) + (leg.foot as Vector3)
-		var stance := leg_stance(leg, time, charge_at(time), release_at(time))
+		var stance := leg_stance(leg, time, charge, release)
 		knee += stance[0]
 		foot += stance[1]
-		foot.z += walk * cos(phase) * p("stride")
-		foot.y += walk * maxf(0.0, sin(phase)) * p("foot_lift")
-		knee.z += walk * cos(phase) * p("stride") * 0.4
-		knee.y += walk * maxf(0.0, sin(phase)) * p("foot_lift") * 0.5
+		var swing := cos(phase)
+		var raised := maxf(0.0, sin(phase))
+		foot.z += walk * swing * stride
+		foot.y += walk * raised * lift
+		knee.z += walk * swing * stride * 0.4
+		knee.y += walk * raised * lift * 0.5
 		node.rotation = Vector3.ZERO
 		node.position = hip
 		place_segment(leg.upper, Vector3.ZERO, knee - hip)

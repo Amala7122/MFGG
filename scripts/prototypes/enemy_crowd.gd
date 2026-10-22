@@ -2,6 +2,8 @@ extends RefCounted
 
 const HealthUtil := preload("res://scripts/health_util.gd")
 const Layout := preload("res://scripts/testing/enemy_parameter_layout.gd")
+const AttackQueue := preload("res://scripts/enemy_attack_queue.gd")
+const QueuePolicy := preload("res://scripts/enemy_attack_queue_policy.gd")
 ## 个体差异与软群体转向。空间快照每个物理帧只建立一次，邻居按格子查询。
 ## 无敌人实体碰撞；寻路/技能仍由敌人自己的状态机决定。
 
@@ -100,6 +102,9 @@ func enabled() -> bool:
 
 
 func waiting_velocity(goal: Vector3, speed: float, delta: float) -> Vector3:
+	if AttackQueue.applies(_body) and bool(QueuePolicy.current().enabled):
+		speed *= float(QueuePolicy.current().global.waiting_speed_scale)
+		if speed <= 0.0: return Vector3.ZERO
 	if not enabled():
 		return Vector3.ZERO
 	var offset := goal - _body.global_position
@@ -191,7 +196,12 @@ func steer_air(base_velocity: Vector3, goal: Vector3, delta: float, approaching 
 	return result
 
 
-func request_attack() -> bool:
+func request_attack(skill := "", reserve := "", continuation := false) -> bool:
+	if AttackQueue.applies(_body):
+		var queue := AttackQueue.shared(_body)
+		if queue == null or not queue.request(_body, _body.get("target"), _profile, skill, reserve, continuation): return false
+		_body.set_meta(&"crowd_attacking", true)
+		return true
 	if not enabled():
 		return true
 	var count := 1
@@ -211,8 +221,20 @@ func request_attack() -> bool:
 	return true
 
 
+func defer_attack_check(target: Node3D) -> bool:
+	if not AttackQueue.applies(_body): return false
+	var queue := AttackQueue.shared(_body, false)
+	return queue != null and queue.defer_check(_body, target)
+
+func waiting_for_attack() -> bool:
+	if not AttackQueue.applies(_body): return false
+	var queue := AttackQueue.shared(_body, false)
+	return queue != null and queue.is_pending(_body)
+
 func release_attack() -> void:
 	if is_instance_valid(_body):
+		var queue := AttackQueue.shared(_body, false)
+		if queue != null: queue.release(_body)
 		_body.set_meta(&"crowd_attacking", false)
 
 

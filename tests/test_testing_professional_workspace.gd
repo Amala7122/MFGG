@@ -76,6 +76,7 @@ func _navigation_initialization() -> void:
 	pending.set_local(func(): pass, "启动时返回上下文")
 	await frames(2)
 	check(pending.is_node_ready() and pending.destination.text == "启动时返回上下文" and not pending.back_button.disabled,"延迟挂载保留提前设置的返回策略")
+	check(pending.global_button.text == "全局调节" and pending.global_button.custom_minimum_size.y == 24,"T04公共入口复用同一导航条")
 	pending.set_local()
 
 func _ownership() -> void:

@@ -130,6 +130,9 @@ func _footsteps() -> void:
 	_player._on_footstep(true)
 	var sprint: Node3D = get_nodes_in_group("ground_dust").back()
 	_check(sprint._particles.scale_amount_max > walk_size, "冲刺扬尘强于行走")
+	_check(sprint._particles.mesh == dust._particles.mesh
+		and sprint._particles.color_ramp != dust._particles.color_ramp,
+		"扬尘复用同一渲染网格／材质，各发射器的强度与颜色渐变仍独立")
 	count = get_nodes_in_group("ground_dust").size()
 	rig.update(0.2, 0.0, 0.0, true, 4.0, 8.0)
 	rig.rolling = true
@@ -262,8 +265,11 @@ func _bounds_and_cleanup() -> void:
 
 
 func _clear_dust() -> void:
+	var shared: Mesh = preload("res://scripts/ground_dust.gd")._dust_mesh()
 	for dust in get_nodes_in_group("ground_dust"):
 		dust.free()
+	_check(preload("res://scripts/ground_dust.gd")._dust_mesh() == shared,
+		"全部扬尘实例消失后仍保留唯一渲染资源，后续效果不重新创建")
 
 
 func _capture(label: String) -> void:

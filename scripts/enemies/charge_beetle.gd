@@ -9,6 +9,56 @@ var _contact := false
 var _recovery_time := 0.0
 var _lane: Node3D
 
+func rebuild_workspace(values: Dictionary) -> String:
+	if not get_tree().paused or current_state not in [State.IDLE, State.APPROACH]:
+		return "待重建：请在待机／接近阶段暂停后重试；不会打断当前冲锋"
+	var dimensions := get_body_dimensions(values)
+	var size: float = float(values.body_size) * float(get_meta("individual_variation", {}).get("size", 1.0))
+	var shape := BoxShape3D.new()
+	shape.size = dimensions
+	var pose := global_transform.orthonormalized()
+	pose.basis = pose.basis.scaled(Vector3.ONE * size)
+	pose.origin.y = global_position.y - _collision.shape.size.y * scale.y * 0.5 + dimensions.y * size * 0.5 + 0.04
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = shape
+	query.transform = pose
+	query.collision_mask = 7
+	query.exclude = [get_rid()]
+	if not get_world_3d().direct_space_state.intersect_shape(query, 1).is_empty(): return "待重建：目标体型与场地／玩家／其他敌人重叠，请换到空旷位置后重试"
+	_flash.clear()
+	var source := values.duplicate(true)
+	source.body_size = 1.0
+	visual.apply_visual_values(source)
+	_regions.areas.clear()
+	_regions.add_part(self, visual.find_child("ShovelHorn", true, false), "body")
+	_crowd.size_multiplier = size
+	_crowd._settings = values.duplicate(true)
+	for key: String in preload("res://scripts/testing/enemy_parameter_layout.gd").CROWD_WORLD:
+		if _crowd._settings.has(key): _crowd._settings[key] = float(values[key]) * size
+	_tuning.merge(_crowd.varied_values(values, ["move_speed"], ["attack_damage"], ["windup", "release", "recovery", "attack_interval", "contact_windup", "wall_recovery"]), true)
+	visual.values = _tuning.duplicate(true)
+	visual.values.body_size = 1.0
+	_collision.shape = shape
+	global_transform = pose
+	visual.position.y = -dimensions.y * 0.5
+	_steering._body_height = dimensions.y
+	_steering._body_radius = maxf(dimensions.x, dimensions.z) * 0.5
+	_steering._nav_origin.position.y = -dimensions.y * 0.5
+	_steering._agent.radius = _steering._body_radius * size
+	_steering._agent.height = dimensions.y * size
+	set_meta("crowd_radius", p("separation_radius") * 0.5)
+	max_health = p("max_health")
+	health = minf(health, max_health)
+	move_speed = p("move_speed")
+	attack_damage = p("attack_damage")
+	attack_interval = p("attack_interval")
+	_armor = p("armor")
+	_flash._parts.clear()
+	_flash._original.clear()
+	_flash.setup(visual, _tuning)
+	_pose(0.0)
+	return ""
+
 
 func profile_id() -> String:
 	return "VisualChargeBeetle"
@@ -34,7 +84,7 @@ func trigger_attack() -> bool:
 	var distance := global_position.distance_to(target.global_position)
 	if distance < p("charge_min_range") and distance > p("contact_range"):
 		return false
-	if not _crowd.request_attack():
+	if not _crowd.request_attack("contact" if distance < p("charge_min_range") else "charge"):
 		return false
 	_contact = distance < p("charge_min_range")
 	charge_locked = false
@@ -116,6 +166,9 @@ func _think(delta: float) -> Vector3:
 	if cooldown <= 0.0 and can_attack_from(global_transform):
 		if trigger_attack():
 			return Vector3.ZERO
+		if _crowd.waiting_for_attack():
+			set_state(State.APPROACH)
+			return _steering.spatial.gate_motion(_crowd.waiting_velocity(target.global_position, move_speed, delta), delta)
 	set_state(State.APPROACH)
 	return navigate(target.global_position, move_speed, delta)
 
@@ -169,7 +222,7 @@ func _pose(delta: float) -> void:
 			at = p("windup") + p("release") * 0.5
 		elif current_state == State.RECOVERY:
 			at = p("windup") + p("release") + minf(state_timer, p("recovery") - 0.001)
-		visual.sample_pose(at)
+		visual.sample_combat_pose(at)
 		# 实际位移属于 CharacterBody；去掉原外形的展示冲刺偏移，不能跑两遍。
 		visual.rig.position.z = 0.0
 	else:

@@ -159,7 +159,7 @@ func _process(delta: float) -> void:
 
 
 func _enforce_lab_isolation() -> void:
-	get_tree().paused = false
+	if not Navigation.modal(get_tree()): get_tree().paused = false
 	if is_instance_valid(_game_flow):
 		_game_flow.process_mode = Node.PROCESS_MODE_DISABLED
 		_game_flow.visible = false
@@ -253,8 +253,10 @@ func _show_subject(index: int) -> void:
 		push_error("视觉测试台的角色场景根节点必须是 Node3D")
 		return
 	var profile := String(entry["profile"])
+	var target_id := String(get_meta("workspace_target_id", "")) if get_meta("workspace_profile", "") == profile else ""
+	_visual_panel.target_id = target_id
 	if not profile.is_empty():
-		var draft: String = Session.shared().open_profile(profile)
+		var draft: String = Session.shared().open_profile(profile, "", target_id)
 		_sample_values = Session.shared().preview_values(draft)
 		_subject.set_meta(&"enemy_tuning", _sample_values)
 		_subject.set_meta(&"crowd_uniform", true)

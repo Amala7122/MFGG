@@ -90,7 +90,7 @@ func _process(delta: float) -> void:
 	if bool(result.throw):
 		throw_requested.emit(sacs[0].global_position, (global_basis.orthonormalized() * offset).normalized())
 
-func update_combat(delta: float, target_offset: Vector3, line_clear := true) -> Dictionary:
+func update_combat(delta: float, target_offset: Vector3, line_clear := true, defer_idle_pose := false) -> Dictionary:
 	var previous := behavior.state
 	var opening := back_armor.rotation.x / maxf(0.001, deg_to_rad(p("back_raise")))
 	var result := behavior.update(delta, target_offset, values, line_clear)
@@ -107,7 +107,10 @@ func update_combat(delta: float, target_offset: Vector3, line_clear := true) -> 
 	else:
 		preview_pose = 2
 		preview_time = float(result.action_time)
-	sample_pose(preview_time)
+	# 正式宿主随后会按实际移动采样步态；IDLE在同一物理步重复采样不可见。
+	# 投掷／撤退仍立即采样，投射物继续读取当前姿态的真实囊体位置。
+	if not defer_idle_pose: sample_pose(preview_time)
+	elif result.state != Behavior.State.IDLE: sample_combat_pose(preview_time)
 	rig.rotation.y = float(result.yaw)
 	return result
 

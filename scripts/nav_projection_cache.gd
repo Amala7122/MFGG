@@ -23,16 +23,22 @@ static var hits := 0
 static var misses := 0
 static var owner_hits := 0
 static var owner_misses := 0
+static var exact_hits := 0
+static var exact_misses := 0
 static var _map := RID()
 static var _iteration := -1
 static var _closest: Dictionary = {}
 static var _owner: Dictionary = {}
+static var _exact: Dictionary = {}
+static var _exact_frame := -1
 
 static func reset_counters() -> void:
 	hits = 0
 	misses = 0
 	owner_hits = 0
 	owner_misses = 0
+	exact_hits = 0
+	exact_misses = 0
 
 static func _cell(point: Vector3) -> Vector3i:
 	return Vector3i(int(floorf(point.x / CELL)), int(floorf(point.y / CELL)), int(floorf(point.z / CELL)))
@@ -44,6 +50,7 @@ static func _fresh(map: RID) -> bool:
 		_map = map
 		_iteration = iteration
 		_closest.clear()
+		_exact.clear()
 	return iteration > 0
 
 static func closest(map: RID, point: Vector3) -> Vector3:
@@ -59,6 +66,25 @@ static func closest(map: RID, point: Vector3) -> Vector3:
 	if _closest.size() >= LIMIT:
 		_closest.clear()
 	_closest[key] = [point, result]
+	return result
+
+## 精度敏感的高度／连通判定：只共享本物理帧完全相同的查询点。
+## 不走0.3m容差缓存；断开导航面的边界、移动及地图同步仍返回原生精确结果。
+static func closest_exact(map: RID, point: Vector3) -> Vector3:
+	if not enabled or not map.is_valid() or not _fresh(map):
+		return NavigationServer3D.map_get_closest_point(map, point)
+	var frame := Engine.get_physics_frames()
+	if frame != _exact_frame:
+		_exact_frame = frame
+		_exact.clear()
+	if _exact.has(point):
+		exact_hits += 1
+		return _exact[point]
+	exact_misses += 1
+	var result := NavigationServer3D.map_get_closest_point(map, point)
+	if _exact.size() >= LIMIT:
+		_exact.clear()
+	_exact[point] = result
 	return result
 
 static func owner_valid(map: RID, point: Vector3) -> bool:

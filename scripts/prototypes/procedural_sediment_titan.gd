@@ -232,6 +232,7 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
+	if preload("res://scripts/testing/workspace_suspension.gd").suspended(self): return
 	if _formal_boss:
 		for player in get_tree().get_nodes_in_group("player"):
 			if player.has_method("leave_titan_grenade_reserve"):
@@ -277,6 +278,7 @@ func _p(key: String) -> float:
 
 
 func _physics_process(delta: float) -> void:
+	_apply_workspace_next_action()
 	_bullet_hitstop_remaining = maxf(_bullet_hitstop_remaining - delta, 0.0)
 	_player_separation.step(self, current_state in [State.LEAP_AIR, State.REWARD_LANDING])
 	if has_meta(&"combat_recorder"):
@@ -490,7 +492,7 @@ func _reset_pose() -> void:
 	right_leg_pivot.rotation = Vector3.ZERO
 
 
-func _stop_action() -> void:
+func _stop_action(keep_reservation := false) -> void:
 	_rage_director.clear_triple_slam()
 	_leap_followup_armed = false
 	_heavy_recovery_scale = 1.0
@@ -507,7 +509,7 @@ func _stop_action() -> void:
 	if not _active_skill.is_empty():
 		_brain.completed("cancelled", _in_melee)
 		_active_skill = ""
-	_crowd.release_attack()
+	if not keep_reservation: _crowd.release_attack()
 	if _action_tween != null and _action_tween.is_valid():
 		_action_tween.kill()
 	_action_tween = null
@@ -749,9 +751,9 @@ func trigger_jump_attack() -> bool:
 		return false
 	if current_state not in [State.IDLE, State.CHASE] or attack_cooldown > 0.0 or not JumpMelee.can_start(self, target, _normal_attack_spec()):
 		return false
-	_stop_action()
-	if not _crowd.request_attack():
+	if not _crowd.request_attack("normal_attack"):
 		return false
+	_stop_action(true)
 	_reset_pose()
 	_active_skill = ""
 	_attack_target = target
@@ -819,7 +821,7 @@ func trigger_leap_attack() -> bool:
 	# 选招候选可能已经过时；在显示任何效果之前确认最终可执行计划。
 	var plan := _plan_leap()
 	var link := bool(_tuning.leap_followup_enabled) and bool(_tuning.thrust_enabled) and _brain.rhythm_enabled() and not _brain.needs_heavy(is_enraged) and _brain.available("thrust")
-	if plan.is_empty() or not _begin_attack(State.LEAP_WINDUP, not link):
+	if plan.is_empty() or not _begin_attack(State.LEAP_WINDUP, not link, true, "thrust" if link else ""):
 		if has_meta(&"combat_recorder") and plan.is_empty():
 			_sparring_decision["begin_rejected"] = "leap_plan:" + _leap_plan_failure
 		return false
@@ -966,11 +968,12 @@ func _finish_leap_link() -> void:
 		return
 	var can_link := _leap_followup_armed and _can_landing_thrust()
 	_leap_followup_armed = false
-	_finish_action(0.0)
+	_finish_action(0.0, can_link)
 	if can_link:
 		_selection_reason = "landing_followup"
 		if trigger_thrust_attack(true):
 			return
+	_crowd.release_attack()
 	_brain.finish_group("landing_link_unavailable")
 	current_state = State.GROUP_REST
 	_group_rest_remaining = _p("offense_failed_rest")
@@ -1618,7 +1621,25 @@ func _animate_walk(t: float) -> void:
 	right_arm_pivot.rotation.x = sin(t * w_speed) * 0.25
 
 
-func _begin_attack(next_state: State, heavy := false, combat := true) -> bool:
+func _apply_workspace_next_action() -> void:
+	if current_state not in [State.IDLE, State.CHASE] or not has_meta("workspace_next_action"): return
+	var pending: Dictionary = get_meta("workspace_next_action")
+	var base: Dictionary = get_meta("workspace_values", get_meta("enemy_tuning", {})).duplicate(true)
+	for key: String in pending.values:
+		_tuning[key] = pending.values[key]
+		base[key] = pending.values[key]
+	# Brain持有_tuning引用；不重置其冷却／历史／当前编排。
+	set_meta("workspace_values", base)
+	set_meta("workspace_applied_revision", pending.revision)
+	remove_meta("workspace_next_action")
+	var application: Dictionary = get_meta("workspace_application", {}).duplicate(true)
+	application.runtime_applied = true
+	application.next_action = []
+	application.reason = "已在安全状态采用 r%d；已生成的三线／弹体仍用起手快照" % pending.revision
+	set_meta("workspace_application", application)
+
+func _begin_attack(next_state: State, heavy := false, combat := true, reserve := "", continuation := false) -> bool:
+	_apply_workspace_next_action()
 	if current_state not in [State.IDLE, State.CHASE] or attack_cooldown > 0.0:
 		return _sparring_rejected("state_or_attack_cooldown")
 	if combat and not heavy and _brain.needs_heavy(is_enraged):
@@ -1626,9 +1647,9 @@ func _begin_attack(next_state: State, heavy := false, combat := true) -> bool:
 	var skill := "leap" if next_state == State.LEAP_WINDUP else "slam" if next_state == State.ATK_SLAM else "thrust" if next_state == State.ATK_THRUST else "triple_slam" if next_state == State.ATK_TRIPLE_SLAM else "sweep"
 	if not _brain.available(skill) or not _steering.spatial.permits_channel(StringName(skill)):
 		return _sparring_rejected("skill_cooldown_or_reserved_channel")
-	_stop_action()
-	if not _crowd.request_attack():
+	if not _crowd.request_attack(skill, reserve, continuation):
 		return _sparring_rejected("crowd_attack_budget")
+	_stop_action(true)
 	_reset_pose()
 	current_state = next_state
 	_attack_target = target
@@ -1692,6 +1713,7 @@ func _thrust_spec() -> Dictionary:
 
 
 func trigger_triple_slam_attack() -> bool:
+	_apply_workspace_next_action()
 	if not is_enraged or not bool(_tuning.get("rage_director_enabled",false)) or not _target_alive() or not is_on_floor(): return false
 	var offset: Vector3 = target.global_position-global_position
 	if Vector2(offset.x,offset.z).length() > _p("triple_slam_length")*_crowd.size_multiplier or absf(offset.y) > 4.1: return false
@@ -1717,7 +1739,7 @@ func get_public_attack_areas() -> Array[Node3D]:
 
 
 func trigger_thrust_attack(landing_finisher := false) -> bool:
-	if not bool(_tuning.thrust_enabled) or not _begin_attack(State.ATK_THRUST, landing_finisher):
+	if not bool(_tuning.thrust_enabled) or not _begin_attack(State.ATK_THRUST, landing_finisher, true, "", landing_finisher):
 		return false
 	_thrust_windup = _p("rage_thrust_windup" if is_enraged else "thrust_windup")
 	# 狙击抬头时地面可能出屏；高音短蓄力与跃击低音蓄力区分，提示独立第二击。
@@ -1937,11 +1959,11 @@ func _hurt_target(amount: float, attack: String) -> void:
 		Telemetry.hurt_player(_attack_target, amount, global_position, 1.0, Telemetry.source_info(self, attack))
 
 
-func _finish_action(cooldown: float) -> void:
+func _finish_action(cooldown: float, keep_reservation := false) -> void:
 	_breach_target = null
 	_attack_area.cancel()
 	_leap_plan.clear()
-	_crowd.release_attack()
+	if not keep_reservation: _crowd.release_attack()
 	if current_state == State.DEAD:
 		return
 	_rage_director.finished(_active_skill,_heavy_window)

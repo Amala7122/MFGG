@@ -152,6 +152,12 @@ func _core() -> void:
 	check(not session.accept_result(key, packet), "拒绝未登记参数回包")
 	var selection := session.test_selection(key, "res://scenes/sanctum_main.tscn")
 	check(selection.scope == "this_test_only" and not selection.runtime_applied and not selection.project_default_changed, "场景本轮选用合同与默认保存分开，不冒充已经应用到运行场景")
+	var applied: Dictionary = session.test_selection(key, "res://scenes/sanctum_main.tscn", func(_snapshot: Dictionary): return {"runtime_applied": true, "reason": "真实适配器确认"})
+	check(applied.runtime_applied and not applied.project_default_changed, "T04应用状态取适配器真实回包，不再恒false")
+	session.store_view(key,"visual",{"pending":{"body_size":"invalid"}})
+	applied = session.test_selection(key, "res://scenes/sanctum_main.tscn", func(_snapshot: Dictionary): return {"runtime_applied": true})
+	check(not applied.runtime_applied and applied.reason.contains("原文"), "任何域有非法原文时整份运行候选不应用")
+	session.store_view(key,"visual",{})
 	var directory := Tuning.storage_directory
 	var blocked := Artifacts.ensure_dir("tmp").path_join("t01_blocked_store")
 	var blocker := FileAccess.open(blocked, FileAccess.WRITE)

@@ -20,6 +20,7 @@ func _run() -> void:
 		await process_frame
 	paused = true
 	_verify_flat_builds()
+	_verify_fill_only()
 	_verify_sweep()
 	await _verify_tracking()
 	_verify_stable_tracking()
@@ -86,6 +87,29 @@ func _verify_sweep() -> void:
 	_check(mesh != null and total < 8.0 and maximum < 1.0, "完整狂暴横扫的逐帧推进成本受控")
 	print("[地面性能回归] 完整横扫 total_ms=%.3f max_step_ms=%.3f" % [total, maximum])
 	effect.free()
+	area.free()
+
+func _verify_fill_only() -> void:
+	# 对照同一复杂坡面，省掉边框必须逐顶点保留填充和命中可达性。
+	var outline := PackedVector2Array()
+	for i in range(32):
+		outline.append(Vector2.from_angle(TAU * float(i) / 32.0) * 4.0)
+	var area := _area()
+	area.global_position = Vector3(-12, 2.2, 9)
+	var spec := {"kind": "circle", "radius": 4.0, "height": 2.5, "source_height": 0.2}
+	var original := Surface.new()
+	var original_meshes := original.build(area, outline, spec)
+	var fill_only := Surface.new()
+	spec.build_border = false
+	var reduced := fill_only.build(area, outline, spec)
+	_check(original_meshes.fill != null and reduced.fill != null and original_meshes.edge != null
+		and reduced.edge == null and fill_only._boundary_edges.is_empty(), "仅填充模式不生成或登记无用边框")
+	_check(original._fill == fill_only._fill and original._fill_uv == fill_only._fill_uv
+		and original._triangles == fill_only._triangles, "仅填充模式保留相同地表三角形、UV及命中数据")
+	for x in range(-9, 10):
+		for z in range(-9, 10):
+			var point: Vector3 = area.global_position + Vector3(x * 0.5, 0, z * 0.5)
+			_check(original.allows(point) == fill_only.allows(point), "坡面／缺口边缘可达性与有边框版本相同")
 	area.free()
 
 

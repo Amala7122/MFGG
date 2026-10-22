@@ -84,7 +84,18 @@ func _build(info: Dictionary, position: Vector3) -> Node:
 
 ## 选点与实例化共用解析结果，避免落点按小体型检查、进树后又放大。
 func prepare_entry(entry: Dictionary) -> Dictionary:
-	return CreatureCatalog.prepare(entry) if entry.has("species") else entry.duplicate(true)
+	var source := entry.duplicate(true)
+	if source.has("species"):
+		var profile := String(CreatureCatalog.SPECIES.get(String(source.species), {}).get("profile", ""))
+		var preset := _workspace_preset(profile)
+		if not preset.is_empty(): source.preset = preset
+	return CreatureCatalog.prepare(source) if source.has("species") else source
+
+func _workspace_preset(profile: String) -> String:
+	var scene: Node = self
+	while scene != null and scene.scene_file_path != "res://scenes/sanctum_main.tscn": scene = scene.get_parent()
+	if scene == null or scene.scene_file_path != "res://scenes/sanctum_main.tscn": return ""
+	return load("res://scripts/testing/tuning_session.gd").shared().scene_preset(scene.scene_file_path, profile)
 
 
 func _place_creature(body: CharacterBody3D, ground: Vector3) -> void:
@@ -112,6 +123,9 @@ func _place_creature(body: CharacterBody3D, ground: Vector3) -> void:
 func _build_enemy(info: Dictionary, position: Vector3) -> Node:
 	var entry: Dictionary = info.get("entry", {})
 	if entry.has("species"):
+		# 已投放的对象不变；明确场景选用只影响之后生成的实例。
+		if not _workspace_preset(String(CreatureCatalog.SPECIES.get(String(entry.species), {}).get("profile", ""))).is_empty():
+			entry = prepare_entry(entry)
 		var creature := CreatureCatalog.instantiate(entry)
 		if creature != null:
 			creature.position = position + Vector3.UP * _stand_clearance
@@ -195,10 +209,13 @@ func _build_boss(info: Dictionary) -> Node:
 		var titan := SEDIMENT_TITAN_SCENE.instantiate() as Node3D
 		var cfg := ConfigUtil.get_dictionary("bosses.%s" % boss_id)
 		var preset := String(cfg.get("preset", "项目默认"))
+		var test_preset := _workspace_preset("PrototypeSedimentTitan")
+		if not test_preset.is_empty(): preset = test_preset
 		var values := EnemyTuningUtil.preset_values("PrototypeSedimentTitan", preset)
 		# 元数据必须在 add_child 之前写入；泰坦 _ready 会据此读取固定 Boss
 		# 方案，关闭随机个体差异，并切换到正式 Boss 血条契约。
 		titan.set_meta(&"enemy_tuning", values)
+		titan.set_meta("workspace_source_preset", preset)
 		titan.set_meta(&"crowd_uniform", true)
 		titan.set_meta(&"formal_boss", true)
 		titan.set_meta(&"formal_boss_id", boss_id)

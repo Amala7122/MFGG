@@ -144,7 +144,8 @@ func _physics_process(delta: float) -> void:
 		target = Targeting.nearest_player(self)
 	if _reactions.step(delta, ai_enabled and current_state in [State.IDLE, State.APPROACH, State.RETREAT], move_speed):
 		return
-	var approach := ai_enabled and not has_meta(&"attack_inspection_manual") and _crowd.ready_to_move() and current_state in [State.IDLE, State.APPROACH]
+	var queue_wait := ai_enabled and current_state in [State.IDLE, State.APPROACH] and _crowd.defer_attack_check(target)
+	var approach := ai_enabled and not queue_wait and not has_meta(&"attack_inspection_manual") and _crowd.ready_to_move() and current_state in [State.IDLE, State.APPROACH]
 	if approach and Health.is_alive(target) and _tuning.has("retreat_range"):
 		approach = global_position.distance_to(target.global_position) > p("retreat_range")
 	if _steering.tick(delta, approach, target, move_speed):
@@ -157,7 +158,12 @@ func _physics_process(delta: float) -> void:
 	elif has_meta(&"attack_inspection_manual") and current_state in [State.IDLE, State.APPROACH, State.RETREAT]:
 		desired = Vector3.ZERO
 	elif ai_enabled and _crowd.ready_to_move() and Health.is_alive(target):
-		desired = _think(delta)
+		if queue_wait:
+			face(target.global_position, delta)
+			set_state(State.APPROACH)
+			desired = _steering.spatial.gate_motion(_crowd.waiting_velocity(target.global_position, move_speed, delta), delta)
+		else:
+			desired = _think(delta)
 	elif current_state not in [State.IDLE, State.REACTION]:
 		cancel_attack()
 		set_state(State.IDLE)
@@ -196,7 +202,10 @@ func _after_move(_previous: Vector3, _delta: float) -> void:
 
 func _pose(_delta: float) -> void:
 	visual.preview_pose = 1 if Vector2(velocity.x, velocity.z).length() > 0.15 else 0
-	visual.sample_pose(anim_clock)
+	visual.sample_combat_pose(anim_clock)
+
+func _process(_delta: float) -> void:
+	if current_state != State.DEAD and is_instance_valid(visual): visual.flush_limb_pose()
 
 
 func set_state(next: State) -> void:

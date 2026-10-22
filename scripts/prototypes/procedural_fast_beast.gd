@@ -139,7 +139,8 @@ func _physics_process(delta: float) -> void:
 		return
 	if ai_enabled and current_state in [State.IDLE, State.CIRCLE] and not _target_alive():
 		target = Targeting.nearest_player(self)
-	if _steering.tick(delta, ai_enabled and _crowd.ready_to_move() and current_state in [State.IDLE, State.CIRCLE], target, move_speed):
+	var queue_wait := ai_enabled and current_state in [State.IDLE, State.CIRCLE] and _crowd.defer_attack_check(target)
+	if _steering.tick(delta, ai_enabled and not queue_wait and _crowd.ready_to_move() and current_state in [State.IDLE, State.CIRCLE], target, move_speed):
 		_animate_trot(anim_clock, Vector2(velocity.x, velocity.z).length() / maxf(move_speed, 0.001))
 		return
 	var desired := Vector3.ZERO
@@ -150,7 +151,7 @@ func _physics_process(delta: float) -> void:
 				_enter_circle()
 		State.CIRCLE:
 			if ai_enabled and _crowd.ready_to_move() and _target_alive():
-				desired = _process_circle_flank(delta)
+				desired = _process_circle_flank(delta, queue_wait)
 			else:
 				_animate_idle(anim_clock)
 		State.POUNCE_WINDUP:
@@ -190,7 +191,13 @@ func _physics_process(delta: float) -> void:
 			_land_recovery()
 
 
-func _process_circle_flank(delta: float) -> Vector3:
+func _process_circle_flank(delta: float, queue_wait := false) -> Vector3:
+	if queue_wait:
+		_look_at_target(delta, _p("turn_speed"))
+		var waiting := _crowd.waiting_velocity(target.global_position, circle_speed, delta)
+		waiting = _steering.spatial.gate_motion(waiting, delta)
+		_animate_trot(anim_clock, waiting.length() / maxf(move_speed, 0.001))
+		return waiting
 	var offset := target.global_position - global_position
 	offset.y = 0.0
 	var distance := offset.length()
@@ -220,6 +227,8 @@ func _process_circle_flank(delta: float) -> Vector3:
 	desired = _steering.ground_velocity(target.global_position, desired, delta)
 	if routing and not desired.is_zero_approx():
 		rotation.y = lerp_angle(rotation.y, atan2(-desired.x, -desired.z), clampf(_p("turn_speed") * delta, 0.0, 1.0))
+	if _crowd.waiting_for_attack():
+		desired = _steering.spatial.gate_motion(_crowd.waiting_velocity(target.global_position, circle_speed, delta), delta)
 	_animate_trot(anim_clock, desired.length() / maxf(move_speed, 0.001))
 	if state_timer >= _orbit_wait and _attack_cooldown <= 0.0 and is_on_floor():
 		if distance >= _p("pounce_min_distance") and distance <= _p("pounce_max_distance"):
@@ -269,9 +278,9 @@ func _reset_pose() -> void:
 		node.rotation = Vector3.ZERO
 
 
-func _stop_action() -> void:
+func _stop_action(keep_reservation := false) -> void:
 	_attack_area.cancel()
-	_crowd.release_attack()
+	if not keep_reservation: _crowd.release_attack()
 	if _action_tween != null and _action_tween.is_valid():
 		_action_tween.kill()
 	_action_tween = null
@@ -285,9 +294,9 @@ func trigger_pounce() -> void:
 		return
 	if not _steering.spatial.permits_channel(&"pounce") or not AttackArea.candidate_can_hit(self, global_transform, _pounce_spec(), target):
 		return
-	_stop_action()
-	if not _crowd.request_attack():
+	if not _crowd.request_attack("pounce"):
 		return
+	_stop_action(true)
 	if not _steering.spatial.permit_landing(_pounce_landing, &"jump"):
 		_crowd.release_attack()
 		return
@@ -371,9 +380,9 @@ func _spatial_attack_pose(pose: Transform3D) -> bool:
 func trigger_jump_attack() -> bool:
 	if current_state not in [State.IDLE, State.CIRCLE] or _normal_cooldown > 0.0 or not JumpMelee.can_start(self, target, _normal_attack_spec()):
 		return false
-	_stop_action()
-	if not _crowd.request_attack():
+	if not _crowd.request_attack("normal_attack"):
 		return false
+	_stop_action(true)
 	_reset_pose()
 	current_state = State.JUMP_ATTACK
 	_normal_cooldown = _p("normal_attack_interval")

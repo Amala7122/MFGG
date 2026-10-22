@@ -333,7 +333,7 @@ func _enter_hover() -> void:
 func trigger_fire() -> void:
 	if current_state != State.HOVER_STRAFE or not _target_alive() or remaining_needles <= 0:
 		return
-	if not _air.line_clear(stingers[remaining_needles - 1].global_position, target.global_position + Vector3.UP * _p("needle_aim_height")) or not _crowd.request_attack():
+	if not _air.line_clear(stingers[remaining_needles - 1].global_position, target.global_position + Vector3.UP * _p("needle_aim_height")) or not _crowd.request_attack("needle"):
 		return
 	_set_state(State.PREPARE_FIRE)
 
@@ -359,6 +359,7 @@ func _launch_stinger_needle() -> void:
 	needle.source_info = Telemetry.source_info(self, "晶针射击")
 	needle.add_to_group("hornet_needles")
 	get_tree().current_scene.add_child(needle)
+	preload("res://scripts/enemy_attack_queue.gd").track_effect(self, needle)
 	needle.global_position = origin
 	needle.look_at(origin + needle.direction, Vector3.FORWARD if absf(needle.direction.dot(Vector3.UP)) > 0.99 else Vector3.UP)
 	needle.rotate_object_local(Vector3.RIGHT, -PI * 0.5)
@@ -369,7 +370,7 @@ func trigger_swoop_dive() -> void:
 	if current_state != State.HOVER_STRAFE or not _target_alive():
 		return
 	var aim := target.global_position + Vector3.UP * _p("dive_aim_height")
-	if not AirSteering.Query.motion_clear(self, global_transform, aim - global_position) or not _crowd.request_attack():
+	if not AirSteering.Query.motion_clear(self, global_transform, aim - global_position) or not _crowd.request_attack("dive"):
 		return
 	_set_state(State.SWOOP_WINDUP)
 

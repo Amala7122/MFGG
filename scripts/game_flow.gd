@@ -23,6 +23,8 @@ var _pending_transition: Dictionary = {}
 const ArenaUtil := preload("res://scripts/arena.gd")
 const DisplaySettingsUtil := preload("res://scripts/display_settings.gd")
 const TerrainUtil := preload("res://scripts/terrain_field.gd")
+const GroundDustScript := preload("res://scripts/ground_dust.gd")
+var _preparing_run := false
 
 static var instance: Node
 
@@ -574,6 +576,27 @@ func _first_arena_id() -> String:
 
 ## 一局真正开始：重置进度、定下竞技场、进游戏态。
 func _begin_run() -> void:
+	if _preparing_run:
+		return
+	_preparing_run = true
+	if DisplayServer.get_name() != "headless" and not GroundDustScript._render_warmed:
+		# 在开始页遮罩后实际渲染粒子，把首次管线编译放在交战之前。
+		# 不推进波次、不创建敌人，也不更改正式画质和特效参数。
+		get_tree().paused = true
+		var cover := ColorRect.new()
+		cover.color = Color(0.015, 0.015, 0.018, 1.0)
+		cover.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_root.add_child(cover)
+		var message := Label.new()
+		message.text = "正在准备战场…"
+		message.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		message.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		message.set_anchors_preset(Control.PRESET_FULL_RECT)
+		cover.add_child(message)
+		_set_overlay_visible(true)
+		await GroundDustScript.warmup(get_viewport())
+		cover.queue_free()
+	_preparing_run = false
 	_pending_transition.clear()
 	_dismiss_cinematics()
 	RunStateUtil.begin_run()
@@ -639,12 +662,16 @@ func _enter_pause() -> void:
 			int(upgrades.get("magazine", 0)),
 		]
 	)
-	_set_actions([
+	var pause_actions := [
 		{"text": "继续", "callback": _on_resume},
+		{"text": "敌人起手队列", "callback": _open_attack_queue},
 		{"text": "显示设置", "callback": _on_open_display_settings},
 		{"text": "重新开始", "callback": _on_restart},
 		{"text": "退出", "callback": _on_quit},
-	])
+	]
+	if get_tree().current_scene != null and get_tree().current_scene.scene_file_path == "res://scenes/sanctum_main.tscn":
+		pause_actions.insert(1, {"text": "测试台 · 本轮对象", "callback": _open_testing_workspace})
+	_set_actions(pause_actions)
 	_present("PAUSED", UiThemeUtil.COLOR_ACCENT, "ESC 继续游戏", [
 		{"label": "最好成绩", "value": _format_time(SaveUtil.get_best_survival())},
 		{"label": "最佳击杀", "value": "%d" % SaveUtil.get_best_kills()},
@@ -652,6 +679,21 @@ func _enter_pause() -> void:
 	])
 	get_tree().paused = true
 	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
+
+
+func _open_attack_queue() -> void:
+	load("res://scripts/testing/enemy_attack_queue_panel.gd").shared(get_tree()).open()
+
+
+func _open_testing_workspace() -> void:
+	var scene := get_tree().current_scene
+	if scene == null or scene.scene_file_path != "res://scenes/sanctum_main.tscn": return
+	_set_overlay_visible(false)
+	if not scene.has_meta("sanctum_workspace"):
+		var workspace := load("res://scripts/testing/sanctum_workspace.gd").new() as CanvasLayer
+		scene.add_child(workspace)
+		scene.set_meta("sanctum_workspace", workspace)
+	scene.get_meta("sanctum_workspace").open()
 
 
 func _on_resume() -> void:
@@ -798,6 +840,11 @@ func _notification(what: int) -> void:
 # ---------------------------------------------------------------- 输入
 
 func _input(event: InputEvent) -> void:
+	if bool(get_meta(&"attack_queue_modal", false)): return
+	if _preparing_run:
+		get_viewport().set_input_as_handled()
+		return
+	if bool(get_meta("workspace_global_modal", false)) or bool(get_meta("sanctum_workspace_modal", false)): return
 	if bool(get_meta(&"player_melee_tuning_modal", false)) or bool(get_meta(&"player_visual_tuning_modal", false)) or bool(get_meta(&"sketch_tuning_modal", false)) or bool(get_meta(&"greybox_tuning_modal", false)):
 		return
 	if _standalone_scene and not bool(get_meta(&"experiment_silent_pause", false)):

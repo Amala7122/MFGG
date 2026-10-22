@@ -21,6 +21,7 @@ signal seek_requested(fraction: float)
 var profile := ""
 var values: Dictionary = {}
 var draft_id := ""
+var target_id := ""
 var _session: RefCounted
 var _inputs: Dictionary = {}
 var _pending: Dictionary = {}
@@ -178,7 +179,7 @@ func bind_profile(id: String, can_edit := true) -> void:
 	visible = not id.is_empty()
 	if not visible:
 		return
-	draft_id = _session.open_profile(id)
+	draft_id = _session.open_profile(id, "", target_id)
 	values = _session.values(draft_id)
 	_build_fields()
 	_refresh_presets(_session.record(draft_id).preset)
@@ -364,7 +365,7 @@ func _show_failure(action: String, reason: String) -> void:
 func _load_selected() -> void:
 	if not _commit_inputs(): return
 	var title := presets.get_item_text(presets.selected)
-	draft_id = _session.open_profile(profile, title)
+	draft_id = _session.open_profile(profile, title, target_id)
 	values = _session.values(draft_id)
 	preset_name.text = _session.record(draft_id).candidate_name
 	_build_fields()

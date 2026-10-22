@@ -36,7 +36,7 @@ func _setup_species() -> void:
 
 
 func trigger_attack() -> bool:
-	if not Health.is_alive(target) or not _crowd.request_attack():
+	if not Health.is_alive(target) or not _crowd.request_attack("snipe"):
 		return false
 	aim_point = target.global_position
 	aim_locked = false
@@ -79,6 +79,9 @@ func _think(delta: float) -> Vector3:
 	if distance <= p("attack_range") and cooldown <= 0.0 and line_clear(target.global_position, visual.focus.global_position):
 		if trigger_attack():
 			return Vector3.ZERO
+		if _crowd.waiting_for_attack():
+			set_state(State.APPROACH)
+			return _steering.spatial.gate_motion(_crowd.waiting_velocity(target.global_position, move_speed, delta), delta)
 	if distance > p("preferred_distance") or not line_clear(target.global_position):
 		set_state(State.APPROACH)
 		return navigate(target.global_position, move_speed, delta)
@@ -90,6 +93,7 @@ func _fire() -> void:
 	var origin: Vector3 = visual.focus.global_position
 	var projectile := Projectile.new()
 	get_tree().current_scene.add_child(projectile)
+	preload("res://scripts/enemy_attack_queue.gd").track_effect(self, projectile)
 	projectile.configure_bolt(origin, aim_point - origin, _tuning, Telemetry.source_info(self, "棱眼锁向狙击"))
 	shots += 1
 	cooldown = p("attack_interval")
@@ -100,7 +104,7 @@ func _fire() -> void:
 func _pose(delta: float) -> void:
 	if current_state in [State.AIM, State.RECOVERY]:
 		visual.preview_pose = 2
-		visual.sample_pose(minf(state_timer if current_state == State.AIM else p("windup") + state_timer, p("windup") + p("release") + p("recovery") - 0.001))
+		visual.sample_combat_pose(minf(state_timer if current_state == State.AIM else p("windup") + state_timer, p("windup") + p("release") + p("recovery") - 0.001))
 	else:
 		super(delta)
 	_aim_line.visible = current_state == State.AIM

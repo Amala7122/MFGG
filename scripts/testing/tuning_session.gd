@@ -13,6 +13,30 @@ var _sources: Dictionary = {}
 var _last: Dictionary = {}
 var _serial := 0
 var _views: Dictionary = {}
+var scene_presets: Dictionary = {}
+
+func choose_scene_preset(key: String, scene_path: String) -> bool:
+	error = ""
+	if not _drafts.has(key) or dirty(key) or not validation(key).is_empty():
+		error = "请先显式保存有效命名方案"
+		return false
+	var d: Dictionary = _drafts[key]
+	if not test_selection(key, scene_path).get("reason", "").is_empty():
+		error = "仍有未提交原文；请回所属专业台修正／撤回"
+		return false
+	if Tuning.saved_fingerprint(d.profile, d.preset, true) != d.base_fingerprint:
+		error = "磁盘方案有外部修改；请核对后再选用，草稿保留"
+		return false
+	scene_presets[scene_path + ":" + d.profile] = {"preset": d.preset, "fingerprint": d.base_fingerprint}
+	return true
+
+func scene_preset(scene_path: String, profile: String) -> String:
+	var choice: Dictionary = scene_presets.get(scene_path + ":" + profile, {})
+	if choice.is_empty(): return ""
+	if Tuning.saved_fingerprint(profile, choice.preset, true) != choice.fingerprint:
+		error = "本场景选用方案已被外部修改，未采用；请重新明确选用"
+		return ""
+	return choice.preset
 
 func view_data(key: String, domain: String) -> Dictionary:
 	return _views.get(key + ":" + domain, {}).duplicate(true)
@@ -227,11 +251,22 @@ func snapshot(key: String, form := "combat") -> Dictionary:
 		"revision": d.revision, "base_fingerprint": d.base_fingerprint, "schema_fingerprint": d.schema_fingerprint,
 		"values": d.values.duplicate(true)}
 
-func test_selection(key: String, scene_id: String) -> Dictionary:
-	# 只建立“本轮场景选用”的数据合同；真正装配／应用由 T04/T06 执行。
+func test_selection(key: String, scene_id: String, runtime_apply := Callable()) -> Dictionary:
 	if not _drafts.has(key) or scene_id.is_empty() or not validation(key).is_empty(): return {}
-	return {"kind": "test_selection", "scene_id": scene_id, "snapshot": snapshot(key),
+	var selection := {"kind": "test_selection", "scene_id": scene_id, "snapshot": snapshot(key),
 		"scope": "this_test_only", "runtime_applied": false, "project_default_changed": false}
+	var d: Dictionary = _drafts[key]
+	if Tuning.schema_fingerprint(d.profile) != d.schema_fingerprint or Tuning.saved_fingerprint(d.profile, d.preset, true) != d.base_fingerprint:
+		selection.reason = "来源方案／参数结构已在外部变化；草稿保留，请核对后重读或另存"
+		return selection
+	for view: String in _views:
+		if view.begins_with(key + ":") and not _views[view].get("pending", {}).is_empty():
+			selection.reason = "有未提交／非法原文；保留最后有效运行值，请回专业台修正或撤回"
+			return selection
+	if runtime_apply.is_valid():
+		var result: Dictionary = runtime_apply.call(selection.snapshot)
+		selection.merge(result, true)
+	return selection
 
 func accept_result(key: String, packet: Dictionary) -> bool:
 	error = "结果不属于当前会话／对象，或草稿修订已经变化"
