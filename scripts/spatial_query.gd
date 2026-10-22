@@ -128,24 +128,28 @@ static func _floor_ray(context: Node3D, expected: Vector3, depth: float, exclude
 		query.from = hit.position + Vector3.DOWN * 0.02
 	return {}
 
-static func support(body: Node3D, remember := true) -> Dictionary:
-	var frame := Engine.get_physics_frames()
-	var revision := Destruction.geometry_revision
-	var cached := _cached_support(body, frame, revision)
-	if not cached.is_empty():
-		support_cache_hits += 1
-		if remember:
-			_remember_support(body, cached)
-		return cached
-	if support_cache_enabled:
-		support_cache_misses += 1
+static func support(body: Node3D, remember := true, reuse_within_step := false) -> Dictionary:
+	# Individual movement probes mostly query a body only once per step. Opt in
+	# for shared targets to avoid adding metadata work to all actor queries.
+	var frame := Engine.get_physics_frames() if reuse_within_step else -1
+	var revision := Destruction.geometry_revision if reuse_within_step else -1
+	if reuse_within_step:
+		var cached := _cached_support(body, frame, revision)
+		if not cached.is_empty():
+			support_cache_hits += 1
+			if remember:
+				_remember_support(body, cached)
+			return cached
+		if support_cache_enabled:
+			support_cache_misses += 1
 	var depth := 0.65
 	if body is CharacterBody3D and body.is_on_floor():
 		depth = maxf(depth, float(dimensions(body).radius) * tan(body.floor_max_angle) + 0.2)
 	var hit := floor_at(body, feet(body), depth)
 	var key := body.get_instance_id()
 	if not hit.is_empty():
-		_store_support(body, hit, frame, revision)
+		if reuse_within_step:
+			_store_support(body, hit, frame, revision)
 		if remember:
 			_remember_support(body, hit)
 		return hit
