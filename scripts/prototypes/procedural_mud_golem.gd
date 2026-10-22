@@ -10,6 +10,7 @@ const HealthUtil := preload("res://scripts/health_util.gd")
 const Targeting := preload("res://scripts/targeting.gd")
 const Nav := preload("res://scripts/nav_steering.gd")
 const GroundMovement := preload("res://scripts/ground_movement.gd")
+const Destruction := preload("res://scripts/environment_destruction.gd")
 const SpatialProfile := preload("res://scripts/combat_spatial_profile.gd")
 @export var combat_spatial_profile: SpatialProfile = preload("res://data/combat_spatial/ground.tres")
 var _steering := Nav.new()
@@ -38,6 +39,15 @@ var max_health: float
 var attack_distance: float
 var attack_interval: float
 @export var ai_enabled := true
+## EXPERIMENT ONLY. Defaults off; toggle at launch with -- --mud-walk-only.
+## Only ordinary WALK/IDLE locomotion uses native agent + live edge protection.
+@export var experimental_walk_only := false
+var _walk_trial_map_revision := -1
+var _walk_trial_geometry_revision := -1
+static var _walk_trial_steps := 0
+static var _walk_trial_fast_steps := 0
+static var _walk_trial_fallback_steps := 0
+static var _walk_trial_last_report_frame := -1
 
 var health: float
 var _tuning: Dictionary = {}
@@ -62,6 +72,7 @@ var _health_label: Label3D
 
 
 func _ready() -> void:
+	experimental_walk_only = experimental_walk_only or OS.get_cmdline_user_args().has("--mud-walk-only")
 	add_child(_attack_area)
 	_tuning = Tuning.resolve(self, PROFILE_ID)
 	if _tuning.is_empty():
@@ -119,7 +130,19 @@ func _physics_process(delta: float) -> void:
 	if _reactions.step(delta, ai_enabled and current_state in [State.IDLE, State.WALK, State.ATTACK], move_speed):
 		return
 	var queue_wait := ai_enabled and current_state in [State.IDLE, State.WALK] and _crowd.defer_attack_check(target)
-	if _steering.tick(delta, ai_enabled and not queue_wait and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK], target, move_speed):
+	var can_plan := ai_enabled and not queue_wait and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK]
+	# Compare two complete runtime paths. In the trial, the WALK-only enemy keeps
+	# its combat/reaction/physics steps, but avoids the full traversal planner
+	# while a synced navigation map and conservative mobility gates are valid.
+	var direct_trial := experimental_walk_only and can_plan and HealthUtil.is_alive(target) and _walk_trial_can_use()
+	if experimental_walk_only:
+		_walk_trial_steps += 1
+		if direct_trial:
+			_walk_trial_fast_steps += 1
+		else:
+			_walk_trial_fallback_steps += 1
+		_walk_trial_report()
+	if not direct_trial and _steering.tick(delta, can_plan, target, move_speed):
 		_animate_walk(anim_clock)
 		return
 	var desired := Vector3.ZERO
@@ -137,7 +160,7 @@ func _physics_process(delta: float) -> void:
 				if not _spatial_can_attack():
 					_set_locomotion(State.WALK)
 					desired = _crowd.steer(direction * move_speed, target.global_position, delta)
-					desired = _steering.ground_velocity(target.global_position, desired, delta)
+					desired = _walk_trial_velocity(target.global_position, desired, delta) if direct_trial else _steering.ground_velocity(target.global_position, desired, delta)
 					if not desired.is_zero_approx():
 						rotation.y = rotate_toward(rotation.y, atan2(-desired.x, -desired.z), delta * _p("turn_speed"))
 				elif _attack_cooldown <= 0.0:
@@ -163,6 +186,58 @@ func _physics_process(delta: float) -> void:
 	else:
 		velocity.y -= _p("gravity") * delta
 	GroundMovement.move(self, delta)
+
+
+## A/B trial contract:
+## - Only WALK capability and ordinary grounded movement can bypass the full
+##   route planner; attacks, queue waiting, reactions and airborne states use
+##   the original code unchanged.
+## - Local edge protection still runs every step; native agent never authorizes
+##   direct motion into a cliff.
+## - Map / destructible geometry changes force native repath. When the safety
+##   gate reports unsafe_drop, immediately fall back to full planner next step.
+func _walk_trial_can_use() -> bool:
+	if not is_on_floor() or _steering.spatial == null:
+		return false
+	var controller: RefCounted = _steering.spatial
+	if controller.status != "approach" or controller._job != null or not controller._active.is_empty() or not controller._attached.is_empty() or controller._has_exit_anchor or controller._planning_suspended:
+		return false
+	var agent: NavigationAgent3D = _steering._agent
+	if not is_instance_valid(agent):
+		return false
+	var nav_map := agent.get_navigation_map()
+	if not nav_map.is_valid():
+		return false
+	var nav_version := NavigationServer3D.map_get_iteration_id(nav_map)
+	if nav_version <= 0:
+		return false
+	if _walk_trial_map_revision != nav_version or _walk_trial_geometry_revision != Destruction.geometry_revision:
+		_walk_trial_map_revision = nav_version
+		_walk_trial_geometry_revision = Destruction.geometry_revision
+		_steering.repath()
+	return true
+
+
+func _walk_trial_velocity(goal: Vector3, desired: Vector3, delta: float) -> Vector3:
+	if desired.is_zero_approx():
+		_steering.direction_to(goal, Vector3.ZERO, delta, false)
+		return Vector3.ZERO
+	# Native NavigationAgent3D follows a route; avoid the old walk-route
+	# planner, repeated nearest-point topology checks and plan reconstruction.
+	var direction: Vector3 = _steering.direction_to(goal, desired.normalized(), delta)
+	if direction.is_zero_approx():
+		return Vector3.ZERO
+	return _steering.spatial.gate_motion(direction * desired.length(), delta)
+
+
+func _walk_trial_report() -> void:
+	var frame := Engine.get_physics_frames()
+	if frame % 600 != 0 or _walk_trial_last_report_frame == frame:
+		return
+	_walk_trial_last_report_frame = frame
+	print("[mud-walk-only] physics_steps=", _walk_trial_steps,
+		" trial_steps=", _walk_trial_fast_steps, " original_fallbacks=", _walk_trial_fallback_steps,
+		" (cumulative across all mud golems)")
 
 
 func _set_locomotion(next_state: State) -> void:
