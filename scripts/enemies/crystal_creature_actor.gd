@@ -135,7 +135,7 @@ func p(key: String) -> float:
 
 
 func _physics_process(delta: float) -> void:
-	var _cpu_scope := CpuAudit.begin(&"crystal.physics") if CpuAudit.enabled else null
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"crystal.physics") if CpuAudit.enabled else null
 	if current_state == State.DEAD:
 		return
 	_crowd.tick(delta)
@@ -207,7 +207,7 @@ func _pose(_delta: float) -> void:
 	visual.sample_combat_pose(anim_clock)
 
 func _process(_delta: float) -> void:
-	var _cpu_scope := CpuAudit.begin(&"crystal.render_pose") if CpuAudit.enabled else null
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"crystal.render_pose") if CpuAudit.enabled else null
 	if current_state != State.DEAD and is_instance_valid(visual): visual.flush_limb_pose()
 
 
@@ -224,7 +224,7 @@ func face(point: Vector3, delta: float) -> void:
 
 
 func navigate(goal: Vector3, speed: float, delta: float) -> Vector3:
-	var _cpu_scope := CpuAudit.begin(&"crystal.navigate") if CpuAudit.enabled else null
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"crystal.navigate") if CpuAudit.enabled else null
 	var flat := goal - global_position
 	flat.y = 0.0
 	var desired := flat.normalized() * speed
