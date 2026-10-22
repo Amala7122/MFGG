@@ -7,6 +7,7 @@ extends RefCounted
 static var enabled := OS.get_cmdline_user_args().has("--perf-enemy-cpu")
 static var sample_stride := 8
 static var rows: Dictionary = {}
+static var events: Dictionary = {}
 
 var _label: StringName
 var _started_usec := 0
@@ -21,6 +22,19 @@ static func begin(label: StringName) -> EnemyCpuAudit:
 	if not enabled or Engine.get_physics_frames() % sample_stride != 0:
 		return null
 	return EnemyCpuAudit.new(label)
+
+
+static func mark_attack(host: Node) -> void:
+	if not enabled:
+		return
+	var family := String(host.get_meta(&"crowd_family", host.name))
+	events[family] = int(events.get(family, 0)) + 1
+
+
+static func drain_events() -> Dictionary:
+	var snapshot := events
+	events = {}
+	return snapshot
 
 
 static func drain() -> Dictionary:
