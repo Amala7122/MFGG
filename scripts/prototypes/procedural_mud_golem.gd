@@ -111,6 +111,11 @@ func visual_flash_strength() -> float:
 	return _p("hit_flash_strength") if Time.get_ticks_msec() < _flash_until_msec else 0.0
 
 
+## Attack observation reads the same live anchor used to draw the batched fist.
+func attack_motion_point() -> Vector3:
+	return right_arm_pivot.to_global(Vector3(0.15, -0.3, 0.0))
+
+
 func _p(key: String) -> float:
 	return float(_tuning[key])
 
