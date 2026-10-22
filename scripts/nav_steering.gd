@@ -255,7 +255,7 @@ func has_path() -> bool:
 
 ## 同层且能直达时保留绕行/群体风格；高低差或路径拐角优先沿导航走。
 func ground_velocity(goal: Vector3, desired: Vector3, delta: float) -> Vector3:
-	var _cpu_scope := CpuAudit.begin(&"nav.ground_velocity") if CpuAudit.enabled else null
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"nav.ground_velocity") if CpuAudit.enabled else null
 	var result: Vector3 = spatial.adjust_ground_motion(goal, desired, delta) if spatial != null else raw_ground_velocity(goal, desired, delta)
 	if _body.has_meta(&"combat_recorder"):
 		_body.set_meta(&"sparring_motion", {"engine_frame": Engine.get_physics_frames(), "source": "ground_gate",
@@ -264,7 +264,7 @@ func ground_velocity(goal: Vector3, desired: Vector3, delta: float) -> Vector3:
 
 
 func tick(delta: float, can_act: bool, target: Node3D, speed: float) -> bool:
-	var _cpu_scope := CpuAudit.begin(&"nav.tick") if CpuAudit.enabled else null
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"nav.tick") if CpuAudit.enabled else null
 	return spatial != null and spatial.tick(delta, can_act, target, speed)
 
 
@@ -290,7 +290,7 @@ func get_sparring_diagnostic() -> Dictionary:
 
 
 func raw_ground_velocity(goal: Vector3, desired: Vector3, delta: float) -> Vector3:
-	var _cpu_scope := CpuAudit.begin(&"nav.raw_ground_velocity") if CpuAudit.enabled else null
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"nav.raw_ground_velocity") if CpuAudit.enabled else null
 	if desired.is_zero_approx():
 		direction_to(goal, Vector3.ZERO, delta, false)
 		return Vector3.ZERO
@@ -367,7 +367,7 @@ func _can_approach(goal: Vector3) -> bool:
 
 
 func needs_route(goal: Vector3) -> bool:
-	var _cpu_scope := CpuAudit.begin(&"nav.needs_route") if CpuAudit.enabled else null
+	var _cpu_scope: RefCounted = CpuAudit.begin(&"nav.needs_route") if CpuAudit.enabled else null
 	if not is_instance_valid(_agent) or not is_instance_valid(_body):
 		return false
 	var nav_map := _agent.get_navigation_map()
