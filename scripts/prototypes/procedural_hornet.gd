@@ -142,15 +142,18 @@ func _physics_process(delta: float) -> void:
 		target = Targeting.nearest_player(self)
 	if current_state in [State.PREPARE_FIRE, State.SWOOP_WINDUP, State.SWOOP_DIVE] and not _target_alive():
 		_enter_hover()
+	# The target and crowd age stay unchanged throughout this physics callback.
+	# Reuse one real floor sample rather than raycasting again while orbiting.
+	var hover_height := _hover_height() if _target_alive() else global_position.y
 	if _target_alive():
-		_air.update(delta, target, _hover_height(), _p("strafe_distance"))
+		_air.update(delta, target, hover_height, _p("strafe_distance"))
 	var desired := Vector3.ZERO
 	var response := _p("flight_response")
 	match current_state:
 		State.HOVER_STRAFE:
 			_animate_hover_idle()
 			if ai_enabled and _crowd.ready_to_move() and _target_alive():
-				desired = _orbital_velocity(delta)
+				desired = _orbital_velocity(delta, hover_height)
 				var distance := global_position.distance_to(target.global_position)
 				if remaining_needles > 0 and state_timer >= fire_interval and distance <= _p("needle_range"):
 					trigger_fire()
@@ -193,7 +196,7 @@ func _physics_process(delta: float) -> void:
 			jaw_right.rotation_degrees.y = -jaw_left.rotation_degrees.y
 		State.SWOOP_RECOVER:
 			desired = global_basis.z * _p("pull_back_speed")
-			desired.y = clampf((_hover_height() - global_position.y) * _p("height_response"), -_p("pull_up_speed"), _p("pull_up_speed"))
+			desired.y = clampf((hover_height - global_position.y) * _p("height_response"), -_p("pull_up_speed"), _p("pull_up_speed"))
 			desired = _air.steer(desired, delta) if _target_alive() else desired
 			var progress := clampf(state_timer / _p("recovery_pose_time"), 0.0, 1.0)
 			visual_root.position.y = VISUAL_OFFSET + _p("dive_lift") * (1.0 - progress)
@@ -229,7 +232,7 @@ func _hover_height() -> float:
 	return _air.hover_height(target, _p("hover_altitude") + _crowd.air_height()) if _target_alive() else global_position.y
 
 
-func _orbital_velocity(delta: float) -> Vector3:
+func _orbital_velocity(delta: float, hover_height: float) -> Vector3:
 	var offset := global_position - target.global_position
 	offset.y = 0.0
 	var distance := offset.length()
@@ -247,7 +250,7 @@ func _orbital_velocity(delta: float) -> Vector3:
 	_update_flight_jitter(delta)
 	desired += Vector3(_flight_jitter.x, 0.0, _flight_jitter.z)
 	desired += Vector3(sin(flight_clock * 2.5), 0.0, cos(flight_clock * 2.0)) * _p("turbulence_strength")
-	var vertical := (_hover_height() - global_position.y) * _p("height_response") + _flight_jitter.y
+	var vertical := (hover_height - global_position.y) * _p("height_response") + _flight_jitter.y
 	desired.y = clampf(vertical, -_p("vertical_speed_limit"), _p("vertical_speed_limit"))
 	desired = _crowd.steer_air(desired, target.global_position, delta, approaching)
 	desired = _air.steer(desired, delta)
