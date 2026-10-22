@@ -29,25 +29,25 @@ func _run() -> void:
 	await physics_frame
 	Query.support_cache_enabled = true
 	Query.reset_support_cache_counters()
-	var a: Dictionary = Query.support(target, false)
-	var b: Dictionary = Query.support(target, true)
+	var a: Dictionary = Query.support(target, false, true)
+	var b: Dictionary = Query.support(target, true, true)
 	_check(not a.is_empty() and b.position == a.position, "exact same-step cache preserves contact")
 	_check(Query.support_cache_misses == 1 and Query.support_cache_hits == 1, "identical target support queried once")
 	_check(not Query._last_support.get(target.get_instance_id(), {}).is_empty(), "remember=true after remember=false still records support")
 	target.global_position += Vector3(1.0, 0.0, 0.0)
-	Query.support(target)
+	Query.support(target, true, true)
 	_check(Query.support_cache_misses == 2, "moving body invalidates even within same physics step")
 	Destruction.geometry_changed()
-	Query.support(target)
+	Query.support(target, true, true)
 	_check(Query.support_cache_misses == 3, "world geometry revision invalidates")
 	floor_body.global_position += Vector3(0.0, 0.1, 0.0)
-	Query.support(target)
+	Query.support(target, true, true)
 	_check(Query.support_cache_misses == 4, "supporting static collider movement invalidates")
 	await physics_frame
-	Query.support(target)
+	Query.support(target, true, true)
 	_check(Query.support_cache_misses == 5, "next physics step invalidates")
 	Query.support_cache_enabled = false
-	Query.support(target)
+	Query.support(target, true, true)
 	_check(Query.support_cache_hits == 1, "disabled mode bypasses reuse")
 	Query.support_cache_enabled = true
 	Query.forget(target)
