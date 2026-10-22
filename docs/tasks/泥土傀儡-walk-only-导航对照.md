@@ -11,7 +11,7 @@
 ## 两个路径
 
 - 默认：**完全保持旧行为**，不产生实验调用或频繁计时。
-- 新：`--mud-walk-only` 开启；仅普通已落地 IDLE/WALK、AI启用、移动已激活、目标有效、导航地图已同步、空间控制器无正在执行的特殊行为/错误状态时跳过 `CombatSpatialController.tick`。`NavSteering.direction_to` 使用原生 `NavigationAgent3D`，每物理步仍执行 `gate_motion` 边缘保护、`GroundMovement.move` 和现有近战几何命中验证。地图版本或破坏版本变化立即 `repath`；不安全的移动会使空间状态转 `unsafe_drop`，下一步回到旧链路。其他兵种完全不变。
+- 新：`--mud-walk-only` 开启；仅普通已落地 IDLE/WALK、AI启用、移动已激活、目标有效、导航地图已同步、空间控制器无正在执行的特殊行为/错误状态时跳过 `CombatSpatialController.tick`。`NavSteering.direction_to` 使用原生 `NavigationAgent3D`，每物理步仍执行 `gate_motion` 边缘保护、`GroundMovement.move` 和现有近战几何命中验证。地图版本或破坏版本变化立即 `repath`；不安全的移动会使空间状态转 `unsafe_drop`，下一步回到旧链路；原生导航连续0.3秒给不出前进方向，也会让旧规划器接管至少1秒以尝试恢复。其他兵种完全不变。
 
 **未覆盖/重要风险：** 原始空间规划器对目标所在层级、绕路、无路点、悬崖退让与受困恢复承担较多职责。新模式只是结构消融，不承诺复杂多层/陡坡/破坏物环境行为等价。若新模式使敌人长时间停滞、越层、跌落、瞬移、无故无法攻击，即使帧率升高也判失败。原生导航地图的体型净空问题 I-097 未修，不能据新模式直接移除其余碰撞和边缘守卫。
 
@@ -20,10 +20,10 @@
 原本的启动命令后面添加 `-- --mud-walk-only`（Godot 自身参数和游戏用户参数用双横线分开），例如：
 
 ```powershell
-.\Godot_v4.7.2-stable_win64.exe --headless --path . -- --mud-walk-only --perf-log --perf-output=D:\tmp\mud_walk_trial
+.\Godot_v4.7.2-stable_win64.exe --path . -- --mud-walk-only --perf-log --perf-output=D:\tmp\mud_walk_trial
 ```
 
-用相同场景配置、相同30只构成、随机种子、玩家移动和物理频率测量。**先运行无 `--mud-walk-only` 的对照。** 启动后的控制台约每600个物理帧打印一次 `[mud-walk-only]` 累计直接步数和原链回退数；直接步数占比过低时，说明本对照没有覆盖测试场景。
+上述命令打开正式图形游戏，进入战斗后再测；单独以 `--headless --path .` 启动菜单并不等于生成30只敌人。若要无头重放，需另用真正加载遭遇战的既有探针。用相同场景配置、相同30只构成、随机种子、玩家移动和物理频率测量。**先运行无 `--mud-walk-only` 的对照。** 启动后的控制台约每600个物理帧打印一次 `[mud-walk-only]` 累计直接步数和原链回退数；直接步数占比过低时，说明本对照没有覆盖测试场景。
 
 至少需要对照：
 - 30混合怪、30泥土傀儡；玩家静止/持续移动；
