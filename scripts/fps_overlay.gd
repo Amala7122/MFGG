@@ -163,13 +163,21 @@ func _hitch_line(kind: String) -> String:
 	var scene := get_tree().current_scene
 	var scene_name := scene.scene_file_path.get_file() if scene != null else "unknown"
 	var enemies := get_tree().get_nodes_in_group("enemies").size()
+	var attackers := 0
+	for node in get_tree().get_nodes_in_group("enemies"):
+		if int(node.get("current_state")) == 2:
+			attackers += 1
+	var projectiles := get_tree().get_nodes_in_group("enemy_projectiles").size()
+	var hazards := get_tree().get_nodes_in_group("enemy_hazards").size()
+	var death_fx := get_tree().get_nodes_in_group("enemy_death_fx").size()
+	var debris := get_tree().get_nodes_in_group("enemy_death_effect").size()
 	var players := get_tree().get_nodes_in_group("player")
 	var position := (players[0] as Node3D).global_position if not players.is_empty() else Vector3.ZERO
 	var window_size := DisplayServer.window_get_size()
-	return "%s %s duration=%dms slow=%.1fms frames=%d max=%.1fms scene=%s enemies=%d player=(%.0f,%.0f) draw=%d nodes=%d resolution=%dx%d window_mode=%d time_scale=%.2f" % [
+	return "%s %s duration=%dms slow=%.1fms frames=%d max=%.1fms scene=%s enemies=%d attackers=%d projectiles=%d hazards=%d death_fx=%d debris=%d player=(%.0f,%.0f) draw=%d nodes=%d resolution=%dx%d window_mode=%d time_scale=%.2f" % [
 		Time.get_datetime_string_from_system(), kind,
 		Time.get_ticks_msec() - _hitch_start, _hitch_total, _hitch_frames, _hitch_max,
-		scene_name, enemies, position.x, position.z,
+		scene_name, enemies, attackers, projectiles, hazards, death_fx, debris, position.x, position.z,
 		int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
 		int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
 		window_size.x, window_size.y, DisplayServer.window_get_mode(), Engine.time_scale]

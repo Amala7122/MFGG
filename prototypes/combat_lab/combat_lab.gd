@@ -665,6 +665,9 @@ func _begin_countdown() -> void:
 	_countdown_hint.visible = true
 	_overview.current = false
 	(_player.get("camera") as Camera3D).current = true
+	# 倒计时 3 秒内就显示战斗 HUD，把首次绘制/字体/着色器编译
+	# 提前到 "3、2、1"，避免开战首帧再付 0.8-0.9 秒。
+	(_player.get("aim_ui") as CanvasLayer).visible = true
 	get_tree().paused = false
 	MouseControl.mode = Input.MOUSE_MODE_CAPTURED
 	if _flow:
@@ -674,18 +677,29 @@ func _begin_countdown() -> void:
 
 
 func _start_fight() -> void:
+	var t0 := Time.get_ticks_usec()
 	state = State.FIGHTING
 	_stats.start()
+	var t1 := Time.get_ticks_usec()
 	_stats.capture_player(_player)
 	_countdown.visible = false
 	_countdown_hint.visible = false
 	_interface.visible = false
+	var t2 := Time.get_ticks_usec()
 	_player.process_mode = Node.PROCESS_MODE_INHERIT
 	(_player.get("aim_ui") as CanvasLayer).visible = true
+	var t3 := Time.get_ticks_usec()
 	for enemy in _live_enemies:
 		enemy.process_mode = Node.PROCESS_MODE_INHERIT
+	var t4 := Time.get_ticks_usec()
 	_update_status()
+	var t5 := Time.get_ticks_usec()
 	_layout_interface()
+	var t6 := Time.get_ticks_usec()
+	print("[start_fight ms] stats=%.1f capture=%.1f player=%.1f enemies=%.1f status=%.1f layout=%.1f total=%.1f count=%d" % [
+		(t1 - t0) / 1000.0, (t2 - t1) / 1000.0, (t3 - t2) / 1000.0,
+		(t4 - t3) / 1000.0, (t5 - t4) / 1000.0, (t6 - t5) / 1000.0,
+		(t6 - t0) / 1000.0, _live_enemies.size()])
 
 
 func _show_configuration() -> void:
