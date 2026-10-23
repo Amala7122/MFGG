@@ -13,7 +13,7 @@ const COLORS := [
 	Color(0.42, 0.44, 0.45), # 石拳
 	Color(0.28, 0.32, 0.22), # 腿
 ]
-const PART_COUNT := [1, 1, 2, 2]
+const PART_COUNT: Array[int] = [1, 1, 2, 2]
 static var _scenes: Dictionary = {}
 
 var _actors: Dictionary = {}
