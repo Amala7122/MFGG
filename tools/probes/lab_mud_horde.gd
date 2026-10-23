@@ -10,6 +10,8 @@ extends "res://tools/probes/burst_crawler_perf.gd"
 var _behaviour_frames := 180
 var _filter_on := true
 var _move := true
+var _ablate_ai := false
+var _ablate_physics := false
 
 
 func _initialize() -> void:
@@ -29,6 +31,13 @@ func _initialize() -> void:
 			_filter_on = false
 		elif arg == "--move=off":
 			_move = false
+		elif arg == "--ablate=ai":
+			_ablate_ai = true
+		elif arg == "--ablate=physics":
+			_ablate_physics = true
+		elif arg == "--ablate=ai+physics":
+			_ablate_ai = true
+			_ablate_physics = true
 	call_deferred("_run")
 
 
@@ -65,6 +74,8 @@ func _run() -> void:
 		"behaviour": behaviour,
 		"filter": "sketch" if _filter_on else "none",
 		"move": _move,
+		"ablation": ("ai+physics" if _ablate_ai and _ablate_physics
+			else "ai" if _ablate_ai else "physics" if _ablate_physics else "none"),
 		"warmup_frames": _warmup,
 		"measured_frames": _frames,
 		"behaviour_frames": _behaviour_frames,
@@ -166,3 +177,11 @@ func _descendants(node: Node) -> int:
 	for child in node.get_children():
 		result += 1 + _descendants(child)
 	return result
+
+
+func _configure_enemy(enemy: Node, index: int) -> void:
+	enemy.set_meta(&"crowd_seed", 314159 + index)
+	if _ablate_ai:
+		enemy.set("ai_enabled", false)
+	if _ablate_physics:
+		enemy.process_mode = Node.PROCESS_MODE_DISABLED
