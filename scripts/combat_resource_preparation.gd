@@ -131,8 +131,9 @@ static func _visual(profile: String, values: Dictionary) -> Node3D:
 	builder.remove_child(result)
 	for child in builder.get_children(): child.free()
 	# 部分宿主在成员初始化时创建攻击区，尚未成为子节点，需显式释放。
-	var area: Node = builder.get("_attack_area") if profile != "PrototypeHornet" else null
-	if is_instance_valid(area) and area.get_parent() == null: area.free()
+	# 无节点化改造后它可能不是 Node（如泥土傀儡的 RefCounted 拳击状态），只处理节点。
+	var area: Variant = builder.get("_attack_area") if profile != "PrototypeHornet" else null
+	if area is Node and area.get_parent() == null: area.free()
 	builder.free()
 	return result
 
@@ -145,6 +146,8 @@ static func _fit(visual: Node3D) -> void:
 		var local: AABB = (inverse * part.global_transform) * part.get_aabb()
 		bounds = local if first else bounds.merge(local)
 		first = false
+	# 批量化敌人只保留姿态锚点，没有可包围的网格；不能按 0 尺寸继续缩放。
+	if first: return
 	var ratio := 3.0 / maxf(bounds.size.length(), 0.1)
 	visual.scale *= ratio
 	visual.position = Vector3(0, 0, -3) - bounds.get_center() * ratio

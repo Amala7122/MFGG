@@ -48,6 +48,11 @@ func _check() -> void:
 	if torso_group != null:
 		_expect(torso_group.multimesh.visible_instance_count == 14,
 			"batched renderer draws 14 independent torsos")
+	# 无头渲染器不保存 MultiMesh 实例数据，先验证姿态来源；图形环境再验证真实上传值。
+	var poses: Array = manager.call("_part_poses", manager._actors.values()[0])
+	_expect((poses[0] as Transform3D).origin.is_equal_approx(actors[0].torso_pivot.global_position),
+		"pose source follows this actor's true world transform")
+	if DisplayServer.get_name() != "headless" and torso_group != null:
 		_expect(torso_group.multimesh.get_instance_transform(0).origin.is_equal_approx(actors[0].torso_pivot.global_position),
 			"submitted visual pose follows this actor's true world transform")
 	# New cells must not duplicate combat actors or affect their world transform.

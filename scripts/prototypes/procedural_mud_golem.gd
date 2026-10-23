@@ -5,7 +5,7 @@ signal died(enemy: Node3D)
 const Lifecycle := preload("res://scripts/enemies/enemy_lifecycle.gd")
 const RenderBatch := preload("res://scripts/prototypes/mud_golem_render_batch.gd")
 var _render_batch: MudGolemRenderBatch
-var _flash_until_msec := 0
+var _flash_remaining := 0.0
 
 const HealthUtil := preload("res://scripts/health_util.gd")
 const Targeting := preload("res://scripts/targeting.gd")
@@ -116,7 +116,7 @@ func visual_flash_strength() -> float:
 	# This method runs once per displayed golem, so no per-enemy UI timer is needed.
 	if not always_show_health_label and is_instance_valid(_health_label) and _health_label.visible and now >= _health_label_until_msec:
 		_health_label.visible = false
-	return _p("hit_flash_strength") if now < _flash_until_msec else 0.0
+	return _p("hit_flash_strength") if _flash_remaining > 0.0 else 0.0
 
 
 ## Attack observation reads the same live anchor used to draw the batched fist.
@@ -129,6 +129,7 @@ func _p(key: String) -> float:
 
 
 func _physics_process(delta: float) -> void:
+	_flash_remaining = maxf(_flash_remaining - delta, 0.0)
 	if current_state == State.ATTACK and not HealthUtil.is_alive(_attack_target):
 		_stop_action()
 		_finish_action()
@@ -364,7 +365,7 @@ func take_damage(amount: float) -> void:
 	health = maxf(health - preload("res://scripts/combat_damage.gd").armored(self, amount, _armor), 0.0)
 	Telemetry.enemy_damaged(self, before)
 	if health < before:
-		_flash_until_msec = Time.get_ticks_msec() + ceili(_p("hit_flash_duration") * 1000.0)
+		_flash_remaining = _p("hit_flash_duration")
 		_health_label_until_msec = Time.get_ticks_msec() + 1500
 		if is_instance_valid(_health_label):
 			_health_label.visible = true
@@ -417,7 +418,7 @@ func trigger_death_scatter() -> void:
 		return
 	current_state = State.DEAD
 	health = 0.0
-	_flash_until_msec = 0
+	_flash_remaining = 0.0
 	Lifecycle.begin_death(self)
 	_stop_action()
 	_collision.set_deferred("disabled", true)
