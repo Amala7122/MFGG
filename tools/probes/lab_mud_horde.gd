@@ -152,3 +152,9 @@ func _capture(file_name: String) -> String:
 		return ""
 	var path := Artifacts.ensure_dir("screenshots").path_join(file_name)
 	return path if image.save_png(path) == OK else ""
+
+func _descendants(node: Node) -> int:
+	var result := 0
+	for child in node.get_children():
+		result += 1 + _descendants(child)
+	return result
