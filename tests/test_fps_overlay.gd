@@ -28,12 +28,15 @@ func _run() -> void:
 		for _frame in 30:
 			await process_frame
 		_check(label.text.begins_with("FPS "), "文本包含实时 FPS")
-		_check(label.text.contains("ms") and label.text.contains("peak"), "文本包含帧耗与最差单帧")
+		_check(label.text.contains("ms") and label.text.contains("peak") and label.text.contains("min"),
+			"文本包含帧耗、最差单帧与本场景最低帧")
 		var sampled_ms := float(overlay.call("sampled_ms"))
 		var sampled_fps := float(overlay.call("sampled_fps"))
+		var sampled_min := float(overlay.call("sampled_min_fps"))
 		_check(sampled_ms > 0.0 and sampled_ms < 1000.0,
 			"毫秒值来自真实墙钟而不是加载尖峰")
 		_check(sampled_fps > 0.0 and sampled_fps < 100000.0, "帧率来自真实墙钟")
+		_check(sampled_min >= 0.0, "最低帧读数可读取")
 	overlay.queue_free()
 	await process_frame
 	print("[FPS overlay] ", "FAIL" if _failed else "PASS")

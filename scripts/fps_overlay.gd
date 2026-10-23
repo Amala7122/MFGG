@@ -1,7 +1,8 @@
 extends CanvasLayer
 ## 全局帧数显示：任何场景（主游戏、测试台、原型）自动出现，不需要每个场景接入。
 ## 用真实墙钟（Time.get_ticks_usec）而不是 delta：固定步进、时间缩放、暂停都不会伪造帧率。
-## 显示 FPS、平滑帧耗，以及最近 1 秒内的最差单帧（peak），用来暴露“平均 60 但会顿一下”。
+## 显示 FPS、平滑帧耗、最近 1 秒最差单帧（peak）和本场景最差单帧（min）。
+## 超过 50ms 的单帧写入 user://logs/fps_hitches.log，便于事后追卡顿。
 ## F12 切换；鼠标穿透；自动化运行默认隐藏（可用 --fps-overlay 或环境变量强制）。
 
 const TOGGLE_KEY := KEY_F12
@@ -10,6 +11,11 @@ const HUD_CHECK_INTERVAL := 1.0
 const PEAK_WINDOW := 1.0
 ## 加载、场景切换或断点会返回秒级间隔；超过这个值视为加载尖峰，不参与统计。
 const MAX_VALID_FRAME_MS := 1000.0
+## 场景开始后的前 30 帧不参与 min/日志，避免把加载本身当成战斗中卡顿。
+const WARMUP_FRAMES := 30
+const HITCH_MS := 50.0
+const HITCH_LOG_INTERVAL_MS := 500
+const LOG_PATH := "user://logs/fps_hitches.log"
 
 var _panel: PanelContainer
 var _label: Label
@@ -22,6 +28,10 @@ var _peak_window := 0.0
 var _peak_display := 0.0
 var _shown := true
 var _hud_owns := false
+var _scene_id := 0
+var _frames_in_scene := 0
+var _min_ms := 0.0
+var _last_hitch_log := 0
 
 
 func _ready() -> void:
@@ -47,7 +57,7 @@ func _build() -> void:
 	_panel.name = "FpsOverlayPanel"
 	_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_panel.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	_panel.offset_left = -248.0
+	_panel.offset_left = -312.0
 	_panel.offset_top = -38.0
 	_panel.offset_right = -12.0
 	_panel.offset_bottom = -10.0
@@ -70,7 +80,7 @@ func _build() -> void:
 	_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.85))
 	_label.add_theme_constant_override("shadow_offset_x", 1)
 	_label.add_theme_constant_override("shadow_offset_y", 1)
-	_label.text = "FPS --   -- ms   peak -- ms"
+	_label.text = "FPS --   -- ms   peak --   min --"
 	_panel.add_child(_label)
 	add_child(_panel)
 
@@ -84,6 +94,8 @@ func _process(_delta: float) -> void:
 	_last_usec = now
 	if instant_ms <= 0.0 or instant_ms > MAX_VALID_FRAME_MS:
 		return
+	_track_scene()
+	_frames_in_scene += 1
 	_ema_ms = lerpf(_ema_ms, instant_ms, 0.1)
 	_peak_ms = maxf(_peak_ms, instant_ms)
 	_peak_window += instant_ms / 1000.0
@@ -93,15 +105,61 @@ func _process(_delta: float) -> void:
 		_peak_display = _peak_ms
 		_peak_ms = 0.0
 		_peak_window = 0.0
+	if _frames_in_scene > WARMUP_FRAMES:
+		if instant_ms > _min_ms:
+			_min_ms = instant_ms
+		if instant_ms >= HITCH_MS:
+			_log_hitch(instant_ms)
 	if _elapsed >= UPDATE_INTERVAL:
 		_elapsed = 0.0
 		var fps := 1000.0 / maxf(_ema_ms, 0.001)
-		_label.text = "FPS %.0f   %.1f ms   peak %.0f ms" % [fps, _ema_ms, _peak_display]
+		var min_fps := 1000.0 / _min_ms if _min_ms > 0.0 else 0.0
+		_label.text = "FPS %.0f   %.1f ms   peak %.0f   min %.0f" % [
+			fps, _ema_ms, _peak_display, min_fps]
 	if _hud_elapsed >= HUD_CHECK_INTERVAL:
 		_hud_elapsed = 0.0
 		# 主游戏 HUD 自己带可选 FPS（ui.show_fps）时让给它，避免同一屏两处数字。
 		_hud_owns = _visible_hud_fps() != null
 		_panel.visible = _shown and not _hud_owns
+
+
+func _track_scene() -> void:
+	var scene := get_tree().current_scene
+	var id := scene.get_instance_id() if scene != null else 0
+	if id == _scene_id:
+		return
+	_scene_id = id
+	_frames_in_scene = 0
+	_min_ms = 0.0
+	_peak_ms = 0.0
+	_peak_window = 0.0
+	_peak_display = 0.0
+	if scene != null:
+		_append_log("--- scene %s ---" % scene.scene_file_path)
+
+
+func _log_hitch(instant_ms: float) -> void:
+	var now := Time.get_ticks_msec()
+	if now - _last_hitch_log < HITCH_LOG_INTERVAL_MS:
+		return
+	_last_hitch_log = now
+	var scene := get_tree().current_scene
+	var name := scene.scene_file_path.get_file() if scene != null else "unknown"
+	_append_log("%s scene=%s frame=%.1fms fps=%.1f peak=%.1f" % [
+		Time.get_datetime_string_from_system(), name, instant_ms,
+		1000.0 / instant_ms, _peak_ms])
+
+
+func _append_log(line: String) -> void:
+	DirAccess.make_dir_recursive_absolute("user://logs")
+	var file := FileAccess.open(LOG_PATH, FileAccess.READ_WRITE)
+	if file == null:
+		file = FileAccess.open(LOG_PATH, FileAccess.WRITE)
+	if file == null:
+		return
+	file.seek_end()
+	file.store_line(line)
+	file.close()
 
 
 ## 供守卫测试读取；显示文本不应成为唯一数据源。
@@ -115,6 +173,10 @@ func sampled_fps() -> float:
 
 func sampled_peak_ms() -> float:
 	return _peak_display
+
+
+func sampled_min_fps() -> float:
+	return 1000.0 / _min_ms if _min_ms > 0.0 else 0.0
 
 
 func _visible_hud_fps() -> Node:
