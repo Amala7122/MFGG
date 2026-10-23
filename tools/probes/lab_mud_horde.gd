@@ -8,6 +8,8 @@ extends "res://tools/probes/burst_crawler_perf.gd"
 ## screenshot, so a frame-time win cannot hide a behaviour loss.
 
 var _behaviour_frames := 180
+var _filter_on := true
+var _move := true
 
 
 func _initialize() -> void:
@@ -23,6 +25,10 @@ func _initialize() -> void:
 			_frames = clampi(int(arg.trim_prefix("--frames=")), 30, 1200)
 		elif arg.begins_with("--behaviour="):
 			_behaviour_frames = clampi(int(arg.trim_prefix("--behaviour=")), 0, 900)
+		elif arg == "--filter=off":
+			_filter_on = false
+		elif arg == "--move=off":
+			_move = false
 	call_deferred("_run")
 
 
@@ -30,8 +36,8 @@ func _run() -> void:
 	if not await _start_formal_scene():
 		quit(1)
 		return
-	_set_filter(true)
-	await _phase("golem_%d" % _count, true, true, "mud_golem", _count)
+	_set_filter(_filter_on)
+	await _phase("golem_%d" % _count, _filter_on, _move, "mud_golem", _count)
 	var row: Dictionary = _rows.back()
 	var behaviour: Dictionary = await _behaviour_window()
 	var population := 0
@@ -57,7 +63,8 @@ func _run() -> void:
 		"nodes_per_enemy_average": float(descendants) / maxf(float(population), 1.0),
 		"batch": _batch_stats(),
 		"behaviour": behaviour,
-		"filter": "sketch",
+		"filter": "sketch" if _filter_on else "none",
+		"move": _move,
 		"warmup_frames": _warmup,
 		"measured_frames": _frames,
 		"behaviour_frames": _behaviour_frames,
@@ -106,7 +113,8 @@ func _behaviour_window() -> Dictionary:
 	var min_distance := INF
 	var total_distance := 0.0
 	for frame in _behaviour_frames:
-		_advance_view()
+		if _move:
+			_advance_view()
 		await process_frame
 		if frame % 6 != 0:
 			continue
