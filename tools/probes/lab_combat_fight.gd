@@ -211,6 +211,15 @@ func _apply_ablation() -> void:
 			enemy.set("ai_enabled", false)
 		elif _ablate == "physics":
 			enemy.process_mode = Node.PROCESS_MODE_DISABLED
+		elif _ablate == "spatial":
+			var steering: RefCounted = enemy.get("_steering") as RefCounted
+			if steering != null:
+				steering.set("spatial", null)
+		elif _ablate == "crowd":
+			var crowd: RefCounted = enemy.get("_crowd") as RefCounted
+			if crowd != null:
+				var settings: Dictionary = crowd.get("_settings")
+				settings["crowd_enabled"] = false
 	if _ablate == "observer":
 		var observer: Node = _lab.get("_attack_observer") as Node
 		if observer != null:

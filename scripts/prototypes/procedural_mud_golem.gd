@@ -128,6 +128,13 @@ func _p(key: String) -> float:
 	return float(_tuning[key])
 
 
+const CROWD_INTERVAL := 0.1
+var _crowd_clock := 0.0
+var _crowd_ready := false
+var _cached_crowd := Vector3.ZERO
+var _cached_wait := Vector3.ZERO
+
+
 func _physics_process(delta: float) -> void:
 	_flash_remaining = maxf(_flash_remaining - delta, 0.0)
 	if current_state == State.ATTACK and not HealthUtil.is_alive(_attack_target):
@@ -138,6 +145,13 @@ func _physics_process(delta: float) -> void:
 	if ai_enabled and not HealthUtil.is_alive(target):
 		target = Targeting.nearest_player(self)
 	_crowd.tick(delta)
+	# 邻域避让是聚团时的大头：每 100ms 重算一次，方向在两次之间复用；
+	# 空间控制器/寻路仍每帧推进，避免绕障碍与路线推进变慢。
+	_crowd_clock += delta
+	_crowd_ready = _crowd_clock >= CROWD_INTERVAL
+	var crowd_step := _crowd_clock
+	if _crowd_ready:
+		_crowd_clock = 0.0
 	anim_clock += delta * _crowd.gait_multiplier
 	_attack_cooldown = maxf(_attack_cooldown - delta, 0.0)
 	if _reactions.step(delta, ai_enabled and current_state in [State.IDLE, State.WALK, State.ATTACK], move_speed):
@@ -148,7 +162,9 @@ func _physics_process(delta: float) -> void:
 		return
 	var desired := Vector3.ZERO
 	if queue_wait:
-		desired = _steering.spatial.gate_motion(_crowd.waiting_velocity(target.global_position, move_speed, delta), delta)
+		if _crowd_ready:
+			_cached_wait = _crowd.waiting_velocity(target.global_position, move_speed, crowd_step)
+		desired = _steering.spatial.gate_motion(_cached_wait, delta)
 		_set_locomotion(State.IDLE if desired.is_zero_approx() else State.WALK)
 	elif ai_enabled and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK]:
 		if HealthUtil.is_alive(target):
@@ -160,14 +176,18 @@ func _physics_process(delta: float) -> void:
 				rotation.y = rotate_toward(rotation.y, atan2(-direction.x, -direction.z), delta * _p("turn_speed"))
 				if not _spatial_can_attack():
 					_set_locomotion(State.WALK)
-					desired = _crowd.steer(direction * move_speed, target.global_position, delta)
+					if _crowd_ready:
+						_cached_crowd = _crowd.steer(direction * move_speed, target.global_position, crowd_step)
+					desired = _cached_crowd
 					desired = _steering.ground_velocity(target.global_position, desired, delta)
 					if not desired.is_zero_approx():
 						rotation.y = rotate_toward(rotation.y, atan2(-desired.x, -desired.z), delta * _p("turn_speed"))
 				elif _attack_cooldown <= 0.0:
 					trigger_attack(target.global_position)
 					if current_state != State.ATTACK and _crowd.enabled():
-						desired = _crowd.waiting_velocity(target.global_position, move_speed, delta)
+						if _crowd_ready:
+							_cached_wait = _crowd.waiting_velocity(target.global_position, move_speed, crowd_step)
+						desired = _cached_wait
 						_set_locomotion(State.IDLE if desired.is_zero_approx() else State.WALK)
 				else:
 					_set_locomotion(State.IDLE)
