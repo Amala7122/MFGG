@@ -248,6 +248,7 @@ func _process(delta: float) -> void:
 		if countdown_remaining <= 0.0:
 			_start_fight()
 	elif state == State.FIGHTING:
+		_update_mouse_release()
 		_stats.advance(delta)
 		elapsed = _stats.time
 		_stats.capture_player(_player)
@@ -260,6 +261,17 @@ func _process(delta: float) -> void:
 		_update_weapon_readout()
 		if not _has_enemy_death_effects():
 			_present_result(_settlement_won)
+
+
+func _update_mouse_release() -> void:
+	# 战斗中按住 Alt 临时释放鼠标，可以直接点观察面板；松开后重新捕获。
+	# 不退出战斗、不打开配置页，避免“Esc 后 HUD 消失”。
+	var free_cursor := Input.is_key_pressed(KEY_ALT)
+	if free_cursor:
+		if MouseControl.mode != Input.MOUSE_MODE_VISIBLE:
+			MouseControl.mode = Input.MOUSE_MODE_VISIBLE
+	elif not _panel_open and not _tuning_open and MouseControl.mode != Input.MOUSE_MODE_CAPTURED:
+		MouseControl.mode = Input.MOUSE_MODE_CAPTURED
 
 
 func handle_lab_input(event: InputEvent) -> void:

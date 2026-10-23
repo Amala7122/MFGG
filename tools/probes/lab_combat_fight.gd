@@ -12,6 +12,7 @@ var _measure_seconds := 12.0
 var _ablate := "none"
 var _pre_ablate := "none"
 var _player_mode := "idle"
+var _cluster := false
 var _lab: Node3D
 var _player: Node3D
 var _rows: Array[Dictionary] = []
@@ -31,6 +32,8 @@ func _initialize() -> void:
 			_pre_ablate = arg.trim_prefix("--pre-ablate=")
 		elif arg.begins_with("--player="):
 			_player_mode = arg.trim_prefix("--player=")
+		elif arg == "--cluster=on":
+			_cluster = true
 	call_deferred("_run")
 
 
@@ -63,6 +66,8 @@ func _run() -> void:
 		_apply_pre_ablation()
 		await _sample("countdown")
 	var countdown_ms := Time.get_ticks_msec() - phase_start
+	if _cluster:
+		_cluster_horde()
 	# 模拟玩家实际操作：持续射击、前压、绕圈、周期手雷。
 	_player = _lab.get("_player") as Node3D
 	if _player_mode.contains("shoot"):
@@ -157,6 +162,24 @@ func _nearest_distance() -> float:
 	return closest
 
 
+func _cluster_horde() -> void:
+	var player: Node3D = _lab.get("_player") as Node3D
+	if player == null:
+		return
+	var center := player.global_position + Vector3(0, 0, -6)
+	var enemies: Array = _lab.get("_live_enemies")
+	var index := 0
+	for enemy in enemies:
+		if not is_instance_valid(enemy):
+			continue
+		var angle := TAU * float(index) / maxf(float(enemies.size()), 1.0) + 0.3
+		var radius := 1.2 + 0.45 * float(index % 8)
+		var point := center + Vector3(cos(angle), 0.0, sin(angle)) * radius
+		(enemy as Node3D).global_position = Vector3(point.x, (enemy as Node3D).global_position.y, point.z)
+		enemy.set("velocity", Vector3.ZERO)
+		index += 1
+
+
 func _apply_pre_ablation() -> void:
 	if _pre_ablate == "ai":
 		for enemy in _lab.get("_live_enemies"):
@@ -205,6 +228,7 @@ func _summary(countdown_ms: int, approach_ms: int, melee_ms: int,
 	var result := {
 		"count": _count, "line_z": _line_z, "ablation": _ablate,
 		"pre_ablation": _pre_ablate, "player_mode": _player_mode,
+		"cluster": _cluster,
 		"countdown_ms": countdown_ms, "approach_ms": approach_ms,
 		"melee_ms": melee_ms, "contact_distance": contact_distance,
 		"screenshot": screenshot, "phases": {},

@@ -311,10 +311,10 @@ func _physics_process(_delta: float) -> void:
 func _process(delta: float) -> void:
 	if not is_instance_valid(lab): return
 	_layout_panels()
-	# 观察面板只在显式观察、或场上只有一只敌人时自动出现。
-	# 36 只混战时自动绑定第一只并每帧采样/画范围，是测试台的噪声与额外成本。
+	# 观察面板保留给球员在战斗中查看；36 只混战也只采样一只（5Hz），
+	# 真正的轨迹记录已限制在 study 模式。
 	var showing: bool = study or (int(lab.state) == lab.State.FIGHTING
-		and not lab._panel_open and lab._live_enemies.size() <= 1)
+		and not lab._panel_open)
 	_panel.visible = showing and enabled
 	_mesh.visible = showing and enabled
 	_study_controls.visible = study
@@ -383,7 +383,7 @@ func _process(delta: float) -> void:
 	_readout.text = "青蓝 理论范围 / 预计轨迹 · 橙红 实际判定 · 绿 实际运动 | 体型 ×%.2f | %s | %s" % [actor.scale.x, "冻结" if get_tree().paused else "运行", _measure(spec)]
 	_hint.text = String(sample_data.get("notes", ""))
 	if _single_completed: _hint.text = "单次已结束并冻结；可重播或进入定格编辑。" + _hint.text
-	if not study: _hint.text = "V 关闭观察 · Esc 释放鼠标 · " + _hint.text
+	if not study: _hint.text = "V 关闭观察 · 按住 Alt 临时释放鼠标 · " + _hint.text
 	var controller: PanelContainer = lab._tuning_panel
 	if study and controller.enemy_id == lab._observation_profile and not controller.draft_id.is_empty():
 		if not controller._pending_text.is_empty(): _hint.text = "有输入未提交；运行样本尚未采用，返回参数页可继续修改。" + _hint.text
