@@ -1,21 +1,25 @@
 extends CanvasLayer
 ## 全局帧数显示：任何场景（主游戏、测试台、原型）自动出现，不需要每个场景接入。
-## 显示 FPS 与平滑后的单帧毫秒；F12 切换；鼠标穿透，不接管输入。
-## 自动化运行（RUIN_STAR_AUTOMATION=1）默认隐藏，避免影响像素对照与节点计数；
-## 需要时用 `-- --fps-overlay` 或环境变量 RUIN_STAR_FPS_OVERLAY=1 强制打开。
+## 用真实墙钟（Time.get_ticks_usec）而不是 delta：固定步进、时间缩放、暂停都不会伪造帧率。
+## 显示 FPS、平滑帧耗，以及最近 1 秒内的最差单帧（peak），用来暴露“平均 60 但会顿一下”。
+## F12 切换；鼠标穿透；自动化运行默认隐藏（可用 --fps-overlay 或环境变量强制）。
 
 const TOGGLE_KEY := KEY_F12
 const UPDATE_INTERVAL := 0.25
 const HUD_CHECK_INTERVAL := 1.0
-## 加载、场景切换或断点会返回几十秒的 delta；这种尖峰不参与平滑，避免
-## 一次卡顿把毫秒数字永久污染。
-const MAX_VALID_FRAME_MS := 250.0
+const PEAK_WINDOW := 1.0
+## 加载、场景切换或断点会返回秒级间隔；超过这个值视为加载尖峰，不参与统计。
+const MAX_VALID_FRAME_MS := 1000.0
 
 var _panel: PanelContainer
 var _label: Label
 var _elapsed := 0.0
 var _hud_elapsed := 0.0
 var _ema_ms := 16.7
+var _last_usec := 0
+var _peak_ms := 0.0
+var _peak_window := 0.0
+var _peak_display := 0.0
 var _shown := true
 var _hud_owns := false
 
@@ -43,7 +47,7 @@ func _build() -> void:
 	_panel.name = "FpsOverlayPanel"
 	_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_panel.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	_panel.offset_left = -202.0
+	_panel.offset_left = -248.0
 	_panel.offset_top = -38.0
 	_panel.offset_right = -12.0
 	_panel.offset_bottom = -10.0
@@ -66,27 +70,51 @@ func _build() -> void:
 	_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.85))
 	_label.add_theme_constant_override("shadow_offset_x", 1)
 	_label.add_theme_constant_override("shadow_offset_y", 1)
-	_label.text = "FPS --   -- ms"
+	_label.text = "FPS --   -- ms   peak -- ms"
 	_panel.add_child(_label)
 	add_child(_panel)
 
 
-func _process(delta: float) -> void:
-	var instant_ms := 1000.0 / maxf(delta, 0.000001)
-	if instant_ms <= MAX_VALID_FRAME_MS:
-		_ema_ms = lerpf(_ema_ms, instant_ms, 0.08)
-	_elapsed += delta
-	_hud_elapsed += delta
+func _process(_delta: float) -> void:
+	var now := Time.get_ticks_usec()
+	if _last_usec == 0:
+		_last_usec = now
+		return
+	var instant_ms := float(now - _last_usec) / 1000.0
+	_last_usec = now
+	if instant_ms <= 0.0 or instant_ms > MAX_VALID_FRAME_MS:
+		return
+	_ema_ms = lerpf(_ema_ms, instant_ms, 0.1)
+	_peak_ms = maxf(_peak_ms, instant_ms)
+	_peak_window += instant_ms / 1000.0
+	_elapsed += instant_ms / 1000.0
+	_hud_elapsed += instant_ms / 1000.0
+	if _peak_window >= PEAK_WINDOW:
+		_peak_display = _peak_ms
+		_peak_ms = 0.0
+		_peak_window = 0.0
 	if _elapsed >= UPDATE_INTERVAL:
 		_elapsed = 0.0
-		# FPS 与毫秒取自同一段平滑窗口，避免两个数字互相矛盾。
 		var fps := 1000.0 / maxf(_ema_ms, 0.001)
-		_label.text = "FPS %.0f   %.1f ms" % [fps, _ema_ms]
+		_label.text = "FPS %.0f   %.1f ms   peak %.0f ms" % [fps, _ema_ms, _peak_display]
 	if _hud_elapsed >= HUD_CHECK_INTERVAL:
 		_hud_elapsed = 0.0
 		# 主游戏 HUD 自己带可选 FPS（ui.show_fps）时让给它，避免同一屏两处数字。
 		_hud_owns = _visible_hud_fps() != null
 		_panel.visible = _shown and not _hud_owns
+
+
+## 供守卫测试读取；显示文本不应成为唯一数据源。
+func sampled_ms() -> float:
+	return _ema_ms
+
+
+func sampled_fps() -> float:
+	return 1000.0 / maxf(_ema_ms, 0.001)
+
+
+func sampled_peak_ms() -> float:
+	return _peak_display
 
 
 func _visible_hud_fps() -> Node:

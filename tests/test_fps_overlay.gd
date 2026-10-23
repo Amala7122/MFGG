@@ -28,11 +28,12 @@ func _run() -> void:
 		for _frame in 30:
 			await process_frame
 		_check(label.text.begins_with("FPS "), "文本包含实时 FPS")
-		_check(label.text.contains("ms"), "文本包含单帧毫秒")
-		var tokens := label.text.replace("ms", "").strip_edges().split(" ", false)
-		var ms_value := float(tokens[tokens.size() - 1]) if not tokens.is_empty() else 0.0
-		_check(ms_value > 0.0 and ms_value < 1000.0,
-			"毫秒值来自真实帧耗而不是加载尖峰：" + label.text)
+		_check(label.text.contains("ms") and label.text.contains("peak"), "文本包含帧耗与最差单帧")
+		var sampled_ms := float(overlay.call("sampled_ms"))
+		var sampled_fps := float(overlay.call("sampled_fps"))
+		_check(sampled_ms > 0.0 and sampled_ms < 1000.0,
+			"毫秒值来自真实墙钟而不是加载尖峰")
+		_check(sampled_fps > 0.0 and sampled_fps < 100000.0, "帧率来自真实墙钟")
 	overlay.queue_free()
 	await process_frame
 	print("[FPS overlay] ", "FAIL" if _failed else "PASS")
