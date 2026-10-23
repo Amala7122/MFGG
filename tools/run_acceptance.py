@@ -18,6 +18,7 @@ from automation_windows import BackgroundWindows
 
 CORE_TESTS = (
     "test_mouse_control",
+    "test_fps_overlay",
     "test_scene_dependencies",
     "test_audio_file_bank",
     "test_audio_synth_variants",

@@ -1,4 +1,4 @@
-﻿; Engine configuration file.
+; Engine configuration file.
 ; It's best edited using the editor UI and not directly,
 ; since the parameters that go here are not all obvious.
 ;
@@ -10,7 +10,7 @@ config_version=5
 
 [application]
 
-config/name="閬楄抗鏄熺悆-new"
+config/name="遗迹星球-new"
 run/main_scene="res://scenes/sanctum_main.tscn"
 config/use_custom_user_dir=true
 config/custom_user_dir_name="Godot/app_userdata/godot-zelda-pr14-lab"
@@ -33,6 +33,7 @@ WorldBackdrop="*res://scripts/world_backdrop.gd"
 GreyboxDirector="*res://scripts/greybox_director.gd"
 PerformanceRecorder="*res://scripts/performance_recorder.gd"
 PhantomCameraManager="*uid://duq6jhf6unyis"
+FpsOverlay="*res://scripts/fps_overlay.gd"
 
 [display]
 
