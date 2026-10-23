@@ -129,6 +129,8 @@ func _p(key: String) -> float:
 
 
 const CROWD_INTERVAL := 0.1
+const STILL_MOVE_INTERVAL := 6
+var _still_frames := 0
 var _crowd_clock := 0.0
 var _crowd_ready := false
 var _cached_crowd := Vector3.ZERO
@@ -198,15 +200,25 @@ func _physics_process(delta: float) -> void:
 			_animate_idle(anim_clock)
 		State.WALK:
 			_animate_walk(anim_clock)
-	# 重力和击退在待机、攻击、硬直时也持续，避免悬空或穿过地板。
-	velocity.x = move_toward(velocity.x, desired.x + _push_velocity.x, delta * _p("acceleration"))
-	velocity.z = move_toward(velocity.z, desired.z + _push_velocity.z, delta * _p("acceleration"))
-	_push_velocity = _push_velocity.move_toward(Vector3.ZERO, delta * _p("push_decay"))
-	if is_on_floor():
-		velocity.y = -0.5
+	# 站定/排队时不每帧跑 move_and_slide；每 6 帧刷新一次贴地。
+	# 移动、击退、悬空仍每帧走物理，避免影响追击与击退。
+	var still := is_on_floor() and desired.is_zero_approx() \
+		and _push_velocity.is_zero_approx() \
+		and Vector2(velocity.x, velocity.z).length_squared() < 0.0004
+	if still and _still_frames < STILL_MOVE_INTERVAL:
+		_still_frames += 1
+		velocity = Vector3.ZERO
+		_push_velocity = Vector3.ZERO
 	else:
-		velocity.y -= _p("gravity") * delta
-	GroundMovement.move(self, delta)
+		_still_frames = 0
+		velocity.x = move_toward(velocity.x, desired.x + _push_velocity.x, delta * _p("acceleration"))
+		velocity.z = move_toward(velocity.z, desired.z + _push_velocity.z, delta * _p("acceleration"))
+		_push_velocity = _push_velocity.move_toward(Vector3.ZERO, delta * _p("push_decay"))
+		if is_on_floor():
+			velocity.y = -0.5
+		else:
+			velocity.y -= _p("gravity") * delta
+		GroundMovement.move(self, delta)
 
 
 func _set_locomotion(next_state: State) -> void:
