@@ -11,7 +11,9 @@ var _line_z := -1000.0
 var _measure_seconds := 12.0
 var _ablate := "none"
 var _pre_ablate := "none"
+var _player_mode := "idle"
 var _lab: Node3D
+var _player: Node3D
 var _rows: Array[Dictionary] = []
 
 
@@ -27,6 +29,8 @@ func _initialize() -> void:
 			_ablate = arg.trim_prefix("--ablate=")
 		elif arg.begins_with("--pre-ablate="):
 			_pre_ablate = arg.trim_prefix("--pre-ablate=")
+		elif arg.begins_with("--player="):
+			_player_mode = arg.trim_prefix("--player=")
 	call_deferred("_run")
 
 
@@ -37,6 +41,13 @@ func _run() -> void:
 		_lab.set("enemy_line_z", _line_z)
 	root.add_child(_lab)
 	current_scene = _lab
+	# 持续 36 只的压力口径：双方都不死，避免人口缩水后帧率自然回升。
+	var player_inv := _lab.get("_invincible") as CheckBox
+	if player_inv != null:
+		player_inv.button_pressed = true
+	var enemy_inv := _lab.get("_enemy_invincible") as CheckBox
+	if enemy_inv != null:
+		enemy_inv.button_pressed = true
 	for _frame in 3:
 		await process_frame
 	_lab.call("set_selection", {"PrototypeMudGolem": _count})
@@ -52,6 +63,14 @@ func _run() -> void:
 		_apply_pre_ablation()
 		await _sample("countdown")
 	var countdown_ms := Time.get_ticks_msec() - phase_start
+	# 模拟玩家实际操作：持续射击、前压、绕圈、周期手雷。
+	_player = _lab.get("_player") as Node3D
+	if _player_mode.contains("shoot"):
+		Input.action_press("shoot")
+	if _player_mode.contains("move"):
+		Input.action_press("move_forward")
+	if _player_mode.contains("circle"):
+		Input.action_press("move_right")
 
 	# Phase 2: horde approach, until someone is within 4m or 35s pass.
 	phase_start = Time.get_ticks_msec()
@@ -68,9 +87,21 @@ func _run() -> void:
 	# Phase 3: steady melee.
 	phase_start = Time.get_ticks_msec()
 	deadline = phase_start + int(_measure_seconds * 1000.0)
+	var pulse := 0
 	while Time.get_ticks_msec() < deadline:
+		pulse += 1
+		if _player_mode.contains("circle") and is_instance_valid(_player):
+			_player.set("target_yaw", float(_player.get("target_yaw")) + 0.02)
+		if _player_mode.contains("grenade") and pulse % 20 == 0:
+			Input.action_press("grenade")
+			await process_frame
+			Input.action_release("grenade")
 		await _sample("melee")
 	var melee_ms := Time.get_ticks_msec() - phase_start
+	Input.action_release("shoot")
+	Input.action_release("grenade")
+	Input.action_release("move_forward")
+	Input.action_release("move_right")
 
 	var screenshot := await _capture()
 	var summary := _summary(countdown_ms, approach_ms, melee_ms, contact_distance, screenshot)
@@ -173,7 +204,7 @@ func _summary(countdown_ms: int, approach_ms: int, melee_ms: int,
 		contact_distance: float, screenshot: String) -> Dictionary:
 	var result := {
 		"count": _count, "line_z": _line_z, "ablation": _ablate,
-		"pre_ablation": _pre_ablate,
+		"pre_ablation": _pre_ablate, "player_mode": _player_mode,
 		"countdown_ms": countdown_ms, "approach_ms": approach_ms,
 		"melee_ms": melee_ms, "contact_distance": contact_distance,
 		"screenshot": screenshot, "phases": {},

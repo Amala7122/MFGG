@@ -14,7 +14,6 @@ const MAX_VALID_FRAME_MS := 1000.0
 ## 场景开始后的前 30 帧不参与 min/日志，避免把加载本身当成战斗中卡顿。
 const WARMUP_FRAMES := 30
 const HITCH_MS := 50.0
-const HITCH_LOG_INTERVAL_MS := 500
 const LOG_PATH := "user://logs/fps_hitches.log"
 
 var _panel: PanelContainer
@@ -31,7 +30,11 @@ var _hud_owns := false
 var _scene_id := 0
 var _frames_in_scene := 0
 var _min_ms := 0.0
-var _last_hitch_log := 0
+var _in_hitch := false
+var _hitch_start := 0
+var _hitch_frames := 0
+var _hitch_max := 0.0
+var _hitch_total := 0.0
 
 
 func _ready() -> void:
@@ -109,7 +112,10 @@ func _process(_delta: float) -> void:
 		if instant_ms > _min_ms:
 			_min_ms = instant_ms
 		if instant_ms >= HITCH_MS:
-			_log_hitch(instant_ms)
+			_track_hitch(instant_ms)
+		elif _in_hitch:
+			_append_log(_hitch_line("hitch end"))
+			_in_hitch = false
 	if _elapsed >= UPDATE_INTERVAL:
 		_elapsed = 0.0
 		var fps := 1000.0 / maxf(_ema_ms, 0.001)
@@ -138,16 +144,35 @@ func _track_scene() -> void:
 		_append_log("--- scene %s ---" % scene.scene_file_path)
 
 
-func _log_hitch(instant_ms: float) -> void:
-	var now := Time.get_ticks_msec()
-	if now - _last_hitch_log < HITCH_LOG_INTERVAL_MS:
-		return
-	_last_hitch_log = now
+func _track_hitch(instant_ms: float) -> void:
+	if not _in_hitch:
+		_in_hitch = true
+		_hitch_start = Time.get_ticks_msec()
+		_hitch_frames = 0
+		_hitch_max = 0.0
+		_hitch_total = 0.0
+	_hitch_frames += 1
+	_hitch_max = maxf(_hitch_max, instant_ms)
+	_hitch_total += instant_ms
+	# 卡顿拖过 0.5 秒也留一条进度，避免只有开始没有结束。
+	if _hitch_frames % 6 == 0:
+		_append_log(_hitch_line("hitch ongoing"))
+
+
+func _hitch_line(kind: String) -> String:
 	var scene := get_tree().current_scene
-	var name := scene.scene_file_path.get_file() if scene != null else "unknown"
-	_append_log("%s scene=%s frame=%.1fms fps=%.1f peak=%.1f" % [
-		Time.get_datetime_string_from_system(), name, instant_ms,
-		1000.0 / instant_ms, _peak_ms])
+	var scene_name := scene.scene_file_path.get_file() if scene != null else "unknown"
+	var enemies := get_tree().get_nodes_in_group("enemies").size()
+	var players := get_tree().get_nodes_in_group("player")
+	var position := (players[0] as Node3D).global_position if not players.is_empty() else Vector3.ZERO
+	var window_size := DisplayServer.window_get_size()
+	return "%s %s duration=%dms slow=%.1fms frames=%d max=%.1fms scene=%s enemies=%d player=(%.0f,%.0f) draw=%d nodes=%d resolution=%dx%d window_mode=%d time_scale=%.2f" % [
+		Time.get_datetime_string_from_system(), kind,
+		Time.get_ticks_msec() - _hitch_start, _hitch_total, _hitch_frames, _hitch_max,
+		scene_name, enemies, position.x, position.z,
+		int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
+		int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
+		window_size.x, window_size.y, DisplayServer.window_get_mode(), Engine.time_scale]
 
 
 func _append_log(line: String) -> void:
