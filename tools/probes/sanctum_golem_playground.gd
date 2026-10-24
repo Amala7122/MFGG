@@ -17,6 +17,13 @@ var _started_msec := 0
 var _started := false
 var _restarting := false
 var _invincible := true
+var _ai_on := true
+var _frozen := false
+var _shadows_on := true
+var _weather_on := true
+var _post_on := true
+var _held: Dictionary = {}
+var _hint_label: Label
 
 
 func _initialize() -> void:
@@ -125,17 +132,72 @@ func _tick() -> void:
 		return
 	if Input.is_key_pressed(KEY_R):
 		_restart()
+	if _pressed_once(KEY_F1):
+		_ai_on = not _ai_on
+		for enemy in _spawned:
+			if is_instance_valid(enemy):
+				enemy.set("ai_enabled", _ai_on)
+		_update_hint()
+	if _pressed_once(KEY_F2):
+		_frozen = not _frozen
+		for enemy in _spawned:
+			if is_instance_valid(enemy):
+				enemy.process_mode = Node.PROCESS_MODE_DISABLED if _frozen else Node.PROCESS_MODE_INHERIT
+		_update_hint()
+	if _pressed_once(KEY_F3):
+		_shadows_on = not _shadows_on
+		for light in _scene.find_children("*", "DirectionalLight3D", true, false):
+			(light as DirectionalLight3D).shadow_enabled = _shadows_on
+		_update_hint()
+	if _pressed_once(KEY_F4):
+		_weather_on = not _weather_on
+		var timeline := _scene.find_child("WeatherTimeline", true, false)
+		if timeline != null:
+			timeline.visible = _weather_on
+			timeline.set_process(_weather_on)
+		for particles in _scene.find_children("*", "GPUParticles3D", true, false):
+			(particles as GPUParticles3D).visible = _weather_on
+		for particles in _scene.find_children("*", "CPUParticles3D", true, false):
+			(particles as CPUParticles3D).visible = _weather_on
+		_update_hint()
+	if _pressed_once(KEY_F5):
+		_post_on = not _post_on
+		var post := root.get_node_or_null("PostProcess")
+		if post != null:
+			post.visible = _post_on
+		_update_hint()
 	if _probe_seconds > 0.0 and (Time.get_ticks_msec() - _started_msec) / 1000.0 >= _probe_seconds:
 		quit()
+
+
+func _pressed_once(key: Key) -> bool:
+	var down := Input.is_key_pressed(key)
+	var was := bool(_held.get(key, false))
+	_held[key] = down
+	return down and not was
 
 
 func _add_hint() -> void:
 	var layer := CanvasLayer.new()
 	layer.name = "PlaygroundHint"
-	var label := Label.new()
-	label.text = "正式圣所 · 30 只泥土傀儡\nR 重开一波 · F10 退出 · 无敌：%s" % ("开" if _invincible else "关")
-	label.add_theme_font_size_override("font_size", 16)
-	label.position = Vector2(24, 24)
-	label.modulate = Color(0.95, 0.92, 0.82, 0.9)
-	layer.add_child(label)
+	_hint_label = Label.new()
+	_hint_label.add_theme_font_size_override("font_size", 16)
+	_hint_label.position = Vector2(24, 24)
+	_hint_label.modulate = Color(0.95, 0.92, 0.82, 0.9)
+	layer.add_child(_hint_label)
 	root.add_child(layer)
+	_update_hint()
+
+
+func _update_hint() -> void:
+	if _hint_label == null:
+		return
+	_hint_label.text = ("正式圣所 · 30 只泥土傀儡 · 无敌：%s\n"
+		+ "R 重开 · F10 退出\n"
+		+ "F1 AI：%s · F2 冻结：%s · F3 阴影：%s · F4 天气粒子：%s · F5 后处理：%s") % [
+		"开" if _invincible else "关",
+		"开" if _ai_on else "关",
+		"是" if _frozen else "否",
+		"开" if _shadows_on else "关",
+		"开" if _weather_on else "关",
+		"开" if _post_on else "关"]
