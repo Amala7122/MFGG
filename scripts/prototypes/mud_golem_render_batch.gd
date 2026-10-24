@@ -22,6 +22,7 @@ var _shared_meshes: Array[Mesh] = []
 var _shared_visual_materials: Array[Material] = []
 var _shared_debris_materials: Array[Material] = []
 var _draw_calls_expected := 0
+var _pose_buffer: Array[Transform3D] = []
 
 
 static func acquire(body: Node3D) -> MudGolemRenderBatch:
@@ -66,6 +67,7 @@ func register(
 		"ref": weakref(body), "root": root_node, "torso": torso, "core": core,
 		"left_arm": left_arm, "right_arm": right_arm,
 		"left_leg": left_leg, "right_leg": right_leg,
+		"flash": -999.0,
 	}
 
 
@@ -171,14 +173,15 @@ func _part_poses(entry: Dictionary) -> Array[Transform3D]:
 	var right_arm: Node3D = entry.right_arm
 	var left_leg: Node3D = entry.left_leg
 	var right_leg: Node3D = entry.right_leg
-	return [
-		torso.global_transform,
-		core.global_transform,
-		left_arm.global_transform * Transform3D(Basis.IDENTITY, Vector3(-0.15, -0.3, 0.0)),
-		right_arm.global_transform * Transform3D(Basis.from_scale(Vector3.ONE * 1.15), Vector3(0.15, -0.3, 0.0)),
-		left_leg.global_transform * Transform3D(Basis.IDENTITY, Vector3(0.0, -0.15, 0.0)),
-		right_leg.global_transform * Transform3D(Basis.IDENTITY, Vector3(0.0, -0.15, 0.0)),
-	]
+	if _pose_buffer.size() != 6:
+		_pose_buffer.resize(6)
+	_pose_buffer[0] = torso.global_transform
+	_pose_buffer[1] = core.global_transform
+	_pose_buffer[2] = left_arm.global_transform * Transform3D(Basis.IDENTITY, Vector3(-0.15, -0.3, 0.0))
+	_pose_buffer[3] = right_arm.global_transform * Transform3D(Basis.from_scale(Vector3.ONE * 1.15), Vector3(0.15, -0.3, 0.0))
+	_pose_buffer[4] = left_leg.global_transform * Transform3D(Basis.IDENTITY, Vector3(0.0, -0.15, 0.0))
+	_pose_buffer[5] = right_leg.global_transform * Transform3D(Basis.IDENTITY, Vector3(0.0, -0.15, 0.0))
+	return _pose_buffer
 
 
 func _process(_delta: float) -> void:
@@ -221,13 +224,18 @@ func _process(_delta: float) -> void:
 			highest = highest.max(point)
 			var poses := _part_poses(entry)
 			var flash := float(actor.call("visual_flash_strength"))
+			var flash_changed := not is_equal_approx(flash, float(entry.get("flash", -999.0)))
+			if flash_changed:
+				entry["flash"] = flash
 			for piece in 4:
 				var mm: MultiMesh = multimeshes[piece]
 				for local_index in PART_COUNT[piece]:
 					var actual_index := index * PART_COUNT[piece] + local_index
 					var pose_index := piece if piece < 2 else 2 + local_index if piece == 2 else 4 + local_index
 					mm.set_instance_transform(actual_index, poses[pose_index])
-					mm.set_instance_custom_data(actual_index, Color(flash, 0.0, 0.0, 0.0))
+					# 闪光只在变化时上传；没受击时省掉每帧 180 次 custom_data 写入。
+					if flash_changed:
+						mm.set_instance_custom_data(actual_index, Color(flash, 0.0, 0.0, 0.0))
 		var bounds := AABB(lowest - Vector3(4, 5, 4), highest - lowest + Vector3(8, 10, 8))
 		for piece in 4:
 			var mm: MultiMesh = multimeshes[piece]
