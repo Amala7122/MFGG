@@ -6,6 +6,8 @@ extends SceneTree
 const MainScene := preload("res://scenes/sanctum_main.tscn")
 const Creatures := preload("res://scripts/enemies/creature_catalog.gd")
 const Terrain := preload("res://scripts/terrain_field.gd")
+const Golem := preload("res://scripts/prototypes/procedural_mud_golem.gd")
+const PROFILE_PATH := "user://logs/golem_ai_profile.log"
 const SPAWN_RING := [8.0, 10.5, 13.0, 15.5]
 const COUNT := 30
 
@@ -24,6 +26,12 @@ var _weather_on := true
 var _post_on := true
 var _held: Dictionary = {}
 var _hint_label: Label
+var _last_profile_msec := 0
+var _autoplay := false
+var _pivot: Node3D
+var _ablate_ai_after := -1.0
+var _ablate_done := false
+var _max_physics_steps := 2
 
 
 func _initialize() -> void:
@@ -32,6 +40,14 @@ func _initialize() -> void:
 			_probe_seconds = maxf(float(arg.trim_prefix("--probe-seconds=")), 0.0)
 		elif arg == "--invincible=off":
 			_invincible = false
+		elif arg == "--autoplay=on":
+			_autoplay = true
+		elif arg.begins_with("--ablate-ai-after="):
+			_ablate_ai_after = float(arg.trim_prefix("--ablate-ai-after="))
+		elif arg.begins_with("--max-physics-steps="):
+			_max_physics_steps = clampi(int(arg.trim_prefix("--max-physics-steps=")), 1, 8)
+	# 低帧螺旋兜底：一帧最多 2 个固定物理步，避免 8 步把 AI 成本再放大 8 倍。
+	Engine.max_physics_steps_per_frame = _max_physics_steps
 	call_deferred("_run")
 
 
@@ -60,6 +76,7 @@ func _run() -> void:
 		return
 	_scene = current_scene
 	_player = get_nodes_in_group("player")[0] as Node3D
+	_pivot = _player.get_node_or_null("CameraPivot") as Node3D
 	_player.set_meta(&"experiment_invincible", _invincible)
 	# 只留我们手动放的 30 只；正式波次停掉，避免混入其他兵种。
 	for director_name in ["WaveDirector", "SurvivalDirector"]:
@@ -75,6 +92,12 @@ func _run() -> void:
 	_add_hint()
 	_started = true
 	_started_msec = Time.get_ticks_msec()
+	Golem.profile_enabled = true
+	Golem.reset_profile()
+	_last_profile_msec = _started_msec
+	var header := FileAccess.open(PROFILE_PATH, FileAccess.WRITE)
+	if header != null:
+		header.store_line("# 正式圣所 30 傀儡 AI 分段耗时（aggregate ms/s 与每帧 ms）")
 	process_frame.connect(_tick)
 
 
@@ -127,6 +150,20 @@ func _restart() -> void:
 func _tick() -> void:
 	if not _started:
 		return
+	if _autoplay:
+		Input.action_press("move_right")
+		Input.action_press("shoot")
+		if _pivot != null:
+			_pivot.rotation.y += 0.03
+	if _ablate_ai_after > 0.0 and not _ablate_done \
+			and (Time.get_ticks_msec() - _started_msec) / 1000.0 >= _ablate_ai_after:
+		_ablate_done = true
+		for enemy in _spawned:
+			if is_instance_valid(enemy):
+				enemy.set("ai_enabled", false)
+		Golem.reset_profile()
+		_last_profile_msec = Time.get_ticks_msec()
+		print("[playground] AI off after %.1fs" % _ablate_ai_after)
 	if Input.is_key_pressed(KEY_F10):
 		quit()
 		return
@@ -168,6 +205,42 @@ func _tick() -> void:
 		_update_hint()
 	if _probe_seconds > 0.0 and (Time.get_ticks_msec() - _started_msec) / 1000.0 >= _probe_seconds:
 		quit()
+	if Time.get_ticks_msec() - _last_profile_msec >= 2000:
+		_log_profile()
+
+
+func _log_profile() -> void:
+	var now := Time.get_ticks_msec()
+	var seconds := maxf((now - _last_profile_msec) / 1000.0, 0.001)
+	var frames := maxi(Golem.prof_frames, 1)
+	var line := "[golem_ai] enemies=%d fps=%.1f process_ms=%.1f physics_ms=%.1f nav_ms=%.1f draw=%d nodes=%d tick_ms_s=%.1f crowd_ms_s=%.1f attack_ms_s=%.1f gate_ms_s=%.1f total_ms_s=%.1f tick_ms_frame=%.2f crowd_ms_frame=%.2f attack_ms_frame=%.2f gate_ms_frame=%.2f total_ms_frame=%.2f rest_ms_frame=%.2f" % [
+		_spawned.size(), Engine.get_frames_per_second(),
+		Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
+		Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
+		Performance.get_monitor(Performance.TIME_NAVIGATION_PROCESS) * 1000.0,
+		int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
+		int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
+		Golem.prof_tick_us / 1000.0 / seconds,
+		Golem.prof_crowd_us / 1000.0 / seconds,
+		Golem.prof_attack_us / 1000.0 / seconds,
+		Golem.prof_gate_us / 1000.0 / seconds,
+		Golem.prof_total_us / 1000.0 / seconds,
+		Golem.prof_tick_us / 1000.0 / frames,
+		Golem.prof_crowd_us / 1000.0 / frames,
+		Golem.prof_attack_us / 1000.0 / frames,
+		Golem.prof_gate_us / 1000.0 / frames,
+		Golem.prof_total_us / 1000.0 / frames,
+		maxf((Golem.prof_total_us - Golem.prof_tick_us - Golem.prof_crowd_us - Golem.prof_attack_us - Golem.prof_gate_us) / 1000.0 / frames, 0.0)]
+	var file := FileAccess.open(PROFILE_PATH, FileAccess.READ_WRITE)
+	if file == null:
+		file = FileAccess.open(PROFILE_PATH, FileAccess.WRITE)
+	else:
+		file.seek_end()
+	if file != null:
+		file.store_line(line)
+	print(line)
+	Golem.reset_profile()
+	_last_profile_msec = now
 
 
 func _pressed_once(key: Key) -> bool:
@@ -192,10 +265,10 @@ func _add_hint() -> void:
 func _update_hint() -> void:
 	if _hint_label == null:
 		return
-	_hint_label.text = ("正式圣所 · 30 只泥土傀儡 · 无敌：%s\n"
+	_hint_label.text = ("正式圣所 · 30 只泥土傀儡 · 无敌：%s · 物理步数上限 %d\n"
 		+ "R 重开 · F10 退出\n"
 		+ "F1 AI：%s · F2 冻结：%s · F3 阴影：%s · F4 天气粒子：%s · F5 后处理：%s") % [
-		"开" if _invincible else "关",
+		"开" if _invincible else "关", _max_physics_steps,
 		"开" if _ai_on else "关",
 		"是" if _frozen else "否",
 		"开" if _shadows_on else "关",

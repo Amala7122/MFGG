@@ -63,6 +63,23 @@ var _attack_cooldown := 0.0
 var _push_velocity := Vector3.ZERO
 var _health_label: Label3D
 var _health_label_until_msec := 0
+## 仅诊断用：在正式场景里把 AI 各段耗时累计出来。
+static var profile_enabled := false
+static var prof_tick_us := 0
+static var prof_crowd_us := 0
+static var prof_attack_us := 0
+static var prof_gate_us := 0
+static var prof_total_us := 0
+static var prof_frames := 0
+
+
+static func reset_profile() -> void:
+	prof_tick_us = 0
+	prof_crowd_us = 0
+	prof_attack_us = 0
+	prof_gate_us = 0
+	prof_total_us = 0
+	prof_frames = 0
 
 
 func _ready() -> void:
@@ -142,6 +159,15 @@ var _cached_wait := Vector3.ZERO
 
 
 func _physics_process(delta: float) -> void:
+	if not profile_enabled:
+		_ai_physics(delta)
+		return
+	var started := Time.get_ticks_usec()
+	_ai_physics(delta)
+	prof_total_us += Time.get_ticks_usec() - started
+
+
+func _ai_physics(delta: float) -> void:
 	_flash_remaining = maxf(_flash_remaining - delta, 0.0)
 	if current_state == State.ATTACK and not HealthUtil.is_alive(_attack_target):
 		_stop_action()
@@ -150,7 +176,12 @@ func _physics_process(delta: float) -> void:
 		return
 	if ai_enabled and not HealthUtil.is_alive(target):
 		target = Targeting.nearest_player(self)
+	if profile_enabled:
+		prof_frames += 1
+	var prof_start := Time.get_ticks_usec()
 	_crowd.tick(delta)
+	if profile_enabled:
+		prof_crowd_us += Time.get_ticks_usec() - prof_start
 	# 邻域避让是聚团时的大头：每 100ms 重算一次，方向在两次之间复用；
 	# 空间控制器/寻路仍每帧推进，避免绕障碍与路线推进变慢。
 	_crowd_clock += delta
@@ -162,15 +193,28 @@ func _physics_process(delta: float) -> void:
 	_attack_cooldown = maxf(_attack_cooldown - delta, 0.0)
 	if _reactions.step(delta, ai_enabled and current_state in [State.IDLE, State.WALK, State.ATTACK], move_speed):
 		return
+	var queue_start := Time.get_ticks_usec()
 	var queue_wait := ai_enabled and current_state in [State.IDLE, State.WALK] and _crowd.defer_attack_check(target)
-	if _steering.tick(delta, ai_enabled and not queue_wait and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK], target, move_speed):
+	if profile_enabled:
+		prof_crowd_us += Time.get_ticks_usec() - queue_start
+	var tick_start := Time.get_ticks_usec()
+	var ticked := _steering.tick(delta, ai_enabled and not queue_wait and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK], target, move_speed)
+	if profile_enabled:
+		prof_tick_us += Time.get_ticks_usec() - tick_start
+	if ticked:
 		_animate_walk(anim_clock)
 		return
 	var desired := Vector3.ZERO
 	if queue_wait:
 		if _crowd_ready:
+			var wait_start := Time.get_ticks_usec()
 			_cached_wait = _crowd.waiting_velocity(target.global_position, move_speed, crowd_step)
+			if profile_enabled:
+				prof_crowd_us += Time.get_ticks_usec() - wait_start
+		var gate_start := Time.get_ticks_usec()
 		desired = _steering.spatial.gate_motion(_cached_wait, delta)
+		if profile_enabled:
+			prof_gate_us += Time.get_ticks_usec() - gate_start
 		_set_locomotion(State.IDLE if desired.is_zero_approx() else State.WALK)
 	elif ai_enabled and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK]:
 		if HealthUtil.is_alive(target):
@@ -180,19 +224,35 @@ func _physics_process(delta: float) -> void:
 			if distance > 0.001:
 				var direction := offset / distance
 				rotation.y = rotate_toward(rotation.y, atan2(-direction.x, -direction.z), delta * _p("turn_speed"))
-				if not _spatial_can_attack():
+				var attack_start := Time.get_ticks_usec()
+				var can_attack := _spatial_can_attack()
+				if profile_enabled:
+					prof_attack_us += Time.get_ticks_usec() - attack_start
+				if not can_attack:
 					_set_locomotion(State.WALK)
 					if _crowd_ready:
+						var steer_start := Time.get_ticks_usec()
 						_cached_crowd = _crowd.steer(direction * move_speed, target.global_position, crowd_step)
+						if profile_enabled:
+							prof_crowd_us += Time.get_ticks_usec() - steer_start
 					desired = _cached_crowd
+					var ground_start := Time.get_ticks_usec()
 					desired = _steering.ground_velocity(target.global_position, desired, delta)
+					if profile_enabled:
+						prof_gate_us += Time.get_ticks_usec() - ground_start
 					if not desired.is_zero_approx():
 						rotation.y = rotate_toward(rotation.y, atan2(-desired.x, -desired.z), delta * _p("turn_speed"))
 				elif _attack_cooldown <= 0.0:
+					var trigger_start := Time.get_ticks_usec()
 					trigger_attack(target.global_position)
+					if profile_enabled:
+						prof_attack_us += Time.get_ticks_usec() - trigger_start
 					if current_state != State.ATTACK and _crowd.enabled():
 						if _crowd_ready:
+							var waiting_start := Time.get_ticks_usec()
 							_cached_wait = _crowd.waiting_velocity(target.global_position, move_speed, crowd_step)
+							if profile_enabled:
+								prof_crowd_us += Time.get_ticks_usec() - waiting_start
 						desired = _cached_wait
 						_set_locomotion(State.IDLE if desired.is_zero_approx() else State.WALK)
 				else:
