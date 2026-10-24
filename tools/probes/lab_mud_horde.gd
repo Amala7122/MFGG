@@ -11,6 +11,7 @@ var _behaviour_frames := 180
 var _filter_on := true
 var _move := true
 var _shoot := false
+var _mix := false
 var _ablate_ai := false
 var _ablate_physics := false
 
@@ -34,6 +35,8 @@ func _initialize() -> void:
 			_move = false
 		elif arg == "--shoot=on":
 			_shoot = true
+		elif arg == "--mix=on":
+			_mix = true
 		elif arg == "--ablate=ai":
 			_ablate_ai = true
 		elif arg == "--ablate=physics":
@@ -81,6 +84,7 @@ func _run() -> void:
 		"filter": "sketch" if _filter_on else "none",
 		"move": _move,
 		"shoot": _shoot,
+		"mix": _mix,
 		"ablation": ("ai+physics" if _ablate_ai and _ablate_physics
 			else "ai" if _ablate_ai else "physics" if _ablate_physics else "none"),
 		"warmup_frames": _warmup,
@@ -178,6 +182,31 @@ func _capture(file_name: String) -> String:
 		return ""
 	var path := Artifacts.ensure_dir("screenshots").path_join(file_name)
 	return path if image.save_png(path) == OK else ""
+
+func _spawn(count: int, species: String) -> void:
+	if not _mix:
+		super._spawn(count, species)
+		return
+	# 混合兵种：六种新敌人轮转，同一出生环；其余行为沿用单兵种探针。
+	var roster := ["mud_golem", "fast_beast", "hornet", "burst_crawler", "prism_spider", "charge_beetle"]
+	for index in count:
+		var entry := {"species": roster[index % roster.size()]}
+		var enemy := Creatures.instantiate(entry)
+		if enemy == null:
+			continue
+		_configure_enemy(enemy, index)
+		var angle := TAU * float(index) / float(maxi(count, 1))
+		var radius: float = SPAWN_RING[index % SPAWN_RING.size()]
+		var x := _player.global_position.x + cos(angle) * radius
+		var z := _player.global_position.z + sin(angle) * radius
+		enemy.position = Vector3(x, Terrain.height_at(x, z) + 0.6, z)
+		enemy.add_to_group("dynamic_enemies")
+		if enemy.has_method("set_combat_target"):
+			enemy.call("set_combat_target", _player)
+		var holder := _scene.get_node_or_null("Enemies")
+		(holder if holder != null else _scene).add_child(enemy)
+		_spawned.append(enemy)
+
 
 func _descendants(node: Node) -> int:
 	var result := 0
