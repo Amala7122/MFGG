@@ -32,6 +32,7 @@ var _pivot: Node3D
 var _ablate_ai_after := -1.0
 var _ablate_done := false
 var _max_physics_steps := 2
+var _pause_batch := false
 
 
 func _initialize() -> void:
@@ -42,10 +43,14 @@ func _initialize() -> void:
 			_invincible = false
 		elif arg == "--autoplay=on":
 			_autoplay = true
+		elif arg == "--pause-batch=on":
+			_pause_batch = true
 		elif arg.begins_with("--ablate-ai-after="):
 			_ablate_ai_after = float(arg.trim_prefix("--ablate-ai-after="))
 		elif arg.begins_with("--max-physics-steps="):
 			_max_physics_steps = clampi(int(arg.trim_prefix("--max-physics-steps=")), 1, 8)
+		elif arg.begins_with("--physics-hz="):
+			Engine.physics_ticks_per_second = clampi(int(arg.trim_prefix("--physics-hz=")), 15, 120)
 	# 低帧螺旋兜底：一帧最多 2 个固定物理步，避免 8 步把 AI 成本再放大 8 倍。
 	Engine.max_physics_steps_per_frame = _max_physics_steps
 	call_deferred("_run")
@@ -89,6 +94,11 @@ func _run() -> void:
 		spawn_point.set_physics_process(false)
 	await _clear_enemies()
 	_spawn_golems()
+	if _pause_batch:
+		var batch := _scene.find_child("MudGolemRenderBatch", true, false)
+		if batch != null:
+			batch.set_process(false)
+			print("[playground] batch process paused")
 	_add_hint()
 	_started = true
 	_started_msec = Time.get_ticks_msec()
