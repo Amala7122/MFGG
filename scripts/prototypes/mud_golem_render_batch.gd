@@ -22,7 +22,6 @@ var _shared_meshes: Array[Mesh] = []
 var _shared_visual_materials: Array[Material] = []
 var _shared_debris_materials: Array[Material] = []
 var _draw_calls_expected := 0
-var _render_frame := 0
 
 
 static func acquire(body: Node3D) -> MudGolemRenderBatch:
@@ -183,14 +182,7 @@ func _part_poses(entry: Dictionary) -> Array[Transform3D]:
 
 
 func _process(_delta: float) -> void:
-	# 30 只时每帧 6 个部位 × 30 次全局变换 + 上传是 process 的固定大头。
-	# 帧率低于 50 时降到每 2 帧上传一次；高位仍每帧，避免无谓的动画台阶。
-	_render_frame += 1
-	var fps := Engine.get_frames_per_second()
-	# 启动/无头时 fps 可能还是 0，先强制每帧，避免首帧姿态没上传。
-	var interval := 2 if fps >= 20.0 and fps < 50.0 else 1
-	if _render_frame % interval != 0:
-		return
+	# 每帧都上传：隔帧上传会让动画姿态出现台阶，体感是抖动。
 	var grouped: Dictionary = {}
 	var expired: Array[int] = []
 	for id: int in _actors:

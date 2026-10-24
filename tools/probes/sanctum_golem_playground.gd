@@ -51,6 +51,8 @@ func _initialize() -> void:
 			_max_physics_steps = clampi(int(arg.trim_prefix("--max-physics-steps=")), 1, 8)
 		elif arg.begins_with("--physics-hz="):
 			Engine.physics_ticks_per_second = clampi(int(arg.trim_prefix("--physics-hz=")), 15, 120)
+		elif arg.begins_with("--max-fps="):
+			Engine.max_fps = clampi(int(arg.trim_prefix("--max-fps=")), 0, 240)
 	# 低帧螺旋兜底：一帧最多 2 个固定物理步，避免 8 步把 AI 成本再放大 8 倍。
 	Engine.max_physics_steps_per_frame = _max_physics_steps
 	call_deferred("_run")
