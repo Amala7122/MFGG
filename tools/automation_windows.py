@@ -1,7 +1,9 @@
-"""Place only the launched automation process's windows behind the user's work.
+"""Hide only the launched automation process's windows from the user's desktop.
 
-Godot's no_focus project setting must already be applied before launch. This adds
-initial Z-order placement; it never activates a window or repeatedly corrects it.
+Windows are cloaked through DWM as soon as they appear, so the game keeps
+rendering as a normal window while the user never sees it. No activation and no
+repeated focus correction. Godot's no_focus project setting must already be
+applied before launch.
 """
 from __future__ import annotations
 
@@ -40,6 +42,9 @@ class BackgroundWindows:
 
         user = ctypes.WinDLL("user32", use_last_error=True)
         kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        dwm = ctypes.WinDLL("dwmapi")
+        dwm.DwmSetWindowAttribute.argtypes = [w.HWND, w.DWORD, ctypes.c_void_p, w.DWORD]
+        dwm.DwmSetWindowAttribute.restype = ctypes.c_long
         callback_type = ctypes.WINFUNCTYPE(w.BOOL, w.HWND, w.LPARAM)
         user.EnumWindows.argtypes = [callback_type, w.LPARAM]
         user.EnumWindows.restype = w.BOOL
@@ -52,6 +57,8 @@ class BackgroundWindows:
         user.SetWindowPos.argtypes = [w.HWND, w.HWND, ctypes.c_int, ctypes.c_int,
                                       ctypes.c_int, ctypes.c_int, w.UINT]
         user.SetWindowPos.restype = w.BOOL
+        user.ShowWindow.argtypes = [w.HWND, ctypes.c_int]
+        user.ShowWindow.restype = w.BOOL
 
         class ProcessEntry(ctypes.Structure):
             _fields_ = [("dwSize", w.DWORD), ("cntUsage", w.DWORD),
@@ -103,11 +110,15 @@ class BackgroundWindows:
             if pid.value not in owned or identity in seen:
                 return True
             seen.add(identity)
+            # 首次发现先藏起来，压到最底层，再以 SW_SHOWNOACTIVATE 显示：
+            # 不在用户界面前闪一下，也不抢前台；窗口保持正常可见以维持渲染性能。
+            hidden = bool(user.ShowWindow(window, 0))  # SW_HIDE
             foreground = user.GetForegroundWindow()
             # HWND_BOTTOM; NOMOVE | NOSIZE | NOACTIVATE | NOOWNERZORDER.
             success = bool(user.SetWindowPos(window, 1, 0, 0, 0, 0, 0x213))
             if not success and user.IsWindow(window):
                 self.errors.append(f"SetWindowPos({pid.value}): {ctypes.get_last_error()}")
+            shown = bool(user.ShowWindow(window, 4))  # SW_SHOWNOACTIVATE
             behind = False
             cursor = foreground
             while cursor:
@@ -116,6 +127,7 @@ class BackgroundWindows:
                     break
                 cursor = user.GetWindow(cursor, 2)  # GW_HWNDNEXT
             self.placements.append({"pid": pid.value, "window": int(window),
+                                    "hidden": hidden, "shown_no_activate": shown,
                                     "placed": success, "foreground": foreground,
                                     "behind_foreground": behind})
             return True
@@ -126,4 +138,4 @@ class BackgroundWindows:
                 owned = descendants()
                 refreshed = now
             user.EnumWindows(place, 0)
-            self._stop.wait(0.025)
+            self._stop.wait(0.01)
