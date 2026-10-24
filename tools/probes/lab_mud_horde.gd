@@ -10,6 +10,7 @@ extends "res://tools/probes/burst_crawler_perf.gd"
 var _behaviour_frames := 180
 var _filter_on := true
 var _move := true
+var _shoot := false
 var _ablate_ai := false
 var _ablate_physics := false
 
@@ -31,6 +32,8 @@ func _initialize() -> void:
 			_filter_on = false
 		elif arg == "--move=off":
 			_move = false
+		elif arg == "--shoot=on":
+			_shoot = true
 		elif arg == "--ablate=ai":
 			_ablate_ai = true
 		elif arg == "--ablate=physics":
@@ -46,7 +49,10 @@ func _run() -> void:
 		quit(1)
 		return
 	_set_filter(_filter_on)
+	if _shoot:
+		Input.action_press("shoot")
 	await _phase("golem_%d" % _count, _filter_on, _move, "mud_golem", _count)
+	Input.action_release("shoot")
 	var row: Dictionary = _rows.back()
 	var behaviour: Dictionary = await _behaviour_window()
 	var population := 0
@@ -74,6 +80,7 @@ func _run() -> void:
 		"behaviour": behaviour,
 		"filter": "sketch" if _filter_on else "none",
 		"move": _move,
+		"shoot": _shoot,
 		"ablation": ("ai+physics" if _ablate_ai and _ablate_physics
 			else "ai" if _ablate_ai else "physics" if _ablate_physics else "none"),
 		"warmup_frames": _warmup,
