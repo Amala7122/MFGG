@@ -96,6 +96,7 @@ func _ready() -> void:
 	# 造成每 0.1 秒一次的重帧脉冲（平均不差但体感抖）。
 	_crowd_clock = fmod(float(get_instance_id() % 997) * 0.011, CROWD_INTERVAL)
 	_still_frames = int(get_instance_id() % STILL_MOVE_INTERVAL)
+	_ai_phase = int(get_instance_id() % AI_TICK_STRIDE)
 	for key in ["move_speed", "attack_damage", "max_health", "attack_distance", "attack_interval"]:
 		set(key, float(_tuning[key]))
 	_armor = _p("armor")
@@ -151,7 +152,9 @@ func _p(key: String) -> float:
 
 const CROWD_INTERVAL := 0.1
 const STILL_MOVE_INTERVAL := 6
+const AI_TICK_STRIDE := 2
 var _still_frames := 0
+var _ai_phase := 0
 var _crowd_clock := 0.0
 var _crowd_ready := false
 var _cached_crowd := Vector3.ZERO
@@ -176,21 +179,25 @@ func _ai_physics(delta: float) -> void:
 		return
 	if ai_enabled and not HealthUtil.is_alive(target):
 		target = Targeting.nearest_player(self)
+	anim_clock += delta * _crowd.gait_multiplier
+	_attack_cooldown = maxf(_attack_cooldown - delta, 0.0)
+	# AI 决策每 2 个物理 tick 一次（按实例错峰）；移动/物理仍每 tick，
+	# 低帧时不会因为一渲染帧补多个物理 tick 而重复跑完整决策。
+	var physics_frame := Engine.get_physics_frames()
+	if ai_enabled and (physics_frame + _ai_phase) % AI_TICK_STRIDE != 0:
+		_continue_motion(delta)
+		return
 	if profile_enabled:
 		prof_frames += 1
 	var prof_start := Time.get_ticks_usec()
 	_crowd.tick(delta)
 	if profile_enabled:
 		prof_crowd_us += Time.get_ticks_usec() - prof_start
-	# 邻域避让是聚团时的大头：每 100ms 重算一次，方向在两次之间复用；
-	# 空间控制器/寻路仍每帧推进，避免绕障碍与路线推进变慢。
 	_crowd_clock += delta
 	_crowd_ready = _crowd_clock >= CROWD_INTERVAL
 	var crowd_step := _crowd_clock
 	if _crowd_ready:
 		_crowd_clock = 0.0
-	anim_clock += delta * _crowd.gait_multiplier
-	_attack_cooldown = maxf(_attack_cooldown - delta, 0.0)
 	if _reactions.step(delta, ai_enabled and current_state in [State.IDLE, State.WALK, State.ATTACK], move_speed):
 		return
 	var queue_start := Time.get_ticks_usec()
@@ -264,6 +271,20 @@ func _ai_physics(delta: float) -> void:
 			_animate_idle(anim_clock)
 		State.WALK:
 			_animate_walk(anim_clock)
+	_move_physics(desired, delta)
+
+
+func _continue_motion(delta: float) -> void:
+	var desired := Vector3(velocity.x, 0.0, velocity.z)
+	match current_state:
+		State.IDLE:
+			_animate_idle(anim_clock)
+		State.WALK:
+			_animate_walk(anim_clock)
+	_move_physics(desired, delta)
+
+
+func _move_physics(desired: Vector3, delta: float) -> void:
 	# 站定/排队时不每帧跑 move_and_slide；每 6 帧刷新一次贴地。
 	# 移动、击退、悬空仍每帧走物理，避免影响追击与击退。
 	var still := is_on_floor() and desired.is_zero_approx() \
