@@ -75,6 +75,10 @@ func _ready() -> void:
 	_tuning = _crowd.varied_values(_tuning, ["move_speed"], ["attack_damage"],
 		["attack_interval", "attack_windup", "attack_swing", "attack_recovery"])
 	anim_clock = _crowd.phase
+	# 错开 10Hz 群体重算与站定刷新：否则 36 只会落在同一物理帧，
+	# 造成每 0.1 秒一次的重帧脉冲（平均不差但体感抖）。
+	_crowd_clock = fmod(float(get_instance_id() % 997) * 0.011, CROWD_INTERVAL)
+	_still_frames = int(get_instance_id() % STILL_MOVE_INTERVAL)
 	for key in ["move_speed", "attack_damage", "max_health", "attack_distance", "attack_interval"]:
 		set(key, float(_tuning[key]))
 	_armor = _p("armor")
