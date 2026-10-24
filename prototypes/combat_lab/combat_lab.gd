@@ -245,18 +245,30 @@ func _process(delta: float) -> void:
 	if state == State.COUNTDOWN:
 		countdown_remaining = maxf(countdown_remaining - delta, 0.0)
 		_countdown.text = str(ceili(countdown_remaining))
+		# 倒计时内持续刷新 HUD 读数，把首帧的字体/布局成本提前摊掉。
+		_update_status()
 		if countdown_remaining <= 0.0:
 			_start_fight()
 	elif state == State.FIGHTING:
+		var t0 := Time.get_ticks_usec()
 		_update_mouse_release()
 		_stats.advance(delta)
+		var t1 := Time.get_ticks_usec()
 		elapsed = _stats.time
 		_stats.capture_player(_player)
+		var t2 := Time.get_ticks_usec()
 		_sample_time += delta
-		if _sample_time >= 0.1:
+		var sampled := _sample_time >= 0.1
+		if sampled:
 			_sample_time = 0.0
 			_stats.sample_motion(_live_enemies)
+		var t3 := Time.get_ticks_usec()
 		_update_status()
+		var t4 := Time.get_ticks_usec()
+		if t4 - t0 > 20000:
+			print("[lab process ms] advance=%.1f capture=%.1f sample=%.1f status=%.1f total=%.1f sampled=%s" % [
+				(t1 - t0) / 1000.0, (t2 - t1) / 1000.0, (t3 - t2) / 1000.0,
+				(t4 - t3) / 1000.0, (t4 - t0) / 1000.0, sampled])
 	elif state == State.RESOLVING:
 		_update_weapon_readout()
 		if not _has_enemy_death_effects():
@@ -832,7 +844,7 @@ func _update_status() -> void:
 
 
 func _update_weapon_readout() -> void:
-	_weapon_plate.visible = is_instance_valid(_player) and not _stats_open and not _tuning_open and (not is_instance_valid(_attack_observer) or not _attack_observer.study) and state in [State.FIGHTING, State.FINISHED, State.RESOLVING]
+	_weapon_plate.visible = is_instance_valid(_player) and not _stats_open and not _tuning_open and (not is_instance_valid(_attack_observer) or not _attack_observer.study) and state in [State.COUNTDOWN, State.FIGHTING, State.FINISHED, State.RESOLVING]
 	if not is_instance_valid(_player):
 		return
 	var weapon: Node = _player.get("_weapon")
@@ -875,7 +887,7 @@ func get_stats_snapshot() -> Dictionary:
 
 
 func _update_live_stats() -> void:
-	_live_stats_plate.visible = _live_stats_toggle.button_pressed and state == State.FIGHTING and not _panel_open
+	_live_stats_plate.visible = _live_stats_toggle.button_pressed and state in [State.COUNTDOWN, State.FIGHTING] and not _panel_open
 	if _live_stats_plate.visible:
 		_live_stats_readout.text = StatsView.live_text(_stats.live_snapshot())
 	_live_stats_plate.position = _weapon_plate.position + Vector2(0, _weapon_plate.size.y + 10)
