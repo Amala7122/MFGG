@@ -51,6 +51,9 @@ var _fodder_field
 var _fodder_aoe := false
 var _last_fodder_aoe := 0
 var _player_at := Vector2.INF
+var _shot_path := ""
+var _shot_at := 4.0
+var _shot_done := false
 var _death_test := false
 var _death_done := false
 
@@ -87,6 +90,10 @@ func _initialize() -> void:
 			var parts := arg.trim_prefix("--player-at=").split(",")
 			if parts.size() == 2:
 				_player_at = Vector2(float(parts[0]), float(parts[1]))
+		elif arg.begins_with("--shot="):
+			_shot_path = arg.trim_prefix("--shot=")
+		elif arg.begins_with("--shot-at="):
+			_shot_at = float(arg.trim_prefix("--shot-at="))
 		elif arg == "--death-test=on":
 			_death_test = true
 		elif arg.begins_with("--ablate-ai-after="):
@@ -337,6 +344,13 @@ func _tick() -> void:
 		if post != null:
 			post.visible = _post_on
 		_update_hint()
+	if not _shot_done and _shot_path != "" \
+			and (Time.get_ticks_msec() - _started_msec) / 1000.0 >= _shot_at:
+		_shot_done = true
+		var image := root.get_texture().get_image()
+		if image != null:
+			image.save_png(_shot_path)
+			print("[shot] %s" % _shot_path)
 	if _probe_seconds > 0.0 and (Time.get_ticks_msec() - _started_msec) / 1000.0 >= _probe_seconds:
 		quit()
 	if _fodder_aoe and _fodder_field != null:

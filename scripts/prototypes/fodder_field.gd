@@ -7,6 +7,7 @@ extends Node3D
 
 const Terrain := preload("res://scripts/terrain_field.gd")
 const SurfaceGridScript := preload("res://scripts/prototypes/surface_grid.gd")
+const FlowFieldScript := preload("res://scripts/flow_field.gd")
 const MERGED_SHADER := preload("res://shaders/golem_fodder_merged.gdshader")
 
 const SPEED := 3.4
@@ -28,7 +29,8 @@ const AVOID_INTERVAL := 3
 const AVOID_HOLD := 0.25
 const AVOID_STEP := 0.4
 const STEP_HEIGHT := 0.35
-const SURFACE_RADIUS := 60.0
+const SURFACE_RADIUS := 40.0
+const SURFACE_CELL := 1.0
 const RESOLVE_INTERVAL := 2
 const RESOLVE_RADIUS := 0.35
 const RESOLVE_CENTER := 0.05
@@ -222,16 +224,27 @@ func _physics_process(delta: float) -> void:
 	if player == null or not is_instance_valid(player) or count <= 0:
 		return
 	if not _surface_ready and _surface != null:
-		_surface.build(get_world_3d(), player.global_position, SURFACE_RADIUS, 2.0)
+		_surface.build(get_world_3d(), player.global_position, SURFACE_RADIUS, SURFACE_CELL)
 		_surface_ready = true
 		surface_build_ms = _surface.build_usec / 1000.0
-		print("[fodder] surface_ms=%.1f radius=%.0f step=%.2f" % [
-			surface_build_ms, SURFACE_RADIUS, STEP_HEIGHT])
+		print("[fodder] surface_ms=%.1f radius=%.0f cell=%.1f step=%.2f" % [
+			surface_build_ms, SURFACE_RADIUS, SURFACE_CELL, STEP_HEIGHT])
+		# 用表面高度重建流场：平台/石头的高差边直接不可通行，单位从远处就绕。
+		var surface_flow := FlowFieldScript.new()
+		surface_flow.set_height_provider(_surface, STEP_HEIGHT)
+		surface_flow.rebuild(player.global_position)
+		flow = surface_flow
+		print("[fodder] flow_cells=%d" % surface_flow.reachable_cells)
 		for index in count:
 			if _alive[index] != 0:
 				var p := _positions[index]
-				p.y = _surface.height_at(p.x, p.z) + BODY_OFFSET
-				_positions[index] = p
+				var current_ground := p.y - BODY_OFFSET
+				var target_ground: float = _surface.height_at(p.x, p.z)
+				# 只允许 35cm 以内的抬升；高平台内的单位保持原位，让胶囊解算把它们推出去，
+				# 避免首帧“瞬移站上高平台”。
+				if target_ground - current_ground <= STEP_HEIGHT + 0.001:
+					p.y = target_ground + BODY_OFFSET
+					_positions[index] = p
 	var target := player.global_position
 	var grid: Dictionary = {}
 	for index in count:

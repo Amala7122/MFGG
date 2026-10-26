@@ -23,6 +23,8 @@ static var mask_build_usec := 0
 var _distance: PackedInt32Array = PackedInt32Array()
 var _n := 0
 var _origin := Vector2.ZERO
+var _height_provider = null
+var _step_height := INF
 var rebuild_usec := 0
 var reachable_cells := 0
 var last_error := ""
@@ -55,6 +57,11 @@ func _ensure_mask() -> void:
 
 
 ## 同步重建：仅用于首帧/测试；运行时应走 request_rebuild + poll_rebuild。
+func set_height_provider(provider, step_height: float) -> void:
+	_height_provider = provider
+	_step_height = step_height
+
+
 func rebuild(center: Vector3) -> void:
 	_ensure_mask()
 	_apply(_compute(center))
@@ -121,6 +128,12 @@ func _compute(center: Vector3) -> Dictionary:
 		var ix: int = index % n
 		var iz: int = int(index / n)
 		var next_distance := distance[index] + 1
+		var current_height := 0.0
+		var height_checked := _height_provider != null
+		if height_checked:
+			var wx := origin.x + float(ix) * CELL_SIZE
+			var wz := origin.y + float(iz) * CELL_SIZE
+			current_height = _height_provider.height_at(wx, wz)
 		for direction: Vector2i in DIRECTIONS:
 			var nx: int = ix + direction.x
 			var nz: int = iz + direction.y
@@ -129,6 +142,11 @@ func _compute(center: Vector3) -> Dictionary:
 			var neighbor: int = nz * n + nx
 			if _mask[neighbor] == 0 or distance[neighbor] >= 0:
 				continue
+			if height_checked:
+				var wx2 := origin.x + float(nx) * CELL_SIZE
+				var wz2 := origin.y + float(nz) * CELL_SIZE
+				if absf(_height_provider.height_at(wx2, wz2) - current_height) > _step_height + 0.001:
+					continue
 			if direction.x != 0 and direction.y != 0:
 				# 斜向必须两侧正交格都可走，避免穿墙角。
 				if _mask[iz * n + nx] == 0 or _mask[nz * n + ix] == 0:
