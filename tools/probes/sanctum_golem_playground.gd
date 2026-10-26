@@ -74,6 +74,8 @@ func _initialize() -> void:
 			_no_post = true
 		elif arg == "--lite=on":
 			_lite = true
+		elif arg == "--heightmap=on":
+			Terrain.collision_backend = "heightmap"
 		elif arg == "--lite-shockwave=on":
 			_lite_shockwave = true
 		elif arg.begins_with("--ablate-ai-after="):

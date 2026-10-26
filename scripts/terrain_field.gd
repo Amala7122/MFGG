@@ -71,6 +71,8 @@ static var _extent := DEFAULT_EXTENT
 ## 而阶段推进是靠重载场景来换竞技场的：只记 "已应用过" 的话，第二次加载会
 ## 沿用地形早已换掉的上一个竞技场。
 static var _applied_id := ""
+## 地形碰撞后端实验：concave 为原三角网；heightmap 用 HeightMapShape3D（格距 1m 时）。
+static var collision_backend := "concave"
 
 
 # ---------------------------------------------------------------- 竞技场
@@ -465,6 +467,16 @@ func _facet_color(x: float, z: float, height: float) -> Color:
 func _build_collision(heights: PackedFloat32Array) -> void:
 	var step := (_build_extent * 2.0) / float(_steps)
 	var stride := _steps + 1
+	if collision_backend == "heightmap" and is_equal_approx(step, 1.0):
+		var heightmap := HeightMapShape3D.new()
+		heightmap.map_width = stride
+		heightmap.map_depth = stride
+		heightmap.map_data = heights
+		var height_collision := CollisionShape3D.new()
+		height_collision.name = "TerrainCollision"
+		height_collision.shape = heightmap
+		add_child(height_collision)
+		return
 	var faces := PackedVector3Array()
 	faces.resize(_steps * _steps * 6)
 	var cursor := 0
