@@ -32,6 +32,7 @@ const STEP_HEIGHT := 0.7
 const FLOW_SLOPE_HEIGHT := 2.8
 const SURFACE_RADIUS := 40.0
 const SURFACE_CELL := 1.0
+const SURFACE_BUILD_DELAY_FRAMES := 8
 const RESOLVE_INTERVAL := 1
 const RESOLVE_RADIUS := 0.35
 const RESOLVE_CENTER := 0.05
@@ -68,6 +69,7 @@ var _surface_ready := false
 var surface_build_ms := 0.0
 var _flow_clock := 0.0
 var _flow_anchor := Vector3.ZERO
+var _surface_delay := SURFACE_BUILD_DELAY_FRAMES
 
 var _multimesh: MultiMesh
 var _multimesh_instance: MultiMeshInstance3D
@@ -228,6 +230,11 @@ func _physics_process(delta: float) -> void:
 	if player == null or not is_instance_valid(player) or count <= 0:
 		return
 	if not _surface_ready and _surface != null:
+		# 场景刚切换时静态碰撞/物理空间可能还没同步；太早采表面会得到不完整世界，
+		# 第一波就会钻到石头/坡下面。等几个物理帧后再建，期间单位原地待命。
+		if _surface_delay > 0:
+			_surface_delay -= 1
+			return
 		_surface.build(get_world_3d(), player.global_position, SURFACE_RADIUS, SURFACE_CELL)
 		_surface_ready = true
 		surface_build_ms = _surface.build_usec / 1000.0
