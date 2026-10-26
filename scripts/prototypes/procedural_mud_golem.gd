@@ -155,6 +155,7 @@ const STILL_MOVE_INTERVAL := 6
 const AI_TICK_STRIDE := 2
 static var ai_stride := 2
 var _still_frames := 0
+var _close_hold := false
 var _ai_phase := 0
 var _crowd_clock := 0.0
 var _crowd_ready := false
@@ -203,15 +204,21 @@ func _ai_physics(delta: float) -> void:
 		return
 	if _try_attack_first():
 		return
-	var tick_start := Time.get_ticks_usec()
-	var ticked := _steering.tick(delta, ai_enabled and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK], target, move_speed)
-	if profile_enabled:
-		prof_tick_us += Time.get_ticks_usec() - tick_start
+	var ticked := false
+	if not _close_hold:
+		var tick_start := Time.get_ticks_usec()
+		ticked = _steering.tick(delta, ai_enabled and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK], target, move_speed)
+		if profile_enabled:
+			prof_tick_us += Time.get_ticks_usec() - tick_start
 	if ticked:
 		_animate_walk(anim_clock)
 		return
 	var desired := Vector3.ZERO
-	if ai_enabled and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK]:
+	if _close_hold:
+		# 贴身战斗姿态：面向玩家停步；不再沿旧路线走开或原地踏步。
+		desired = Vector3.ZERO
+		_set_locomotion(State.IDLE)
+	elif ai_enabled and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK]:
 		if HealthUtil.is_alive(target):
 			var offset := target.global_position - global_position
 			offset.y = 0.0
@@ -308,16 +315,27 @@ func _move_physics(desired: Vector3, delta: float) -> void:
 
 
 func _try_attack_first() -> bool:
+	_close_hold = false
 	if not ai_enabled or current_state not in [State.IDLE, State.WALK]:
 		return false
-	if _attack_cooldown > 0.0 or not is_instance_valid(target):
+	if not is_instance_valid(target):
 		return false
 	var offset := target.global_position - global_position
 	offset.y = 0.0
-	var reach := (attack_distance + _p("attack_reach_extra")) * _crowd.size_multiplier + 0.6
-	if offset.length_squared() > reach * reach:
+	var distance := offset.length()
+	var reach := (attack_distance + _p("attack_reach_extra")) * _crowd.size_multiplier
+	var hold := reach + 0.25
+	if distance > hold or distance <= 0.001:
 		return false
+	# 近身立即转身面向玩家；背后贴脸也能进入攻击扇区。
+	var direction := offset / distance
+	rotation.y = atan2(-direction.x, -direction.z)
+	# 只有真实可达（扇形/高度/遮挡都通过）才停步进入战斗姿态；
+	# 被石头挡住的继续寻路，不能在这里假装能打。
 	if not _spatial_can_attack():
+		return false
+	_close_hold = true
+	if _attack_cooldown > 0.0:
 		return false
 	return trigger_attack(target.global_position)
 
