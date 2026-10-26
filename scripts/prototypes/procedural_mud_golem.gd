@@ -224,6 +224,18 @@ func _ai_physics(delta: float) -> void:
 		return
 	if _try_attack_first():
 		return
+	# 全地图追击兜底：距离 >20m 时不再进入战术规划（100 只共享每帧 2.2ms 预算，
+	# 远处目标会大量卡在 checking/relocate），直接朝玩家走；20m 内切回原寻路/攻击。
+	if ai_enabled and current_state in [State.IDLE, State.WALK] and is_instance_valid(target):
+		var far_offset := target.global_position - global_position
+		far_offset.y = 0.0
+		if far_offset.length() > 20.0:
+			var far_desired := far_offset.normalized() * move_speed
+			rotation.y = atan2(-far_desired.x, -far_desired.z)
+			_set_locomotion(State.WALK)
+			_animate_walk(anim_clock)
+			_move_physics(far_desired, delta)
+			return
 	# 移动门保持旧行为：排队时停步/小范围游荡，不持续寻路；
 	# 攻击门独立：上面的 _try_attack_first 每 tick 都跑，近身仍可转身出手。
 	var queue_wait := ai_enabled and current_state in [State.IDLE, State.WALK] and _crowd.defer_attack_check(target)
