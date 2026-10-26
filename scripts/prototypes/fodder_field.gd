@@ -22,6 +22,10 @@ const BODY_OFFSET := 0.65
 const MAX_HEALTH := 60.0
 const HITSTUN_MIN := 0.35
 const MAX_DEBRIS := 72
+const AVOID_DISTANCE := 1.7
+const AVOID_INTERVAL := 3
+const AVOID_HOLD := 0.25
+const AVOID_STEP := 0.5
 
 const STATE_MOVE := 0
 const STATE_WINDUP := 1
@@ -45,6 +49,8 @@ var _flash := PackedFloat32Array()
 var _move_weight := PackedFloat32Array()
 var _alive := PackedByteArray()
 var _render_indices := PackedInt32Array()
+var _avoid_dirs := PackedVector3Array()
+var _avoid_timers := PackedFloat32Array()
 
 var _multimesh: MultiMesh
 var _multimesh_instance: MultiMeshInstance3D
@@ -79,6 +85,8 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3) -> v
 	_flash.resize(count)
 	_move_weight.resize(count)
 	_alive.resize(count)
+	_avoid_dirs.resize(count)
+	_avoid_timers.resize(count)
 	_build_visuals()
 	alive_count = count
 	for index in count:
@@ -97,6 +105,8 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3) -> v
 		_flash[index] = 0.0
 		_move_weight[index] = 1.0
 		_alive[index] = 1
+		_avoid_dirs[index] = Vector3.ZERO
+		_avoid_timers[index] = 0.0
 	add_to_group("fodder_fields")
 
 
@@ -252,6 +262,36 @@ func _physics_process(delta: float) -> void:
 			direction = flow.call("direction_at", pos)
 		if direction.length_squared() < 0.001:
 			direction = to.normalized() if distance > 0.001 else Vector3.FORWARD
+		_avoid_timers[index] = maxf(0.0, _avoid_timers[index] - delta)
+		if (Engine.get_physics_frames() + index) % AVOID_INTERVAL == 0:
+			var origin := pos + Vector3.UP * 0.6
+			var query := PhysicsRayQueryParameters3D.create(origin, origin + direction * AVOID_DISTANCE, 1)
+			var hit := get_world_3d().direct_space_state.intersect_ray(query)
+			var avoid := Vector3.ZERO
+			if not hit.is_empty():
+				var normal: Vector3 = hit.normal
+				normal.y = 0.0
+				if normal.length_squared() > 0.001 and absf(float(hit.normal.y)) < 0.75:
+					var tangent := normal.normalized().cross(Vector3.UP).normalized()
+					if tangent.dot(to) < 0.0:
+						tangent = -tangent
+					avoid = tangent
+			else:
+				var ahead := pos + direction * 1.2
+				var ahead_height := Terrain.height_at(ahead.x, ahead.z)
+				if absf(ahead_height - (pos.y - BODY_OFFSET)) > AVOID_STEP:
+					var ground_normal := Terrain.normal_at(ahead.x, ahead.z)
+					ground_normal.y = 0.0
+					if ground_normal.length_squared() > 0.001:
+						var tangent2 := ground_normal.normalized().cross(Vector3.UP).normalized()
+						if tangent2.dot(to) < 0.0:
+							tangent2 = -tangent2
+						avoid = tangent2
+			if avoid.length_squared() > 0.001:
+				_avoid_dirs[index] = avoid
+				_avoid_timers[index] = AVOID_HOLD
+		if _avoid_timers[index] > 0.0 and _avoid_dirs[index].length_squared() > 0.001:
+			direction = (direction + _avoid_dirs[index] * 1.6).normalized()
 		var push := Vector3.ZERO
 		var cell := Vector2i(floori(pos.x / 2.0), floori(pos.z / 2.0))
 		for dz in range(-1, 2):
