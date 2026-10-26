@@ -97,6 +97,7 @@ func _ready() -> void:
 	_crowd_clock = fmod(float(get_instance_id() % 997) * 0.011, CROWD_INTERVAL)
 	_still_frames = int(get_instance_id() % STILL_MOVE_INTERVAL)
 	_ai_phase = int(get_instance_id() % maxi(ai_stride, 1))
+	_move_phase = int(get_instance_id() % maxi(move_stride, 1))
 	for key in ["move_speed", "attack_damage", "max_health", "attack_distance", "attack_interval"]:
 		set(key, float(_tuning[key]))
 	_armor = _p("armor")
@@ -154,6 +155,9 @@ const CROWD_INTERVAL := 0.1
 const STILL_MOVE_INTERVAL := 6
 const AI_TICK_STRIDE := 2
 static var ai_stride := 2
+## 移动/寻路更新降频，攻击检查仍每 tick；两者互不影响。
+static var move_stride := 2
+var _move_phase := 0
 var _still_frames := 0
 var _close_hold := false
 var _ai_phase := 0
@@ -203,6 +207,11 @@ func _ai_physics(delta: float) -> void:
 	if _reactions.step(delta, ai_enabled and current_state in [State.IDLE, State.WALK, State.ATTACK], move_speed):
 		return
 	if _try_attack_first():
+		return
+	# 移动/寻路按自己的节奏降频；上面攻击检查每 tick 都跑，近身反应不受影响。
+	if not _close_hold and move_stride > 1 \
+			and (physics_frame + _move_phase) % move_stride != 0:
+		_continue_motion(delta)
 		return
 	var ticked := false
 	if not _close_hold:
