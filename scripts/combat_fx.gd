@@ -135,6 +135,10 @@ static func apply_radial_damage(
 		var stagger := boss_stagger_seconds if enemy.is_in_group("boss") else stagger_seconds
 		if stagger > 0.0 and enemy.has_method("apply_grenade_stagger"):
 			enemy.call("apply_grenade_stagger", stagger)
+	# 数据导向炮灰没有 per-unit 节点，不能进 "enemies" 组；由字段统一接收径向伤害/击退。
+	for field in tree.get_nodes_in_group("fodder_lite_fields"):
+		if is_instance_valid(field) and field.has_method("apply_radial_hit"):
+			hits += int(field.call("apply_radial_hit", center, radius, damage, push_force, stagger_seconds))
 	return hits
 
 

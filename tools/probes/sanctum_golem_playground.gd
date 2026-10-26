@@ -9,6 +9,7 @@ const Terrain := preload("res://scripts/terrain_field.gd")
 const Golem := preload("res://scripts/prototypes/procedural_mud_golem.gd")
 const FlowFieldScript := preload("res://scripts/flow_field.gd")
 const FodderLiteScript := preload("res://scripts/prototypes/fodder_lite_field.gd")
+const CombatFX := preload("res://scripts/combat_fx.gd")
 const PROFILE_PATH := "user://logs/golem_ai_profile.log"
 const SPAWN_RING := [8.0, 10.5, 13.0, 15.5]
 const COUNT := 30
@@ -47,6 +48,8 @@ var _no_shadows := false
 var _no_post := false
 var _lite := false
 var _lite_field
+var _lite_shockwave := false
+var _last_lite_shock := 0
 
 
 func _initialize() -> void:
@@ -71,6 +74,8 @@ func _initialize() -> void:
 			_no_post = true
 		elif arg == "--lite=on":
 			_lite = true
+		elif arg == "--lite-shockwave=on":
+			_lite_shockwave = true
 		elif arg.begins_with("--ablate-ai-after="):
 			_ablate_ai_after = float(arg.trim_prefix("--ablate-ai-after="))
 		elif arg.begins_with("--max-physics-steps="):
@@ -318,6 +323,13 @@ func _tick() -> void:
 		_update_hint()
 	if _probe_seconds > 0.0 and (Time.get_ticks_msec() - _started_msec) / 1000.0 >= _probe_seconds:
 		quit()
+	if _lite_shockwave and _lite_field != null:
+		var shock_now := Time.get_ticks_msec()
+		if shock_now - _last_lite_shock >= 2000 and is_instance_valid(_player):
+			_last_lite_shock = shock_now
+			var hits: int = CombatFX.apply_radial_damage(
+				_player, _player.global_position, 9.0, 55.0, 6.0, false)
+			print("[lite_hit] hits=%d" % hits)
 	if Time.get_ticks_msec() - _last_profile_msec >= 2000:
 		_log_profile()
 
