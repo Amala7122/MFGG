@@ -224,7 +224,14 @@ func _process(_delta: float) -> void:
 			highest = highest.max(point)
 			var poses := _part_poses(entry)
 			var flash := float(actor.call("visual_flash_strength"))
-			var flash_changed := not is_equal_approx(flash, float(entry.get("flash", -999.0)))
+			# 实例索引/格子变化时必须重写 custom_data；否则旧索引上的红色残影
+			# 会被复用到另一只怪身上，看起来就是“莫名闪红”。
+			var index_changed := int(entry.get("instance_index", -1)) != index
+			var cell_changed: bool = Vector2i(entry.get("instance_cell", Vector2i(-9999, -9999))) != cell
+			entry["instance_index"] = index
+			entry["instance_cell"] = cell
+			var flash_changed: bool = index_changed or cell_changed \
+				or not is_equal_approx(flash, float(entry.get("flash", -999.0)))
 			if flash_changed:
 				entry["flash"] = flash
 			for piece in 4:
