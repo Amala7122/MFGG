@@ -1,17 +1,23 @@
 shader_type spatial;
-render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx;
+render_mode diffuse_burley, specular_disabled;
 
 // 合并网格的顶点属性：
 // UV.x = 部件 ID（0 躯干 / 1 晶核 / 2 左拳 / 3 右拳 / 4 左腿 / 5 右腿）
 // UV.y = 关节 pivot.x，UV2 = 关节 pivot.yz（visual_root 局部空间）
 // INSTANCE_CUSTOM = (walk_phase, attack_phase, flash, move_weight)
+//
+// 颜色/粗糙度/晶核 glow/闪红全部对齐 mud_golem_instanced.gdshader：
+//   身体 0.28,0.32,0.22 rough .95
+//   晶核 0.10,0.85,0.90 rough .90 glow .16
+//   石拳 0.42,0.44,0.45 rough .90
+//   腿   0.28,0.32,0.22 rough .95
 
 uniform float walk_amplitude = 0.55;
 uniform float arm_amplitude = 0.5;
 uniform float leg_amplitude = 0.65;
 uniform float attack_amplitude = 1.8;
 
-varying vec3 v_flash;
+varying float v_flash;
 varying float v_part;
 
 void vertex() {
@@ -41,21 +47,23 @@ void vertex() {
 	if (part < 0.5) {
 		VERTEX.y += abs(sin(phase * 7.0)) * 0.03 * move;
 	}
-	v_flash = vec3(INSTANCE_CUSTOM.z, 0.0, 0.0);
+	v_flash = clamp(INSTANCE_CUSTOM.z, 0.0, 1.0);
 	v_part = part;
 }
 
 void fragment() {
-	vec3 color = vec3(0.28, 0.32, 0.22);
+	vec3 base = vec3(0.28, 0.32, 0.22);
+	float roughness_value = 0.95;
+	float glow = 0.0;
 	if (v_part > 0.5 && v_part < 1.5) {
-		color = vec3(0.10, 0.85, 0.90);
+		base = vec3(0.10, 0.85, 0.90);
+		roughness_value = 0.90;
+		glow = 0.16;
 	} else if (v_part > 1.5 && v_part < 3.5) {
-		color = vec3(0.42, 0.44, 0.45);
-	} else if (v_part > 3.5) {
-		color = vec3(0.24, 0.28, 0.20);
+		base = vec3(0.42, 0.44, 0.45);
+		roughness_value = 0.90;
 	}
-	ALBEDO = color;
-	ROUGHNESS = 0.92;
-	SPECULAR = 0.15;
-	EMISSION = vec3(1.0, 0.18, 0.06) * v_flash.x;
+	ALBEDO = mix(base, vec3(1.0, 0.025, 0.015), v_flash);
+	ROUGHNESS = roughness_value;
+	EMISSION = base * glow + vec3(0.7, 0.02, 0.01) * v_flash * 0.65;
 }
