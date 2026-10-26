@@ -134,6 +134,7 @@ func _spawn_golems() -> void:
 		if enemy == null:
 			continue
 		enemy.set_meta(&"crowd_seed", 314159 + index)
+		enemy.set_meta(&"enemy_entry", {"species": "mud_golem", "title": "泥土傀儡", "tuning": {}})
 		# 正式敌人标记：让它走 EnemyAttackQueue（否则试玩里会绕过队列上限）。
 		enemy.set_meta(&"formal_enemy", true)
 		# 大群围殴：3.5m 内停止寻路，只面向/踏步/等出手，省掉无效移动。

@@ -165,7 +165,7 @@ const STILL_MOVE_INTERVAL := 6
 const AI_TICK_STRIDE := 2
 static var ai_stride := 2
 ## 远处只做低频移动/寻路；近身与攻击检查仍按原频率。
-static var far_move_stride := 2
+static var far_move_stride := 1
 var _far_phase := 0
 ## 排队等待时围着入场锚点小范围游荡，避免“原地踏步/完全静止”。
 const WANDER_RADIUS := 1.2
@@ -338,10 +338,17 @@ func _move_physics(desired: Vector3, delta: float) -> void:
 			wall_normal = wall_normal.normalized()
 			var into := desired.dot(wall_normal)
 			if into < -0.001:
-				desired -= wall_normal * into
-				desired += wall_normal * 0.2
-				if desired.length_squared() < 0.01:
-					desired = wall_normal * 0.6
+				# 沿墙的哪一侧绕：选朝玩家投影的一侧，避免在墙前反复顶/退。
+				var speed := maxf(desired.length(), 0.6)
+				var tangent := wall_normal.cross(Vector3.UP)
+				if tangent.length_squared() > 0.0001:
+					tangent = tangent.normalized()
+					if is_instance_valid(target):
+						var to_target := target.global_position - global_position
+						to_target.y = 0.0
+						if tangent.dot(to_target) < 0.0:
+							tangent = -tangent
+					desired = tangent * speed + wall_normal * 0.15
 	# 站定/排队时不每帧跑 move_and_slide；每 6 帧刷新一次贴地。
 	# 移动、击退、悬空仍每帧走物理，避免影响追击与击退。
 	var still := is_on_floor() and desired.is_zero_approx() \

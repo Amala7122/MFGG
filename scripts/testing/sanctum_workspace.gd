@@ -103,7 +103,8 @@ func refresh() -> void:
 		var identity := Runtime.identity(object)
 		if identity.is_empty(): continue
 		objects.append(object)
-		var title := String(object.get_meta("enemy_entry", {}).get("title", "沉积泰坦"))
+		var entry: Dictionary = object.get_meta("enemy_entry", {})
+		var title := String(entry.get("title", "敌人"))
 		list.add_item("%s · #%d · %s" % [title, object.get_instance_id(), "外形试点" if identity.profile == "VisualChargeBeetle" else "三线重击试点" if identity.profile == "PrototypeSedimentTitan" else "只读／待覆盖"])
 		if object == selected: list.select(objects.size() - 1)
 	if is_instance_valid(selected): _show_selected()
