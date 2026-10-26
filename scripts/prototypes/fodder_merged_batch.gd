@@ -46,6 +46,10 @@ func _ready() -> void:
 		_debris_materials.append(debris)
 	var material := ShaderMaterial.new()
 	material.shader = SHADER
+	material.set_shader_parameter("body_color", Color(0.28, 0.32, 0.22))
+	material.set_shader_parameter("core_color", Color(0.10, 0.85, 0.90))
+	material.set_shader_parameter("fist_color", Color(0.42, 0.44, 0.45))
+	material.set_shader_parameter("leg_color", Color(0.28, 0.32, 0.22))
 	_multimesh = MultiMesh.new()
 	_multimesh.transform_format = MultiMesh.TRANSFORM_3D
 	_multimesh.use_custom_data = true

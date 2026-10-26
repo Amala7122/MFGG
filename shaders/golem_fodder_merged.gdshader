@@ -16,6 +16,12 @@ uniform float walk_amplitude = 0.55;
 uniform float arm_amplitude = 0.5;
 uniform float leg_amplitude = 0.65;
 uniform float attack_amplitude = 1.8;
+// 与原版 mud_golem_instanced.gdshader 相同的 source_color 语义：
+// 由引擎做 sRGB→linear，不能直接写 vec3(0.28,...)（那是 linear，会偏亮）。
+uniform vec4 body_color : source_color = vec4(0.28, 0.32, 0.22, 1.0);
+uniform vec4 core_color : source_color = vec4(0.10, 0.85, 0.90, 1.0);
+uniform vec4 fist_color : source_color = vec4(0.42, 0.44, 0.45, 1.0);
+uniform vec4 leg_color : source_color = vec4(0.28, 0.32, 0.22, 1.0);
 
 varying float v_flash;
 varying float v_part;
@@ -52,18 +58,20 @@ void vertex() {
 }
 
 void fragment() {
-	vec3 base = vec3(0.28, 0.32, 0.22);
+	vec4 base = body_color;
 	float roughness_value = 0.95;
 	float glow = 0.0;
 	if (v_part > 0.5 && v_part < 1.5) {
-		base = vec3(0.10, 0.85, 0.90);
+		base = core_color;
 		roughness_value = 0.90;
 		glow = 0.16;
 	} else if (v_part > 1.5 && v_part < 3.5) {
-		base = vec3(0.42, 0.44, 0.45);
+		base = fist_color;
 		roughness_value = 0.90;
+	} else if (v_part > 3.5) {
+		base = leg_color;
 	}
-	ALBEDO = mix(base, vec3(1.0, 0.025, 0.015), v_flash);
+	ALBEDO = mix(base.rgb, vec3(1.0, 0.025, 0.015), v_flash);
 	ROUGHNESS = roughness_value;
-	EMISSION = base * glow + vec3(0.7, 0.02, 0.01) * v_flash * 0.65;
+	EMISSION = base.rgb * glow + vec3(0.7, 0.02, 0.01) * v_flash * 0.65;
 }
