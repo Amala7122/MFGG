@@ -8,6 +8,8 @@ const Creatures := preload("res://scripts/enemies/creature_catalog.gd")
 const Terrain := preload("res://scripts/terrain_field.gd")
 const Golem := preload("res://scripts/prototypes/procedural_mud_golem.gd")
 const FlowFieldScript := preload("res://scripts/flow_field.gd")
+const FodderFieldScript := preload("res://scripts/prototypes/fodder_field.gd")
+const CombatFX := preload("res://scripts/combat_fx.gd")
 const PROFILE_PATH := "user://logs/golem_ai_profile.log"
 const SPAWN_RING := [8.0, 10.5, 13.0, 15.5]
 const COUNT := 30
@@ -44,6 +46,10 @@ var _no_grass := false
 var _no_decor := false
 var _no_shadows := false
 var _no_post := false
+var _fodder := false
+var _fodder_field
+var _fodder_aoe := false
+var _last_fodder_aoe := 0
 var _death_test := false
 var _death_done := false
 
@@ -72,6 +78,10 @@ func _initialize() -> void:
 			Terrain.collision_backend = "heightmap"
 		elif arg == "--merged=on":
 			Golem.fodder_visual = true
+		elif arg == "--fodder=on":
+			_fodder = true
+		elif arg == "--fodder-aoe=on":
+			_fodder_aoe = true
 		elif arg == "--death-test=on":
 			_death_test = true
 		elif arg.begins_with("--ablate-ai-after="):
@@ -137,7 +147,14 @@ func _run() -> void:
 	_last_flow_msec = Time.get_ticks_msec()
 	print("[flow] mask_ms=%.1f rebuild_ms=%.1f reachable=%d" % [
 		FlowFieldScript.mask_build_usec / 1000.0, _flow_build_ms, _flow.reachable_cells])
-	await _spawn_golems()
+	if _fodder:
+		_fodder_field = FodderFieldScript.new()
+		_fodder_field.top_level = true
+		_scene.add_child(_fodder_field)
+		_fodder_field.setup(_player, _flow, _count, _player.global_position)
+		print("[fodder] units=%d" % _fodder_field.units())
+	else:
+		await _spawn_golems()
 	if _pause_batch:
 		var batch := _scene.find_child("MudGolemRenderBatch", true, false)
 		if batch != null:
@@ -152,7 +169,7 @@ func _run() -> void:
 	_add_hint()
 	_started = true
 	_started_msec = Time.get_ticks_msec()
-	Golem.profile_enabled = true
+	Golem.profile_enabled = not _fodder
 	Golem.reset_profile()
 	_last_profile_msec = _started_msec
 	var header := FileAccess.open(PROFILE_PATH, FileAccess.WRITE)
@@ -314,6 +331,14 @@ func _tick() -> void:
 		_update_hint()
 	if _probe_seconds > 0.0 and (Time.get_ticks_msec() - _started_msec) / 1000.0 >= _probe_seconds:
 		quit()
+	if _fodder_aoe and _fodder_field != null:
+		var aoe_now := Time.get_ticks_msec()
+		if aoe_now - _last_fodder_aoe >= 1500 and is_instance_valid(_player):
+			_last_fodder_aoe = aoe_now
+			var aoe_hits: int = CombatFX.apply_radial_damage(
+				_player, _player.global_position, 9.0, 200.0, 6.0, false)
+			print("[fodder_aoe] hits=%d debris=%d" % [
+				aoe_hits, get_nodes_in_group("fodder_debris").size()])
 	if _death_test and not _death_done and _spawned.size() > 0 \
 			and (Time.get_ticks_msec() - _started_msec) >= 2000:
 		_death_done = true
@@ -331,6 +356,20 @@ func _tick() -> void:
 func _log_profile() -> void:
 	var now := Time.get_ticks_msec()
 	var seconds := maxf((now - _last_profile_msec) / 1000.0, 0.001)
+	if _fodder_field != null:
+		print("[fodder] units=%d alive=%d active=%d attacks=%d hits=%d kills=%d rays=%d fps=%.1f process_ms=%.1f physics_ms=%.1f draw=%d prim=%d nodes=%d" % [
+			_fodder_field.units(), _fodder_field.alive_count, _fodder_field.active_attackers,
+			_fodder_field.total_attacks, _fodder_field.hits_taken, _fodder_field.kills,
+			_fodder_field.ray_queries,
+			Engine.get_frames_per_second(),
+			Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
+			Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
+			int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
+			int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)),
+			int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))])
+		_fodder_field.reset_stats()
+		_last_profile_msec = now
+		return
 	var frames := maxi(Golem.prof_frames, 1)
 	var attackers := 0
 	var pending := 0
@@ -393,10 +432,11 @@ func _add_hint() -> void:
 func _update_hint() -> void:
 	if _hint_label == null:
 		return
-	_hint_label.text = ("正式圣所 · %d 只泥土傀儡 · 无敌：%s · 物理步数上限 %d\n"
+	_hint_label.text = ("正式圣所 · %d 只%s · 无敌：%s · 物理步数上限 %d\n"
 		+ "R 重开 · F10 退出\n"
 		+ "F1 AI：%s · F2 冻结：%s · F3 阴影：%s · F4 天气粒子：%s · F5 后处理：%s") % [
 		_count,
+		"Fodder 数据场" if _fodder else "泥土傀儡",
 		"开" if _invincible else "关",
 		_max_physics_steps,
 		"开" if _ai_on else "关",

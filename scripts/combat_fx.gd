@@ -135,6 +135,9 @@ static func apply_radial_damage(
 		var stagger := boss_stagger_seconds if enemy.is_in_group("boss") else stagger_seconds
 		if stagger > 0.0 and enemy.has_method("apply_grenade_stagger"):
 			enemy.call("apply_grenade_stagger", stagger)
+	for field in tree.get_nodes_in_group("fodder_fields"):
+		if is_instance_valid(field) and field.has_method("radial_hit"):
+			hits += int(field.call("radial_hit", center, radius, damage, push_force, stagger_seconds))
 	return hits
 
 

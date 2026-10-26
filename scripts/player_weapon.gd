@@ -661,6 +661,33 @@ func _shot_entry(hit: Dictionary, sniper: bool, direction: Vector3) -> Dictionar
 		"is_enemy": is_enemy, "headshot": headshot, "amount": amount, "hit_region": region}
 
 
+func _apply_fodder_hits(direction: Vector3, sniper: bool) -> int:
+	if not is_instance_valid(_host) or not _host.is_inside_tree():
+		return 0
+	var tree := _host.get_tree()
+	if tree == null:
+		return 0
+	var fields := tree.get_nodes_in_group("fodder_fields")
+	if fields.is_empty():
+		return 0
+	var origin := _camera.global_position if is_instance_valid(_camera) else _muzzle.global_position
+	var ray_limit := shot_range
+	var exclude: Array[RID] = []
+	if _host is CollisionObject3D:
+		exclude.append((_host as CollisionObject3D).get_rid())
+	var world_hit := _shot_ray(origin, origin + direction * shot_range, exclude)
+	if not world_hit.is_empty():
+		ray_limit = origin.distance_to(world_hit.position)
+	var amount := get_bullet_damage()
+	if sniper:
+		amount = BallisticsUtil.sniper_damage(_weapon_level)
+	var hits := 0
+	for field in fields:
+		if is_instance_valid(field) and field.has_method("raycast_hit"):
+			hits += int(field.call("raycast_hit", origin, direction, ray_limit, amount, 2.0))
+	return hits
+
+
 func _fire_hitscan(direction: Vector3, sniper: bool) -> void:
 	if not is_instance_valid(_host) or not _muzzle:
 		return
@@ -670,6 +697,7 @@ func _fire_hitscan(direction: Vector3, sniper: bool) -> void:
 	_shot_serial += 1
 	var shot_id := "%s:%s" % [get_instance_id(), _shot_serial]
 	var hits := _resolve_shot_hits(direction, sniper)
+	var fodder_hits := _apply_fodder_hits(direction, sniper)
 
 	# juice：弹道光迹（Hitscan 专用），瞬间出现并迅速淡出
 	var tracer_origin := _muzzle.global_position
@@ -682,7 +710,7 @@ func _fire_hitscan(direction: Vector3, sniper: bool) -> void:
 		0.05 if sniper else 0.02
 	)
 
-	if hits.is_empty():
+	if hits.is_empty() and fodder_hits <= 0:
 		return
 	var impact_scale := 1.4 if sniper else 1.0
 	# 穿透时逐个目标依次结算。

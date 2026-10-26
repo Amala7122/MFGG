@@ -139,6 +139,12 @@ func _start(kind: String) -> void:
 
 func _strike(kind: String) -> void:
 	var forward := _forward()
+	var fodder_damage := float(parameters[kind + "_damage"])
+	var fodder_reach := float(parameters[kind + "_reach"])
+	for field in _host.get_tree().get_nodes_in_group("fodder_fields"):
+		if is_instance_valid(field) and field.has_method("cone_hit"):
+			field.call("cone_hit", _host.global_position, forward, fodder_reach,
+				deg_to_rad(60.0), fodder_damage, float(parameters[kind + "_push"]))
 	var candidates := Targets.collect(_host, forward, float(parameters[kind + "_reach"]),
 		float(parameters[kind + "_radius"]), float(parameters[kind + "_half_angle"]), int(parameters.candidate_limit))
 	var context := Telemetry.begin_attack(_host, "melee_" + kind)
