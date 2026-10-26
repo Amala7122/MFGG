@@ -375,7 +375,15 @@ func _try_attack_first() -> bool:
 	var distance := offset.length()
 	var reach := (attack_distance + _p("attack_reach_extra")) * _crowd.size_multiplier
 	var hold := reach + 0.25
-	if distance > hold or distance <= 0.001:
+	if distance > hold:
+		# 围殴姿态只停“已经在攻击队列里等”的怪；没排队的继续正常靠近，
+		# 否则前排会停在攻击距离外，谁都打不到。
+		if bool(get_meta(&"blob_hold", false)) and _crowd.waiting_for_attack():
+			var held_direction := offset / maxf(distance, 0.001)
+			rotation.y = atan2(-held_direction.x, -held_direction.z)
+			_close_hold = true
+		return false
+	if distance <= 0.001:
 		return false
 	dbg_in_reach += 1
 	# 近身立即转身面向玩家；背后贴脸也能进入攻击扇区。
