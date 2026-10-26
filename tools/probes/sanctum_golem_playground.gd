@@ -10,6 +10,7 @@ const Golem := preload("res://scripts/prototypes/procedural_mud_golem.gd")
 const PROFILE_PATH := "user://logs/golem_ai_profile.log"
 const SPAWN_RING := [8.0, 10.5, 13.0, 15.5]
 const COUNT := 30
+var _count := 30
 
 var _scene: Node
 var _player: Node3D
@@ -56,6 +57,8 @@ func _initialize() -> void:
 			Engine.physics_ticks_per_second = clampi(int(arg.trim_prefix("--physics-hz=")), 15, 120)
 		elif arg.begins_with("--max-fps="):
 			Engine.max_fps = clampi(int(arg.trim_prefix("--max-fps=")), 0, 240)
+		elif arg.begins_with("--count="):
+			_count = clampi(int(arg.trim_prefix("--count=")), 1, 200)
 		elif arg.begins_with("--ai-stride="):
 			Golem.ai_stride = clampi(int(arg.trim_prefix("--ai-stride=")), 1, 4)
 	# 低帧螺旋兜底：一帧最多 2 个固定物理步，避免 8 步把 AI 成本再放大 8 倍。
@@ -126,12 +129,12 @@ func _run() -> void:
 
 func _spawn_golems() -> void:
 	var holder := _scene.get_node_or_null("Enemies")
-	for index in COUNT:
+	for index in _count:
 		var enemy := Creatures.instantiate({"species": "mud_golem"})
 		if enemy == null:
 			continue
 		enemy.set_meta(&"crowd_seed", 314159 + index)
-		var angle := TAU * float(index) / float(COUNT)
+		var angle := TAU * float(index) / float(_count)
 		var radius: float = SPAWN_RING[index % SPAWN_RING.size()]
 		var x := _player.global_position.x + cos(angle) * radius
 		var z := _player.global_position.z + sin(angle) * radius
@@ -291,10 +294,12 @@ func _add_hint() -> void:
 func _update_hint() -> void:
 	if _hint_label == null:
 		return
-	_hint_label.text = ("正式圣所 · 30 只泥土傀儡 · 无敌：%s · 物理步数上限 %d\n"
+	_hint_label.text = ("正式圣所 · %d 只泥土傀儡 · 无敌：%s · 物理步数上限 %d\n"
 		+ "R 重开 · F10 退出\n"
 		+ "F1 AI：%s · F2 冻结：%s · F3 阴影：%s · F4 天气粒子：%s · F5 后处理：%s") % [
-		"开" if _invincible else "关", _max_physics_steps,
+		_count,
+		"开" if _invincible else "关",
+		_max_physics_steps,
 		"开" if _ai_on else "关",
 		"是" if _frozen else "否",
 		"开" if _shadows_on else "关",

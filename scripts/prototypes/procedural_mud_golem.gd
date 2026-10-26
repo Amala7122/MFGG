@@ -286,6 +286,19 @@ func _continue_motion(delta: float) -> void:
 
 
 func _move_physics(desired: Vector3, delta: float) -> void:
+	# 顶墙时把“往墙里”的期望速度改成沿墙切向滑动，并轻推离墙；
+	# 否则 move_and_slide 清零速度后它还会原地播走路动画，看起来就是顶石头。
+	if is_on_wall():
+		var wall_normal := get_wall_normal()
+		wall_normal.y = 0.0
+		if wall_normal.length_squared() > 0.0001:
+			wall_normal = wall_normal.normalized()
+			var into := desired.dot(wall_normal)
+			if into < -0.001:
+				desired -= wall_normal * into
+				desired += wall_normal * 0.2
+				if desired.length_squared() < 0.01:
+					desired = wall_normal * 0.6
 	# 站定/排队时不每帧跑 move_and_slide；每 6 帧刷新一次贴地。
 	# 移动、击退、悬空仍每帧走物理，避免影响追击与击退。
 	var still := is_on_floor() and desired.is_zero_approx() \
