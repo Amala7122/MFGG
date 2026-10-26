@@ -365,10 +365,11 @@ func _log_profile() -> void:
 	var now := Time.get_ticks_msec()
 	var seconds := maxf((now - _last_profile_msec) / 1000.0, 0.001)
 	if _fodder_field != null:
-		print("[fodder] units=%d alive=%d active=%d attacks=%d hits=%d kills=%d rays=%d resolve=%d inside=%d fps=%.1f process_ms=%.1f physics_ms=%.1f draw=%d prim=%d nodes=%d" % [
+		print("[fodder] units=%d alive=%d active=%d attacks=%d hits=%d kills=%d rays=%d resolve=%d inside=%d surface_ms=%.1f fps=%.1f process_ms=%.1f physics_ms=%.1f draw=%d prim=%d nodes=%d" % [
 			_fodder_field.units(), _fodder_field.alive_count, _fodder_field.active_attackers,
 			_fodder_field.total_attacks, _fodder_field.hits_taken, _fodder_field.kills,
 			_fodder_field.ray_queries, _fodder_field.resolve_hits, _fodder_field.resolve_inside,
+			_fodder_field.surface_build_ms,
 			Engine.get_frames_per_second(),
 			Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
 			Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,

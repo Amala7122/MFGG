@@ -6,6 +6,7 @@ extends Node3D
 ## 命中由共享查询（射线/锥/径向）负责，不依赖每只 CollisionShape。
 
 const Terrain := preload("res://scripts/terrain_field.gd")
+const SurfaceGridScript := preload("res://scripts/prototypes/surface_grid.gd")
 const MERGED_SHADER := preload("res://shaders/golem_fodder_merged.gdshader")
 
 const SPEED := 3.4
@@ -25,7 +26,9 @@ const MAX_DEBRIS := 72
 const AVOID_DISTANCE := 1.7
 const AVOID_INTERVAL := 3
 const AVOID_HOLD := 0.25
-const AVOID_STEP := 0.5
+const AVOID_STEP := 0.4
+const STEP_HEIGHT := 0.35
+const SURFACE_RADIUS := 60.0
 const RESOLVE_INTERVAL := 2
 const RESOLVE_RADIUS := 0.35
 const RESOLVE_CENTER := 0.05
@@ -57,6 +60,9 @@ var _avoid_timers := PackedFloat32Array()
 var _resolve_shape: CapsuleShape3D
 var _resolve_query: PhysicsShapeQueryParameters3D
 var _point_query: PhysicsPointQueryParameters3D
+var _surface
+var _surface_ready := false
+var surface_build_ms := 0.0
 
 var _multimesh: MultiMesh
 var _multimesh_instance: MultiMeshInstance3D
@@ -124,6 +130,7 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3) -> v
 	_resolve_query.collision_mask = 1
 	_resolve_query.collide_with_areas = false
 	_resolve_query.collide_with_bodies = true
+	_surface = SurfaceGridScript.new()
 	_point_query = PhysicsPointQueryParameters3D.new()
 	_point_query.collision_mask = 1
 	_point_query.collide_with_areas = false
@@ -214,6 +221,17 @@ func _append_part(tool: SurfaceTool, mesh: Mesh, transform: Transform3D, part: i
 func _physics_process(delta: float) -> void:
 	if player == null or not is_instance_valid(player) or count <= 0:
 		return
+	if not _surface_ready and _surface != null:
+		_surface.build(get_world_3d(), player.global_position, SURFACE_RADIUS, 2.0)
+		_surface_ready = true
+		surface_build_ms = _surface.build_usec / 1000.0
+		print("[fodder] surface_ms=%.1f radius=%.0f step=%.2f" % [
+			surface_build_ms, SURFACE_RADIUS, STEP_HEIGHT])
+		for index in count:
+			if _alive[index] != 0:
+				var p := _positions[index]
+				p.y = _surface.height_at(p.x, p.z) + BODY_OFFSET
+				_positions[index] = p
 	var target := player.global_position
 	var grid: Dictionary = {}
 	for index in count:
@@ -238,7 +256,7 @@ func _physics_process(delta: float) -> void:
 			_timer[index] -= delta
 			pos += _velocity[index] * delta
 			_velocity[index] *= maxf(0.0, 1.0 - delta * 5.0)
-			pos.y = Terrain.height_at(pos.x, pos.z) + BODY_OFFSET
+			pos.y = _surface_height(pos.x, pos.z) + BODY_OFFSET
 			_positions[index] = pos
 			_move_weight[index] = 0.0
 			if _timer[index] <= 0.0:
@@ -298,7 +316,7 @@ func _physics_process(delta: float) -> void:
 					avoid = tangent
 			else:
 				var ahead := pos + direction * 1.2
-				var ahead_height := Terrain.height_at(ahead.x, ahead.z)
+				var ahead_height := _surface_height(ahead.x, ahead.z)
 				if absf(ahead_height - (pos.y - BODY_OFFSET)) > AVOID_STEP:
 					var ground_normal := Terrain.normal_at(ahead.x, ahead.z)
 					ground_normal.y = 0.0
@@ -328,8 +346,13 @@ func _physics_process(delta: float) -> void:
 		if distance > 0.001 and distance < PLAYER_RADIUS:
 			push += -to.normalized() * (1.0 - distance / PLAYER_RADIUS) * 2.0
 		var desired := (direction + push * SEPARATION_STRENGTH).normalized()
-		pos += desired * SPEED * delta
-		pos.y = Terrain.height_at(pos.x, pos.z) + BODY_OFFSET
+		var next := pos + desired * SPEED * delta
+		var current_ground := pos.y - BODY_OFFSET
+		var next_ground := _surface_height(next.x, next.z)
+		if _surface_ready and absf(next_ground - current_ground) > STEP_HEIGHT:
+			next = pos
+		pos = next
+		pos.y = _surface_height(pos.x, pos.z) + BODY_OFFSET
 		# 人群互推会把个体挤进平台/石头；每 2 个物理帧做一次共享 shape 解算，
 		# 把重叠的身体沿接触法线推出去，避免整群站进静态几何。
 		if (Engine.get_physics_frames() + index) % RESOLVE_INTERVAL == 0:
@@ -355,7 +378,7 @@ func _physics_process(delta: float) -> void:
 					if inside_push.length_squared() < 0.0001:
 						break
 					pos += inside_push.normalized() * 0.28
-					pos.y = Terrain.height_at(pos.x, pos.z) + BODY_OFFSET
+					pos.y = _surface_height(pos.x, pos.z) + BODY_OFFSET
 					continue
 				resolve_hits += hits.size()
 				var resolve_push := Vector3.ZERO
@@ -370,12 +393,18 @@ func _physics_process(delta: float) -> void:
 				if resolve_push.length_squared() < 0.0001:
 					break
 				pos += resolve_push.normalized() * 0.22
-				pos.y = Terrain.height_at(pos.x, pos.z) + BODY_OFFSET
+				pos.y = _surface_height(pos.x, pos.z) + BODY_OFFSET
 		_positions[index] = pos
 		_yaw[index] = atan2(-desired.x, -desired.z)
 		_move_weight[index] = 1.0
 		_phase[index] += delta * 8.0
 	active_attackers = active
+
+
+func _surface_height(x: float, z: float) -> float:
+	if _surface != null and _surface.ready:
+		return _surface.height_at(x, z)
+	return Terrain.height_at(x, z)
 
 
 func _process(_delta: float) -> void:
