@@ -7,6 +7,7 @@ const MainScene := preload("res://scenes/sanctum_main.tscn")
 const Creatures := preload("res://scripts/enemies/creature_catalog.gd")
 const Terrain := preload("res://scripts/terrain_field.gd")
 const Golem := preload("res://scripts/prototypes/procedural_mud_golem.gd")
+const FlowFieldScript := preload("res://scripts/flow_field.gd")
 const PROFILE_PATH := "user://logs/golem_ai_profile.log"
 const SPAWN_RING := [8.0, 10.5, 13.0, 15.5]
 const COUNT := 30
@@ -28,6 +29,10 @@ var _post_on := true
 var _held: Dictionary = {}
 var _hint_label: Label
 var _last_profile_msec := 0
+var _flow
+var _flow_build_ms := 0.0
+var _last_flow_msec := 0
+var _last_flow_pos := Vector3.ZERO
 var _autoplay := false
 var _pivot: Node3D
 var _ablate_ai_after := -1.0
@@ -104,6 +109,14 @@ func _run() -> void:
 		spawn_point.set_physics_process(false)
 	await _clear_enemies()
 	await _spawn_golems()
+	_flow = FlowFieldScript.new()
+	_flow.rebuild(_player.global_position)
+	_flow_build_ms = _flow.rebuild_usec / 1000.0
+	Golem.flow_field = _flow
+	_last_flow_pos = _player.global_position
+	_last_flow_msec = Time.get_ticks_msec()
+	print("[flow] mask_ms=%.1f rebuild_ms=%.1f reachable=%d" % [
+		FlowFieldScript.mask_build_usec / 1000.0, _flow_build_ms, _flow.reachable_cells])
 	if _pause_batch:
 		var batch := _scene.find_child("MudGolemRenderBatch", true, false)
 		if batch != null:
@@ -190,6 +203,13 @@ func _tick() -> void:
 		Input.action_press("shoot")
 		if _pivot != null:
 			_pivot.rotation.y += 0.03
+	if _flow != null:
+		var flow_now := Time.get_ticks_msec()
+		if flow_now - _last_flow_msec >= 500 or _player.global_position.distance_to(_last_flow_pos) > 4.0:
+			_flow.rebuild(_player.global_position)
+			_flow_build_ms = _flow.rebuild_usec / 1000.0
+			_last_flow_msec = flow_now
+			_last_flow_pos = _player.global_position
 	if _ablate_ai_after > 0.0 and not _ablate_done \
 			and (Time.get_ticks_msec() - _started_msec) / 1000.0 >= _ablate_ai_after:
 		_ablate_done = true
@@ -256,8 +276,8 @@ func _log_profile() -> void:
 			var snapshot: Dictionary = queue.call("snapshot")
 			attackers = int(snapshot.get("total", 0))
 			pending = int(snapshot.get("pending", 0))
-	var line := "[golem_ai] enemies=%d attackers=%d pending=%d try=%d reach=%d can=%d grant=%d fps=%.1f process_ms=%.1f physics_ms=%.1f nav_ms=%.1f draw=%d nodes=%d tick_ms_s=%.1f crowd_ms_s=%.1f attack_ms_s=%.1f gate_ms_s=%.1f total_ms_s=%.1f tick_ms_frame=%.2f crowd_ms_frame=%.2f attack_ms_frame=%.2f gate_ms_frame=%.2f total_ms_frame=%.2f rest_ms_frame=%.2f" % [
-		_spawned.size(), attackers, pending, Golem.dbg_attempt, Golem.dbg_in_reach, Golem.dbg_can, Golem.dbg_grant, Engine.get_frames_per_second(),
+	var line := "[golem_ai] enemies=%d attackers=%d pending=%d flow_ms=%.2f try=%d reach=%d can=%d grant=%d fps=%.1f process_ms=%.1f physics_ms=%.1f nav_ms=%.1f draw=%d nodes=%d tick_ms_s=%.1f crowd_ms_s=%.1f attack_ms_s=%.1f gate_ms_s=%.1f total_ms_s=%.1f tick_ms_frame=%.2f crowd_ms_frame=%.2f attack_ms_frame=%.2f gate_ms_frame=%.2f total_ms_frame=%.2f rest_ms_frame=%.2f" % [
+		_spawned.size(), attackers, pending, _flow_build_ms, Golem.dbg_attempt, Golem.dbg_in_reach, Golem.dbg_can, Golem.dbg_grant, Engine.get_frames_per_second(),
 		Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
 		Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
 		Performance.get_monitor(Performance.TIME_NAVIGATION_PROCESS) * 1000.0,

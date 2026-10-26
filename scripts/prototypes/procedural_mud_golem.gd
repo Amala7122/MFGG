@@ -164,6 +164,9 @@ const CROWD_INTERVAL := 0.1
 const STILL_MOVE_INTERVAL := 6
 const AI_TICK_STRIDE := 2
 static var ai_stride := 2
+## 共享流场：非空时，>8m 的移动只读流场方向，不再进入各自的战术规划。
+static var flow_field: RefCounted
+static var flow_min_distance := 8.0
 ## 远处只做低频移动/寻路；近身与攻击检查仍按原频率。
 static var far_move_stride := 1
 var _far_phase := 0
@@ -224,6 +227,21 @@ func _ai_physics(delta: float) -> void:
 		return
 	if _try_attack_first():
 		return
+	# 共享流场接管中远距离移动：每只只读方向，不各自规划/不各自重画路线。
+	if ai_enabled and current_state in [State.IDLE, State.WALK] and is_instance_valid(target) and flow_field != null:
+		var flow_offset := target.global_position - global_position
+		flow_offset.y = 0.0
+		if flow_offset.length() > flow_min_distance:
+			var flow_direction: Vector3 = flow_field.call("direction_at", global_position)
+			if flow_direction.length_squared() > 0.001:
+				var lateral_scale := float(int(get_instance_id() % 5) - 2) * 0.04
+				var lateral: Vector3 = Vector3(-flow_direction.z, 0.0, flow_direction.x) * lateral_scale
+				var flow_desired: Vector3 = (flow_direction + lateral).normalized() * move_speed
+				rotation.y = atan2(-flow_desired.x, -flow_desired.z)
+				_set_locomotion(State.WALK)
+				_animate_walk(anim_clock)
+				_move_physics(flow_desired, delta)
+				return
 	# 全地图追击兜底：距离 >20m 时不再进入战术规划（100 只共享每帧 2.2ms 预算，
 	# 远处目标会大量卡在 checking/relocate），直接朝玩家走；20m 内切回原寻路/攻击。
 	if ai_enabled and current_state in [State.IDLE, State.WALK] and is_instance_valid(target):
