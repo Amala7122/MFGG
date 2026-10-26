@@ -176,10 +176,6 @@ var _wander_until_msec := 0
 var _wander_active := false
 var _still_frames := 0
 var _close_hold := false
-var _progress_anchor := Vector3.ZERO
-var _progress_msec := 0
-var _blocked_until_msec := 0
-var _blocked_target := Vector3.ZERO
 var _ai_phase := 0
 var _crowd_clock := 0.0
 var _crowd_ready := false
@@ -228,28 +224,6 @@ func _ai_physics(delta: float) -> void:
 		return
 	if _try_attack_first():
 		return
-	# 大群密度兜底：0.5 秒内几乎没位移就原地踏步 0.8 秒，省掉挤在人群里的
-	# 无效 move_and_slide/寻路；攻击检查仍每 tick。只对 60/100 的 blob_hold 生效。
-	if ai_enabled and current_state == State.WALK and bool(get_meta(&"blob_hold", false)) and is_instance_valid(target):
-		var blob_now := Time.get_ticks_msec()
-		if global_position.distance_to(target.global_position) <= 12.0:
-			if blob_now - _progress_msec >= 500:
-				var blob_moved := Vector2(global_position.x - _progress_anchor.x,
-					global_position.z - _progress_anchor.z).length()
-				if blob_moved < 0.2:
-					_blocked_until_msec = blob_now + 5000
-					_blocked_target = target.global_position
-				_progress_anchor = global_position
-				_progress_msec = blob_now
-			if blob_now < _blocked_until_msec:
-				# 玩家走开就立刻解除；玩家不动时外圈保持稳定，不再周期性抽动。
-				if is_instance_valid(target) and _blocked_target.distance_to(target.global_position) > 1.5:
-					_blocked_until_msec = 0
-				else:
-					_set_locomotion(State.IDLE)
-					_animate_idle(anim_clock)
-					_move_physics(Vector3.ZERO, delta)
-					return
 	# 全地图追击兜底：距离 >20m 时不再进入战术规划（100 只共享每帧 2.2ms 预算，
 	# 远处目标会大量卡在 checking/relocate），直接朝玩家走；20m 内切回原寻路/攻击。
 	if ai_enabled and current_state in [State.IDLE, State.WALK] and is_instance_valid(target):
