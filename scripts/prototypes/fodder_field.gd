@@ -269,7 +269,7 @@ func _physics_process(delta: float) -> void:
 			_timer[index] -= delta
 			pos += _velocity[index] * delta
 			_velocity[index] *= maxf(0.0, 1.0 - delta * 5.0)
-			pos.y = _surface_height(pos.x, pos.z) + BODY_OFFSET
+			pos = _snap_to_surface(pos)
 			_positions[index] = pos
 			_move_weight[index] = 0.0
 			if _timer[index] <= 0.0:
@@ -365,7 +365,7 @@ func _physics_process(delta: float) -> void:
 		if _surface_ready and absf(next_ground - current_ground) > STEP_HEIGHT:
 			next = pos
 		pos = next
-		pos.y = _surface_height(pos.x, pos.z) + BODY_OFFSET
+		pos = _snap_to_surface(pos)
 		# 人群互推会把个体挤进平台/石头；每 2 个物理帧做一次共享 shape 解算，
 		# 把重叠的身体沿接触法线推出去，避免整群站进静态几何。
 		if (Engine.get_physics_frames() + index) % RESOLVE_INTERVAL == 0:
@@ -391,7 +391,7 @@ func _physics_process(delta: float) -> void:
 					if inside_push.length_squared() < 0.0001:
 						break
 					pos += inside_push.normalized() * 0.28
-					pos.y = _surface_height(pos.x, pos.z) + BODY_OFFSET
+					pos = _snap_to_surface(pos)
 					continue
 				resolve_hits += hits.size()
 				var resolve_push := Vector3.ZERO
@@ -406,12 +406,23 @@ func _physics_process(delta: float) -> void:
 				if resolve_push.length_squared() < 0.0001:
 					break
 				pos += resolve_push.normalized() * 0.22
-				pos.y = _surface_height(pos.x, pos.z) + BODY_OFFSET
+				pos = _snap_to_surface(pos)
 		_positions[index] = pos
 		_yaw[index] = atan2(-desired.x, -desired.z)
 		_move_weight[index] = 1.0
 		_phase[index] += delta * 8.0
 	active_attackers = active
+
+
+func _snap_to_surface(pos: Vector3) -> Vector3:
+	if not _surface_ready:
+		pos.y = Terrain.height_at(pos.x, pos.z) + BODY_OFFSET
+		return pos
+	var current_ground := pos.y - BODY_OFFSET
+	var target := _surface_height(pos.x, pos.z)
+	if absf(target - current_ground) <= STEP_HEIGHT + 0.001:
+		pos.y = target + BODY_OFFSET
+	return pos
 
 
 func _surface_height(x: float, z: float) -> float:
