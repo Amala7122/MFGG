@@ -783,7 +783,11 @@ func trigger_death_scatter() -> void:
 	if debris_parent == null:
 		debris_parent = get_parent()
 	preload("res://scripts/combat_fx.gd").spawn_ground_burst(debris_parent, global_position, 1.2)
-	var debris: Array[Dictionary] = _render_batch.debris_parts(self) if is_instance_valid(_render_batch) else []
+	var debris: Array[Dictionary] = []
+	if is_instance_valid(_render_batch):
+		debris = _render_batch.debris_parts(self)
+	elif is_instance_valid(_merged_batch):
+		debris = _merged_batch.debris_parts(self)
 	# Remove the world batch instance before spawning rigidbody fragments.
 	if is_instance_valid(_render_batch):
 		_render_batch.unregister(self)

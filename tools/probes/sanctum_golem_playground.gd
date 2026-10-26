@@ -50,6 +50,8 @@ var _lite := false
 var _lite_field
 var _lite_shockwave := false
 var _last_lite_shock := 0
+var _death_test := false
+var _death_done := false
 
 
 func _initialize() -> void:
@@ -80,6 +82,8 @@ func _initialize() -> void:
 			Golem.fodder_visual = true
 		elif arg == "--lite-shockwave=on":
 			_lite_shockwave = true
+		elif arg == "--death-test=on":
+			_death_test = true
 		elif arg.begins_with("--ablate-ai-after="):
 			_ablate_ai_after = float(arg.trim_prefix("--ablate-ai-after="))
 		elif arg.begins_with("--max-physics-steps="):
@@ -334,6 +338,16 @@ func _tick() -> void:
 			var hits: int = CombatFX.apply_radial_damage(
 				_player, _player.global_position, 9.0, 55.0, 6.0, false)
 			print("[lite_hit] hits=%d" % hits)
+	if _death_test and not _death_done and _spawned.size() > 0 \
+			and (Time.get_ticks_msec() - _started_msec) >= 2000:
+		_death_done = true
+		var victim: Node = _spawned[0]
+		if is_instance_valid(victim):
+			victim.call("take_damage", 999999.0)
+			await process_frame
+			print("[death] debris=%d nodes=%d" % [
+				get_nodes_in_group("mud_golem_debris").size(),
+				int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))])
 	if Time.get_ticks_msec() - _last_profile_msec >= 2000:
 		_log_profile()
 
