@@ -27,8 +27,8 @@ const AVOID_INTERVAL := 3
 const AVOID_HOLD := 0.25
 const AVOID_STEP := 0.5
 const RESOLVE_INTERVAL := 2
-const RESOLVE_RADIUS := 0.42
-const RESOLVE_CENTER := 0.5
+const RESOLVE_RADIUS := 0.35
+const RESOLVE_CENTER := 0.05
 
 const STATE_MOVE := 0
 const STATE_WINDUP := 1
@@ -54,8 +54,9 @@ var _alive := PackedByteArray()
 var _render_indices := PackedInt32Array()
 var _avoid_dirs := PackedVector3Array()
 var _avoid_timers := PackedFloat32Array()
-var _resolve_shape: SphereShape3D
+var _resolve_shape: CapsuleShape3D
 var _resolve_query: PhysicsShapeQueryParameters3D
+var _point_query: PhysicsPointQueryParameters3D
 
 var _multimesh: MultiMesh
 var _multimesh_instance: MultiMeshInstance3D
@@ -73,6 +74,8 @@ var total_attacks := 0
 var hits_taken := 0
 var kills := 0
 var ray_queries := 0
+var resolve_hits := 0
+var resolve_inside := 0
 
 
 func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3) -> void:
@@ -113,13 +116,18 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3) -> v
 		_avoid_dirs[index] = Vector3.ZERO
 		_avoid_timers[index] = 0.0
 	add_to_group("fodder_fields")
-	_resolve_shape = SphereShape3D.new()
+	_resolve_shape = CapsuleShape3D.new()
 	_resolve_shape.radius = RESOLVE_RADIUS
+	_resolve_shape.height = 1.3
 	_resolve_query = PhysicsShapeQueryParameters3D.new()
 	_resolve_query.shape = _resolve_shape
 	_resolve_query.collision_mask = 1
 	_resolve_query.collide_with_areas = false
 	_resolve_query.collide_with_bodies = true
+	_point_query = PhysicsPointQueryParameters3D.new()
+	_point_query.collision_mask = 1
+	_point_query.collide_with_areas = false
+	_point_query.collide_with_bodies = true
 
 
 func _build_visuals() -> void:
@@ -330,7 +338,26 @@ func _physics_process(delta: float) -> void:
 				_resolve_query.transform = Transform3D(Basis(), center)
 				var hits := get_world_3d().direct_space_state.intersect_shape(_resolve_query, 4)
 				if hits.is_empty():
-					break
+					# 球体完全在实体内部时 shape 查询不报；用中心点查询补“整只站进去”。
+					_point_query.position = center
+					var inside := get_world_3d().direct_space_state.intersect_point(_point_query, 4)
+					if inside.is_empty():
+						break
+					resolve_inside += inside.size()
+					var inside_push := Vector3.ZERO
+					for hit in inside:
+						var collider := hit.get("collider") as Node3D
+						if is_instance_valid(collider):
+							var away := center - collider.global_position
+							away.y = 0.0
+							if away.length_squared() > 0.001:
+								inside_push += away.normalized()
+					if inside_push.length_squared() < 0.0001:
+						break
+					pos += inside_push.normalized() * 0.28
+					pos.y = Terrain.height_at(pos.x, pos.z) + BODY_OFFSET
+					continue
+				resolve_hits += hits.size()
 				var resolve_push := Vector3.ZERO
 				for hit in hits:
 					var normal: Vector3 = hit.get("normal", Vector3.ZERO)

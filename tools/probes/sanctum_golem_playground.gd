@@ -50,6 +50,7 @@ var _fodder := false
 var _fodder_field
 var _fodder_aoe := false
 var _last_fodder_aoe := 0
+var _player_at := Vector2.INF
 var _death_test := false
 var _death_done := false
 
@@ -82,6 +83,10 @@ func _initialize() -> void:
 			_fodder = true
 		elif arg == "--fodder-aoe=on":
 			_fodder_aoe = true
+		elif arg.begins_with("--player-at="):
+			var parts := arg.trim_prefix("--player-at=").split(",")
+			if parts.size() == 2:
+				_player_at = Vector2(float(parts[0]), float(parts[1]))
 		elif arg == "--death-test=on":
 			_death_test = true
 		elif arg.begins_with("--ablate-ai-after="):
@@ -126,6 +131,9 @@ func _run() -> void:
 		return
 	_scene = current_scene
 	_player = get_nodes_in_group("player")[0] as Node3D
+	if is_finite(_player_at.x):
+		_player.global_position = Vector3(_player_at.x,
+			Terrain.height_at(_player_at.x, _player_at.y) + 1.0, _player_at.y)
 	_pivot = _player.get_node_or_null("CameraPivot") as Node3D
 	_player.set_meta(&"experiment_invincible", _invincible)
 	# 只留我们手动放的 30 只；正式波次停掉，避免混入其他兵种。
@@ -357,10 +365,10 @@ func _log_profile() -> void:
 	var now := Time.get_ticks_msec()
 	var seconds := maxf((now - _last_profile_msec) / 1000.0, 0.001)
 	if _fodder_field != null:
-		print("[fodder] units=%d alive=%d active=%d attacks=%d hits=%d kills=%d rays=%d fps=%.1f process_ms=%.1f physics_ms=%.1f draw=%d prim=%d nodes=%d" % [
+		print("[fodder] units=%d alive=%d active=%d attacks=%d hits=%d kills=%d rays=%d resolve=%d inside=%d fps=%.1f process_ms=%.1f physics_ms=%.1f draw=%d prim=%d nodes=%d" % [
 			_fodder_field.units(), _fodder_field.alive_count, _fodder_field.active_attackers,
 			_fodder_field.total_attacks, _fodder_field.hits_taken, _fodder_field.kills,
-			_fodder_field.ray_queries,
+			_fodder_field.ray_queries, _fodder_field.resolve_hits, _fodder_field.resolve_inside,
 			Engine.get_frames_per_second(),
 			Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
 			Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
