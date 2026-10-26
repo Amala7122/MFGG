@@ -1,4 +1,4 @@
-class_name ProceduralMudGolem
+﻿class_name ProceduralMudGolem
 extends CharacterBody3D
 
 signal died(enemy: Node3D)
@@ -18,8 +18,7 @@ const AttackArea := preload("res://scripts/enemy_attack_area.gd")
 const Melee := preload("res://scripts/prototypes/mud_golem_melee.gd")
 var _attack_area := Melee.new()
 var _attack_target: Node3D
-## 粘贴的程序化泥土傀儡原型，适配独立战斗测试场的敌人接口。
-
+## 绮樿创鐨勭▼搴忓寲娉ュ湡鍌€鍎″師鍨嬶紝閫傞厤鐙珛鎴樻枟娴嬭瘯鍦虹殑鏁屼汉鎺ュ彛銆?
 const Tuning := preload("res://scripts/prototypes/enemy_tuning.gd")
 const PROFILE_ID := "PrototypeMudGolem"
 const Crowd := preload("res://scripts/prototypes/enemy_crowd.gd")
@@ -46,8 +45,7 @@ var attack_interval: float
 var health: float
 var _tuning: Dictionary = {}
 var target: CharacterBody3D
-# 测试场统计读取与正式敌人一致的字段。
-var _armor := 0.0
+# 娴嬭瘯鍦虹粺璁¤鍙栦笌姝ｅ紡鏁屼汉涓€鑷寸殑瀛楁銆?var _armor := 0.0
 var _damage_scale := 1.0
 var visual_root: Node3D
 var torso_pivot: Node3D
@@ -63,8 +61,7 @@ var _attack_cooldown := 0.0
 var _push_velocity := Vector3.ZERO
 var _health_label: Label3D
 var _health_label_until_msec := 0
-## 仅诊断用：在正式场景里把 AI 各段耗时累计出来。
-static var profile_enabled := false
+## 浠呰瘖鏂敤锛氬湪姝ｅ紡鍦烘櫙閲屾妸 AI 鍚勬鑰楁椂绱鍑烘潵銆?static var profile_enabled := false
 static var prof_tick_us := 0
 static var prof_crowd_us := 0
 static var prof_attack_us := 0
@@ -92,12 +89,10 @@ func _ready() -> void:
 	_tuning = _crowd.varied_values(_tuning, ["move_speed"], ["attack_damage"],
 		["attack_interval", "attack_windup", "attack_swing", "attack_recovery"])
 	anim_clock = _crowd.phase
-	# 错开 10Hz 群体重算与站定刷新：否则 36 只会落在同一物理帧，
-	# 造成每 0.1 秒一次的重帧脉冲（平均不差但体感抖）。
-	_crowd_clock = fmod(float(get_instance_id() % 997) * 0.011, CROWD_INTERVAL)
+	# 閿欏紑 10Hz 缇や綋閲嶇畻涓庣珯瀹氬埛鏂帮細鍚﹀垯 36 鍙細钀藉湪鍚屼竴鐗╃悊甯э紝
+	# 閫犳垚姣?0.1 绉掍竴娆＄殑閲嶅抚鑴夊啿锛堝钩鍧囦笉宸絾浣撴劅鎶栵級銆?	_crowd_clock = fmod(float(get_instance_id() % 997) * 0.011, CROWD_INTERVAL)
 	_still_frames = int(get_instance_id() % STILL_MOVE_INTERVAL)
 	_ai_phase = int(get_instance_id() % maxi(ai_stride, 1))
-	_move_phase = int(get_instance_id() % maxi(move_stride, 1))
 	for key in ["move_speed", "attack_damage", "max_health", "attack_distance", "attack_interval"]:
 		set(key, float(_tuning[key]))
 	_armor = _p("armor")
@@ -106,9 +101,7 @@ func _ready() -> void:
 	collision_layer = 4
 	collision_mask = 3
 	_build_procedural_mesh()
-	# 原稿晶核朝 +Z；只旋转视觉层，统一项目敌人朝向为 -Z。
-	# 战斗测试场以胶囊中心摆位，因此视觉的脚底也换算到中心坐标。
-	visual_root.rotation.y = PI
+	# 鍘熺鏅舵牳鏈?+Z锛涘彧鏃嬭浆瑙嗚灞傦紝缁熶竴椤圭洰鏁屼汉鏈濆悜涓?-Z銆?	# 鎴樻枟娴嬭瘯鍦轰互鑳跺泭涓績鎽嗕綅锛屽洜姝よ瑙夌殑鑴氬簳涔熸崲绠楀埌涓績鍧愭爣銆?	visual_root.rotation.y = PI
 	visual_root.position.y = -0.65
 	_setup_collision()
 	_steering.setup(self, 0.45, 1.3)
@@ -155,9 +148,12 @@ const CROWD_INTERVAL := 0.1
 const STILL_MOVE_INTERVAL := 6
 const AI_TICK_STRIDE := 2
 static var ai_stride := 2
-## 移动/寻路更新降频，攻击检查仍每 tick；两者互不影响。
-static var move_stride := 2
-var _move_phase := 0
+## 鎺掗槦绛夊緟鏃跺洿鐫€鍏ュ満閿氱偣灏忚寖鍥存父鑽★紝閬垮厤鈥滃師鍦拌笍姝?瀹屽叏闈欐鈥濄€?const WANDER_RADIUS := 1.2
+const WANDER_SPEED := 0.55
+var _wander_anchor := Vector3.ZERO
+var _wander_direction := Vector3.ZERO
+var _wander_until_msec := 0
+var _wander_active := false
 var _still_frames := 0
 var _close_hold := false
 var _ai_phase := 0
@@ -187,9 +183,7 @@ func _ai_physics(delta: float) -> void:
 		target = Targeting.nearest_player(self)
 	anim_clock += delta * _crowd.gait_multiplier
 	_attack_cooldown = maxf(_attack_cooldown - delta, 0.0)
-	# AI 决策每 2 个物理 tick 一次（按实例错峰）；移动/物理仍每 tick，
-	# 低帧时不会因为一渲染帧补多个物理 tick 而重复跑完整决策。
-	var physics_frame := Engine.get_physics_frames()
+	# AI 鍐崇瓥姣?2 涓墿鐞?tick 涓€娆★紙鎸夊疄渚嬮敊宄帮級锛涚Щ鍔?鐗╃悊浠嶆瘡 tick锛?	# 浣庡抚鏃朵笉浼氬洜涓轰竴娓叉煋甯цˉ澶氫釜鐗╃悊 tick 鑰岄噸澶嶈窇瀹屾暣鍐崇瓥銆?	var physics_frame := Engine.get_physics_frames()
 	if ai_enabled and (physics_frame + _ai_phase) % maxi(ai_stride, 1) != 0:
 		_continue_motion(delta)
 		return
@@ -208,13 +202,11 @@ func _ai_physics(delta: float) -> void:
 		return
 	if _try_attack_first():
 		return
-	# 移动/寻路按自己的节奏降频；上面攻击检查每 tick 都跑，近身反应不受影响。
-	if not _close_hold and move_stride > 1 \
-			and (physics_frame + _move_phase) % move_stride != 0:
-		_continue_motion(delta)
-		return
+	# 绉诲姩闂ㄤ繚鎸佹棫琛屼负锛氭帓鍦ㄦ敾鍑婚槦鍒楅噷灏卞仠姝?灏忚寖鍥存父鑽★紝涓嶆寔缁璺€?	# 鏀诲嚮闂ㄧ嫭绔嬶細涓婇潰鐨?_try_attack_first 姣?tick 閮借窇锛岃繎韬粛鍙浆韬嚭鎵嬨€?	var queue_wait := ai_enabled and current_state in [State.IDLE, State.WALK] and _crowd.defer_attack_check(target)
+	if not queue_wait:
+		_wander_active = false
 	var ticked := false
-	if not _close_hold:
+	if not _close_hold and not queue_wait:
 		var tick_start := Time.get_ticks_usec()
 		ticked = _steering.tick(delta, ai_enabled and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK], target, move_speed)
 		if profile_enabled:
@@ -224,9 +216,24 @@ func _ai_physics(delta: float) -> void:
 		return
 	var desired := Vector3.ZERO
 	if _close_hold:
-		# 贴身战斗姿态：面向玩家停步；不再沿旧路线走开或原地踏步。
-		desired = Vector3.ZERO
+		# 璐磋韩鎴樻枟濮挎€侊細闈㈠悜鐜╁鍋滄锛涗笉鍐嶆部鏃ц矾绾胯蛋寮€鎴栧師鍦拌笍姝ャ€?		desired = Vector3.ZERO
 		_set_locomotion(State.IDLE)
+	elif queue_wait:
+		# 鎺掗槦绛夊緟鏃剁粫鍏ュ満閿氱偣灏忚寖鍥存父鑽★紝涓€鍗婃鐜囨湞鐜╁銆?		if not _wander_active:
+			_wander_active = true
+			_wander_anchor = global_position
+			_pick_wander()
+		elif Time.get_ticks_msec() >= _wander_until_msec:
+			_pick_wander()
+		var desired_wander := _wander_direction * WANDER_SPEED
+		var wander_offset := _wander_anchor - global_position
+		wander_offset.y = 0.0
+		if wander_offset.length_squared() > WANDER_RADIUS * WANDER_RADIUS:
+			desired_wander += wander_offset.normalized() * WANDER_SPEED
+		elif wander_offset.length_squared() > WANDER_RADIUS * WANDER_RADIUS * 0.64:
+			desired_wander *= 0.45
+		desired = _steering.spatial.gate_motion(desired_wander, delta)
+		_set_locomotion(State.IDLE if desired.is_zero_approx() else State.WALK)
 	elif ai_enabled and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK]:
 		if HealthUtil.is_alive(target):
 			var offset := target.global_position - global_position
@@ -289,9 +296,7 @@ func _continue_motion(delta: float) -> void:
 
 
 func _move_physics(desired: Vector3, delta: float) -> void:
-	# 顶墙时把“往墙里”的期望速度改成沿墙切向滑动，并轻推离墙；
-	# 否则 move_and_slide 清零速度后它还会原地播走路动画，看起来就是顶石头。
-	if is_on_wall():
+	# 椤跺鏃舵妸鈥滃線澧欓噷鈥濈殑鏈熸湜閫熷害鏀规垚娌垮鍒囧悜婊戝姩锛屽苟杞绘帹绂诲锛?	# 鍚﹀垯 move_and_slide 娓呴浂閫熷害鍚庡畠杩樹細鍘熷湴鎾蛋璺姩鐢伙紝鐪嬭捣鏉ュ氨鏄《鐭冲ご銆?	if is_on_wall():
 		var wall_normal := get_wall_normal()
 		wall_normal.y = 0.0
 		if wall_normal.length_squared() > 0.0001:
@@ -302,9 +307,7 @@ func _move_physics(desired: Vector3, delta: float) -> void:
 				desired += wall_normal * 0.2
 				if desired.length_squared() < 0.01:
 					desired = wall_normal * 0.6
-	# 站定/排队时不每帧跑 move_and_slide；每 6 帧刷新一次贴地。
-	# 移动、击退、悬空仍每帧走物理，避免影响追击与击退。
-	var still := is_on_floor() and desired.is_zero_approx() \
+	# 绔欏畾/鎺掗槦鏃朵笉姣忓抚璺?move_and_slide锛涙瘡 6 甯у埛鏂颁竴娆¤创鍦般€?	# 绉诲姩銆佸嚮閫€銆佹偓绌轰粛姣忓抚璧扮墿鐞嗭紝閬垮厤褰卞搷杩藉嚮涓庡嚮閫€銆?	var still := is_on_floor() and desired.is_zero_approx() \
 		and _push_velocity.is_zero_approx() \
 		and Vector2(velocity.x, velocity.z).length_squared() < 0.0004
 	if still and _still_frames < STILL_MOVE_INTERVAL:
@@ -336,17 +339,28 @@ func _try_attack_first() -> bool:
 	var hold := reach + 0.25
 	if distance > hold or distance <= 0.001:
 		return false
-	# 近身立即转身面向玩家；背后贴脸也能进入攻击扇区。
-	var direction := offset / distance
+	# 杩戣韩绔嬪嵆杞韩闈㈠悜鐜╁锛涜儗鍚庤创鑴镐篃鑳借繘鍏ユ敾鍑绘墖鍖恒€?	var direction := offset / distance
 	rotation.y = atan2(-direction.x, -direction.z)
-	# 只有真实可达（扇形/高度/遮挡都通过）才停步进入战斗姿态；
-	# 被石头挡住的继续寻路，不能在这里假装能打。
-	if not _spatial_can_attack():
+	# 鍙湁鐪熷疄鍙揪锛堟墖褰?楂樺害/閬尅閮介€氳繃锛夋墠鍋滄杩涘叆鎴樻枟濮挎€侊紱
+	# 琚煶澶存尅浣忕殑缁х画瀵昏矾锛屼笉鑳藉湪杩欓噷鍋囪鑳芥墦銆?	if not _spatial_can_attack():
 		return false
 	_close_hold = true
 	if _attack_cooldown > 0.0:
 		return false
 	return trigger_attack(target.global_position)
+
+
+func _pick_wander() -> void:
+	var direction := Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0))
+	if direction.length_squared() < 0.01:
+		direction = Vector3.FORWARD
+	if is_instance_valid(target) and randf() < 0.5:
+		var to_target := target.global_position - global_position
+		to_target.y = 0.0
+		if to_target.length_squared() > 0.01:
+			direction = direction.normalized() * 0.4 + to_target.normalized() * 0.6
+	_wander_direction = direction.normalized()
+	_wander_until_msec = Time.get_ticks_msec() + randi_range(600, 1200)
 
 
 func _set_locomotion(next_state: State) -> void:
@@ -449,15 +463,14 @@ func trigger_attack(target_pos: Vector3) -> bool:
 	direction.y = 0.0
 	if not direction.is_zero_approx():
 		rotation.y = atan2(-direction.x, -direction.z)
-	# 蓄力开始时锁定方向，玩家可在配置的前摇期间移开或打断。
-	current_state = State.ATTACK
+	# 钃勫姏寮€濮嬫椂閿佸畾鏂瑰悜锛岀帺瀹跺彲鍦ㄩ厤缃殑鍓嶆憞鏈熼棿绉诲紑鎴栨墦鏂€?	current_state = State.ATTACK
 	_attack_target = target
 	_attack_cooldown = attack_interval
 	velocity.x = 0.0
 	velocity.z = 0.0
 	_attack_area.prepare(global_transform, _attack_spec(), attack_damage * _damage_scale,
 		_p("attack_windup") + _p("attack_swing"))
-	Telemetry.enemy_attack_started(self, "傀儡挥拳")
+	Telemetry.enemy_attack_started(self, "鍌€鍎℃尌鎷?)
 	_action_tween = create_tween().set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
 	_action_tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	_action_tween.tween_property(right_arm_pivot, "rotation_degrees", Vector3(-95, 20, 0), _p("attack_windup"))
@@ -477,7 +490,7 @@ func _on_attack_hit_frame() -> void:
 		return
 	if _attack_area.can_hit(_attack_target, _attack_area.origin):
 		Telemetry.hurt_player(_attack_target, _attack_area.damage, _attack_area.origin, 1.0,
-			Telemetry.source_info(self, "傀儡挥拳"))
+			Telemetry.source_info(self, "鍌€鍎℃尌鎷?))
 	_attack_area.recover()
 
 
@@ -571,7 +584,7 @@ func apply_push(direction: Vector3, force: float) -> void:
 
 
 func _update_health_label() -> void:
-	_health_label.text = "泥土傀儡  %d/%d" % [ceili(health), ceili(max_health)]
+	_health_label.text = "娉ュ湡鍌€鍎? %d/%d" % [ceili(health), ceili(max_health)]
 
 
 func trigger_death_scatter() -> void:
@@ -585,8 +598,7 @@ func trigger_death_scatter() -> void:
 	_collision.set_deferred("disabled", true)
 	collision_layer = 0
 	collision_mask = 0
-	# 碎片挂在测试场根节点，重开时与子弹等动态内容一起清理。
-	var debris_parent := get_tree().current_scene
+	# 纰庣墖鎸傚湪娴嬭瘯鍦烘牴鑺傜偣锛岄噸寮€鏃朵笌瀛愬脊绛夊姩鎬佸唴瀹逛竴璧锋竻鐞嗐€?	var debris_parent := get_tree().current_scene
 	if debris_parent == null:
 		debris_parent = get_parent()
 	preload("res://scripts/combat_fx.gd").spawn_ground_burst(debris_parent, global_position, 1.2)
@@ -605,8 +617,7 @@ func trigger_death_scatter() -> void:
 		rb.collision_mask = 1
 		debris_parent.add_child(rb)
 		Lifecycle.register_effect(self, rb)
-		# 把世界缩放保留在网格，刚体仅保留位置和旋转，避免物理缩放。
-		rb.global_transform = Transform3D(world_transform.basis.orthonormalized(), world_transform.origin)
+		# 鎶婁笘鐣岀缉鏀句繚鐣欏湪缃戞牸锛屽垰浣撲粎淇濈暀浣嶇疆鍜屾棆杞紝閬垮厤鐗╃悊缂╂斁銆?		rb.global_transform = Transform3D(world_transform.basis.orthonormalized(), world_transform.origin)
 		var fragment := MeshInstance3D.new()
 		fragment.name = "MudGolemFragment"
 		fragment.mesh = part.mesh
@@ -621,8 +632,7 @@ func trigger_death_scatter() -> void:
 		var horizontal := _p("scatter_horizontal")
 		rb.apply_central_impulse(Vector3(randf_range(-horizontal, horizontal), randf_range(_p("scatter_up_min"), _p("scatter_up_max")), randf_range(-horizontal, horizontal)) * rb.mass)
 		rb.apply_torque_impulse(Vector3(randf(), randf(), randf()) * _p("scatter_torque"))
-		# 子节点计时器随碎片销毁和暂停，避免重开留下回调。
-		var lifetime := Timer.new()
+		# 瀛愯妭鐐硅鏃跺櫒闅忕鐗囬攢姣佸拰鏆傚仠锛岄伩鍏嶉噸寮€鐣欎笅鍥炶皟銆?		var lifetime := Timer.new()
 		lifetime.one_shot = true
 		lifetime.wait_time = _p("debris_lifetime")
 		rb.add_child(lifetime)
