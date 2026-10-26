@@ -9,6 +9,7 @@ const Terrain := preload("res://scripts/terrain_field.gd")
 const Golem := preload("res://scripts/prototypes/procedural_mud_golem.gd")
 const FlowFieldScript := preload("res://scripts/flow_field.gd")
 const FodderFieldScript := preload("res://scripts/prototypes/fodder_field.gd")
+const MovementProfileScript := preload("res://scripts/prototypes/movement_profile.gd")
 const CombatFX := preload("res://scripts/combat_fx.gd")
 const PROFILE_PATH := "user://logs/golem_ai_profile.log"
 const SPAWN_RING := [8.0, 10.5, 13.0, 15.5]
@@ -50,6 +51,9 @@ var _fodder := false
 var _fodder_field
 var _fodder_aoe := false
 var _last_fodder_aoe := 0
+var _fodder_ignore_terrain := false
+var _fodder_step := 0.7
+var _fodder_slope := 40.0
 var _player_at := Vector2.INF
 var _shot_path := ""
 var _shot_at := 4.0
@@ -86,6 +90,12 @@ func _initialize() -> void:
 			_fodder = true
 		elif arg == "--fodder-aoe=on":
 			_fodder_aoe = true
+		elif arg == "--fodder-ignore-terrain=on":
+			_fodder_ignore_terrain = true
+		elif arg.begins_with("--fodder-step="):
+			_fodder_step = float(arg.trim_prefix("--fodder-step="))
+		elif arg.begins_with("--fodder-slope="):
+			_fodder_slope = float(arg.trim_prefix("--fodder-slope="))
 		elif arg.begins_with("--player-at="):
 			var parts := arg.trim_prefix("--player-at=").split(",")
 			if parts.size() == 2:
@@ -166,7 +176,7 @@ func _run() -> void:
 		_fodder_field = FodderFieldScript.new()
 		_fodder_field.top_level = true
 		_scene.add_child(_fodder_field)
-		_fodder_field.setup(_player, _flow, _count, _player.global_position)
+		_fodder_field.setup(_player, _flow, _count, _player.global_position, _make_fodder_profile())
 		print("[fodder] units=%d" % _fodder_field.units())
 	else:
 		await _spawn_golems()
@@ -268,6 +278,15 @@ func _clear_enemies() -> void:
 		await process_frame
 
 
+func _make_fodder_profile():
+	var profile := MovementProfileScript.new()
+	profile.id = "spider_test" if _fodder_ignore_terrain else "mud_golem"
+	profile.step_height = _fodder_step
+	profile.max_slope_deg = _fodder_slope
+	profile.ignore_terrain = _fodder_ignore_terrain
+	return profile
+
+
 func _clear_fodder() -> void:
 	if is_instance_valid(_fodder_field):
 		_fodder_field.queue_free()
@@ -289,7 +308,7 @@ func _restart() -> void:
 		_fodder_field = FodderFieldScript.new()
 		_fodder_field.top_level = true
 		_scene.add_child(_fodder_field)
-		_fodder_field.setup(_player, _flow, _count, _player.global_position)
+		_fodder_field.setup(_player, _flow, _count, _player.global_position, _make_fodder_profile())
 		print("[fodder] restart units=%d" % _fodder_field.units())
 	else:
 		await _spawn_golems()

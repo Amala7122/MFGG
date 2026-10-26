@@ -8,6 +8,7 @@ extends Node3D
 const Terrain := preload("res://scripts/terrain_field.gd")
 const SurfaceGridScript := preload("res://scripts/prototypes/surface_grid.gd")
 const FlowFieldScript := preload("res://scripts/flow_field.gd")
+const MovementProfileScript := preload("res://scripts/prototypes/movement_profile.gd")
 const MERGED_SHADER := preload("res://shaders/golem_fodder_merged.gdshader")
 
 const SPEED := 3.4
@@ -29,7 +30,6 @@ const AVOID_INTERVAL := 3
 const AVOID_HOLD := 0.25
 const AVOID_STEP := 1.0
 const STEP_HEIGHT := 0.7
-const FLOW_SLOPE_HEIGHT := 2.8
 const SURFACE_RADIUS := 40.0
 const SURFACE_CELL := 1.0
 const SURFACE_BUILD_DELAY_FRAMES := 8
@@ -45,6 +45,9 @@ const STATE_DEAD := 4
 
 var player: Node3D
 var flow: RefCounted
+var profile
+var step_height := STEP_HEIGHT
+var avoid_step := AVOID_STEP
 var count := 0
 
 var _positions := PackedVector3Array()
@@ -92,9 +95,13 @@ var resolve_inside := 0
 var under_platform := 0
 
 
-func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3) -> void:
+func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
+		movement_profile = null) -> void:
 	player = target
 	flow = field
+	profile = movement_profile if movement_profile != null else MovementProfileScript.new()
+	step_height = profile.step_height
+	avoid_step = profile.avoid_step
 	count = amount
 	_positions.resize(count)
 	_velocity.resize(count)
@@ -238,13 +245,13 @@ func _physics_process(delta: float) -> void:
 		_surface.build(get_world_3d(), player.global_position, SURFACE_RADIUS, SURFACE_CELL)
 		_surface_ready = true
 		surface_build_ms = _surface.build_usec / 1000.0
-		print("[fodder] surface_ms=%.1f radius=%.0f cell=%.1f step=%.2f flow_step=%.2f" % [
-			surface_build_ms, SURFACE_RADIUS, SURFACE_CELL, STEP_HEIGHT, FLOW_SLOPE_HEIGHT])
+		print("[fodder] surface_ms=%.1f radius=%.0f cell=%.1f step=%.2f profile=%s ignore=%s" % [
+			surface_build_ms, SURFACE_RADIUS, SURFACE_CELL, step_height,
+			profile.id, str(profile.ignore_terrain)])
 		# 用表面高度重建流场：平台/石头的高差边直接不可通行，单位从远处就绕。
 		var surface_flow := FlowFieldScript.new()
-		# 流场按坡度放行（约 35°，4m 格 2.8m），不能拿 0.7m 步高去砍整条坡；
-		# 垂直台阶由移动层的 STEP_HEIGHT 拦截。
-		surface_flow.set_height_provider(_surface, FLOW_SLOPE_HEIGHT)
+		# 流场按 profile 的坡度放行；ignore_terrain 的蜘蛛不做高度约束。
+		surface_flow.set_height_profile(_surface, profile)
 		surface_flow.rebuild(player.global_position)
 		flow = surface_flow
 		print("[fodder] flow_cells=%d" % surface_flow.reachable_cells)
@@ -264,7 +271,7 @@ func _physics_process(delta: float) -> void:
 				var target_ground: float = _surface.height_at(p.x, p.z)
 				# 只允许 35cm 以内的抬升；高平台内的单位保持原位，让胶囊解算把它们推出去，
 				# 避免首帧“瞬移站上高平台”。
-				if target_ground - current_ground <= STEP_HEIGHT + 0.001:
+				if target_ground - current_ground <= step_height + 0.001:
 					p.y = target_ground + BODY_OFFSET
 					_positions[index] = p
 	var target := player.global_position
@@ -287,18 +294,18 @@ func _physics_process(delta: float) -> void:
 		var distance := to.length()
 		var state := int(_state[index])
 		# 硬排除：不能站在高表面覆盖区的地面下（平台/大石头底部）。
-		if _surface_ready:
+		if _surface_ready and not profile.ignore_terrain:
 			var terrain_here := Terrain.height_at(pos.x, pos.z)
 			var surface_here := _surface_height(pos.x, pos.z)
 			var ground_here := pos.y - BODY_OFFSET
-			if surface_here - terrain_here > STEP_HEIGHT and ground_here - terrain_here <= STEP_HEIGHT:
+			if surface_here - terrain_here > step_height and ground_here - terrain_here <= step_height:
 				var best_dir := Vector3.ZERO
 				var best_height := INF
 				for step_index in 8:
 					var angle := TAU * float(step_index) / 8.0
 					var probe := pos + Vector3(cos(angle), 0.0, sin(angle)) * 1.6
 					var probe_height := _surface_height(probe.x, probe.z)
-					if probe_height - terrain_here <= STEP_HEIGHT and probe_height < best_height:
+					if probe_height - terrain_here <= step_height and probe_height < best_height:
 						best_height = probe_height
 						best_dir = Vector3(cos(angle), 0.0, sin(angle))
 				if best_dir.length_squared() > 0.001:
@@ -372,7 +379,7 @@ func _physics_process(delta: float) -> void:
 			else:
 				var ahead := pos + direction * 1.2
 				var ahead_height := _surface_height(ahead.x, ahead.z)
-				if absf(ahead_height - (pos.y - BODY_OFFSET)) > AVOID_STEP:
+				if absf(ahead_height - (pos.y - BODY_OFFSET)) > avoid_step:
 					var ground_normal := Terrain.normal_at(ahead.x, ahead.z)
 					ground_normal.y = 0.0
 					if ground_normal.length_squared() > 0.001:
@@ -404,13 +411,13 @@ func _physics_process(delta: float) -> void:
 		var next := pos + desired * SPEED * delta
 		var current_ground := pos.y - BODY_OFFSET
 		var next_ground := _surface_height(next.x, next.z)
-		if _surface_ready and absf(next_ground - current_ground) > STEP_HEIGHT:
+		if _surface_ready and not profile.ignore_terrain and absf(next_ground - current_ground) > step_height:
 			# 正面被台阶/平台挡住时，沿 X 或 Z 单轴滑动，避免整群顶死在边缘。
 			var slide_x := pos + Vector3(desired.x, 0.0, 0.0) * SPEED * delta
 			var slide_z := pos + Vector3(0.0, 0.0, desired.z) * SPEED * delta
-			if absf(_surface_height(slide_x.x, slide_x.z) - current_ground) <= STEP_HEIGHT:
+			if absf(_surface_height(slide_x.x, slide_x.z) - current_ground) <= step_height:
 				next = slide_x
-			elif absf(_surface_height(slide_z.x, slide_z.z) - current_ground) <= STEP_HEIGHT:
+			elif absf(_surface_height(slide_z.x, slide_z.z) - current_ground) <= step_height:
 				next = slide_z
 			else:
 				next = pos
@@ -470,7 +477,7 @@ func _snap_to_surface(pos: Vector3) -> Vector3:
 		return pos
 	var current_ground := pos.y - BODY_OFFSET
 	var target := _surface_height(pos.x, pos.z)
-	if absf(target - current_ground) <= STEP_HEIGHT + 0.001:
+	if profile.ignore_terrain or absf(target - current_ground) <= step_height + 0.001:
 		pos.y = target + BODY_OFFSET
 	return pos
 

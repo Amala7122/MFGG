@@ -24,6 +24,7 @@ var _distance: PackedInt32Array = PackedInt32Array()
 var _n := 0
 var _origin := Vector2.ZERO
 var _height_provider = null
+var _height_profile = null
 var _step_height := INF
 var rebuild_usec := 0
 var reachable_cells := 0
@@ -59,7 +60,14 @@ func _ensure_mask() -> void:
 ## 同步重建：仅用于首帧/测试；运行时应走 request_rebuild + poll_rebuild。
 func set_height_provider(provider, step_height: float) -> void:
 	_height_provider = provider
+	_height_profile = null
 	_step_height = step_height
+
+
+func set_height_profile(provider, profile) -> void:
+	_height_provider = provider
+	_height_profile = profile
+	_step_height = profile.flow_edge_limit(CELL_SIZE)
 
 
 func rebuild(center: Vector3) -> void:
@@ -129,7 +137,8 @@ func _compute(center: Vector3) -> Dictionary:
 		var iz: int = int(index / n)
 		var next_distance := distance[index] + 1
 		var current_height := 0.0
-		var height_checked := _height_provider != null
+		var height_checked := _height_provider != null and not (
+			_height_profile != null and bool(_height_profile.ignore_terrain))
 		if height_checked:
 			var wx := origin.x + float(ix) * CELL_SIZE
 			var wz := origin.y + float(iz) * CELL_SIZE
