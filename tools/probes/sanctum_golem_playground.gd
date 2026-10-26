@@ -33,6 +33,7 @@ var _ablate_ai_after := -1.0
 var _ablate_done := false
 var _max_physics_steps := 2
 var _pause_batch := false
+var _no_weather := false
 
 
 func _initialize() -> void:
@@ -45,6 +46,8 @@ func _initialize() -> void:
 			_autoplay = true
 		elif arg == "--pause-batch=on":
 			_pause_batch = true
+		elif arg == "--no-weather=on":
+			_no_weather = true
 		elif arg.begins_with("--ablate-ai-after="):
 			_ablate_ai_after = float(arg.trim_prefix("--ablate-ai-after="))
 		elif arg.begins_with("--max-physics-steps="):
@@ -53,6 +56,8 @@ func _initialize() -> void:
 			Engine.physics_ticks_per_second = clampi(int(arg.trim_prefix("--physics-hz=")), 15, 120)
 		elif arg.begins_with("--max-fps="):
 			Engine.max_fps = clampi(int(arg.trim_prefix("--max-fps=")), 0, 240)
+		elif arg.begins_with("--ai-stride="):
+			Golem.ai_stride = clampi(int(arg.trim_prefix("--ai-stride=")), 1, 4)
 	# 低帧螺旋兜底：一帧最多 2 个固定物理步，避免 8 步把 AI 成本再放大 8 倍。
 	Engine.max_physics_steps_per_frame = _max_physics_steps
 	call_deferred("_run")
@@ -95,12 +100,18 @@ func _run() -> void:
 		spawn_point.set_process(false)
 		spawn_point.set_physics_process(false)
 	await _clear_enemies()
-	_spawn_golems()
+	await _spawn_golems()
 	if _pause_batch:
 		var batch := _scene.find_child("MudGolemRenderBatch", true, false)
 		if batch != null:
 			batch.set_process(false)
 			print("[playground] batch process paused")
+	if _no_weather:
+		var timeline := _scene.find_child("WeatherTimeline", true, false)
+		if timeline != null:
+			timeline.set_process(false)
+			timeline.set_physics_process(false)
+			print("[playground] weather process paused")
 	_add_hint()
 	_started = true
 	_started_msec = Time.get_ticks_msec()
@@ -130,6 +141,9 @@ func _spawn_golems() -> void:
 			enemy.call("set_combat_target", _player)
 		(holder if holder != null else _scene).add_child(enemy)
 		_spawned.append(enemy)
+		# 分批出场：避免 30 只同帧实例化 + 激活造成一次性的 min 8 尖峰。
+		if (index + 1) % 5 == 0:
+			await process_frame
 	print("[playground] spawned=%d invincible=%s" % [_spawned.size(), _invincible])
 
 
@@ -154,7 +168,7 @@ func _restart() -> void:
 		return
 	_restarting = true
 	await _clear_enemies()
-	_spawn_golems()
+	await _spawn_golems()
 	_started_msec = Time.get_ticks_msec()
 	_restarting = false
 

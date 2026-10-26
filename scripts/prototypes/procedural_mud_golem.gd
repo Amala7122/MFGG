@@ -96,7 +96,7 @@ func _ready() -> void:
 	# 造成每 0.1 秒一次的重帧脉冲（平均不差但体感抖）。
 	_crowd_clock = fmod(float(get_instance_id() % 997) * 0.011, CROWD_INTERVAL)
 	_still_frames = int(get_instance_id() % STILL_MOVE_INTERVAL)
-	_ai_phase = int(get_instance_id() % AI_TICK_STRIDE)
+	_ai_phase = int(get_instance_id() % maxi(ai_stride, 1))
 	for key in ["move_speed", "attack_damage", "max_health", "attack_distance", "attack_interval"]:
 		set(key, float(_tuning[key]))
 	_armor = _p("armor")
@@ -153,6 +153,7 @@ func _p(key: String) -> float:
 const CROWD_INTERVAL := 0.1
 const STILL_MOVE_INTERVAL := 6
 const AI_TICK_STRIDE := 2
+static var ai_stride := 2
 var _still_frames := 0
 var _ai_phase := 0
 var _crowd_clock := 0.0
@@ -184,7 +185,7 @@ func _ai_physics(delta: float) -> void:
 	# AI 决策每 2 个物理 tick 一次（按实例错峰）；移动/物理仍每 tick，
 	# 低帧时不会因为一渲染帧补多个物理 tick 而重复跑完整决策。
 	var physics_frame := Engine.get_physics_frames()
-	if ai_enabled and (physics_frame + _ai_phase) % AI_TICK_STRIDE != 0:
+	if ai_enabled and (physics_frame + _ai_phase) % maxi(ai_stride, 1) != 0:
 		_continue_motion(delta)
 		return
 	if profile_enabled:
