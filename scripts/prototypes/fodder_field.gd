@@ -26,6 +26,9 @@ const AVOID_DISTANCE := 1.7
 const AVOID_INTERVAL := 3
 const AVOID_HOLD := 0.25
 const AVOID_STEP := 0.5
+const RESOLVE_INTERVAL := 2
+const RESOLVE_RADIUS := 0.42
+const RESOLVE_CENTER := 0.5
 
 const STATE_MOVE := 0
 const STATE_WINDUP := 1
@@ -51,6 +54,8 @@ var _alive := PackedByteArray()
 var _render_indices := PackedInt32Array()
 var _avoid_dirs := PackedVector3Array()
 var _avoid_timers := PackedFloat32Array()
+var _resolve_shape: SphereShape3D
+var _resolve_query: PhysicsShapeQueryParameters3D
 
 var _multimesh: MultiMesh
 var _multimesh_instance: MultiMeshInstance3D
@@ -108,6 +113,13 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3) -> v
 		_avoid_dirs[index] = Vector3.ZERO
 		_avoid_timers[index] = 0.0
 	add_to_group("fodder_fields")
+	_resolve_shape = SphereShape3D.new()
+	_resolve_shape.radius = RESOLVE_RADIUS
+	_resolve_query = PhysicsShapeQueryParameters3D.new()
+	_resolve_query.shape = _resolve_shape
+	_resolve_query.collision_mask = 1
+	_resolve_query.collide_with_areas = false
+	_resolve_query.collide_with_bodies = true
 
 
 func _build_visuals() -> void:
@@ -310,6 +322,28 @@ func _physics_process(delta: float) -> void:
 		var desired := (direction + push * SEPARATION_STRENGTH).normalized()
 		pos += desired * SPEED * delta
 		pos.y = Terrain.height_at(pos.x, pos.z) + BODY_OFFSET
+		# 人群互推会把个体挤进平台/石头；每 2 个物理帧做一次共享 shape 解算，
+		# 把重叠的身体沿接触法线推出去，避免整群站进静态几何。
+		if (Engine.get_physics_frames() + index) % RESOLVE_INTERVAL == 0:
+			for _pass in 2:
+				var center := pos + Vector3.UP * RESOLVE_CENTER
+				_resolve_query.transform = Transform3D(Basis(), center)
+				var hits := get_world_3d().direct_space_state.intersect_shape(_resolve_query, 4)
+				if hits.is_empty():
+					break
+				var resolve_push := Vector3.ZERO
+				for hit in hits:
+					var normal: Vector3 = hit.get("normal", Vector3.ZERO)
+					if normal.length_squared() < 0.001:
+						var point: Vector3 = hit.get("point", center)
+						normal = center - point
+					normal.y = 0.0
+					if normal.length_squared() > 0.001:
+						resolve_push += normal.normalized()
+				if resolve_push.length_squared() < 0.0001:
+					break
+				pos += resolve_push.normalized() * 0.22
+				pos.y = Terrain.height_at(pos.x, pos.z) + BODY_OFFSET
 		_positions[index] = pos
 		_yaw[index] = atan2(-desired.x, -desired.z)
 		_move_weight[index] = 1.0
