@@ -108,7 +108,7 @@ func _ready() -> void:
 	_still_frames = int(get_instance_id() % STILL_MOVE_INTERVAL)
 	_ai_phase = int(get_instance_id() % maxi(ai_stride, 1))
 	_far_phase = int(get_instance_id() % maxi(far_move_stride, 1))
-	_flow_lane = randf_range(-1.0, 1.0)
+	_flow_lane = fmod(float(get_instance_id()) * 0.61803398875, 2.0) - 1.0
 	for key in ["move_speed", "attack_damage", "max_health", "attack_distance", "attack_interval"]:
 		set(key, float(_tuning[key]))
 	_armor = _p("armor")
@@ -169,6 +169,8 @@ static var ai_stride := 2
 ## 共享流场：非空时，>8m 的移动只读流场方向，不再进入各自的战术规划。
 static var flow_field: RefCounted
 static var flow_min_distance := 3.5
+## 低于这个距离恢复完整碰撞；4m 贴脸穿模太明显，改到 12m。
+static var flow_cheap_distance := 12.0
 var _flow_lane := 0.0
 var _cached_flow := Vector3.ZERO
 var _cheap_physics := false
@@ -242,7 +244,7 @@ func _ai_physics(delta: float) -> void:
 				var flow_distance := flow_offset.length()
 				var approach := clampf((flow_distance - flow_min_distance) / 14.0, 0.0, 1.0)
 				var lateral: Vector3 = Vector3(-flow_direction.z, 0.0, flow_direction.x) \
-					* _flow_lane * (0.15 + approach * 0.45)
+					* _flow_lane * (0.25 + approach * 0.7)
 				var base_direction: Vector3 = (flow_direction + lateral).normalized()
 				# 流场只给大方向；每 100ms 用一次 crowd 分离，避免全部吸成一条线。
 				if _crowd_ready:
@@ -373,10 +375,10 @@ func _continue_motion(delta: float) -> void:
 
 
 func _move_physics(desired: Vector3, delta: float) -> void:
-	# 远处移动物理降级：走流场的怪 >4m 只做贴地平移，并临时关掉碰撞体，
-	# 不进物理 broadphase；贴身、攻击、阻挡再恢复完整物理。
+	# 远处移动物理降级：走流场的怪 >12m 只做贴地平移，并临时关掉碰撞体，
+	# 不进物理 broadphase；12m 内恢复完整碰撞，避免近身穿石头/穿怪。
 	if flow_field != null and is_instance_valid(target) \
-			and global_position.distance_to(target.global_position) > 4.0:
+			and global_position.distance_to(target.global_position) > flow_cheap_distance:
 		if not _cheap_physics:
 			_cheap_physics = true
 			if is_instance_valid(_collision):
