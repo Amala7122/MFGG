@@ -40,6 +40,10 @@ var _ablate_done := false
 var _max_physics_steps := 2
 var _pause_batch := false
 var _no_weather := false
+var _no_grass := false
+var _no_decor := false
+var _no_shadows := false
+var _no_post := false
 
 
 func _initialize() -> void:
@@ -54,6 +58,14 @@ func _initialize() -> void:
 			_pause_batch = true
 		elif arg == "--no-weather=on":
 			_no_weather = true
+		elif arg == "--no-grass=on":
+			_no_grass = true
+		elif arg == "--no-decor=on":
+			_no_decor = true
+		elif arg == "--no-shadows=on":
+			_no_shadows = true
+		elif arg == "--no-post=on":
+			_no_post = true
 		elif arg.begins_with("--ablate-ai-after="):
 			_ablate_ai_after = float(arg.trim_prefix("--ablate-ai-after="))
 		elif arg.begins_with("--max-physics-steps="):
@@ -109,6 +121,7 @@ func _run() -> void:
 		spawn_point.set_physics_process(false)
 	await _clear_enemies()
 	await _spawn_golems()
+	_apply_scene_ablations()
 	_flow = FlowFieldScript.new()
 	_flow.rebuild(_player.global_position)
 	_flow_build_ms = _flow.rebuild_usec / 1000.0
@@ -167,6 +180,36 @@ func _spawn_golems() -> void:
 		if (index + 1) % 5 == 0:
 			await process_frame
 	print("[playground] spawned=%d invincible=%s" % [_spawned.size(), _invincible])
+
+
+func _apply_scene_ablations() -> void:
+	var grass := _scene.get_node_or_null("Grass")
+	if grass != null:
+		var grass_instances := 0
+		var grass_vertices := 0
+		for node in grass.find_children("*", "MultiMeshInstance3D", true, false):
+			var multimesh := (node as MultiMeshInstance3D).multimesh
+			if multimesh == null or not (node as Node3D).is_visible_in_tree():
+				continue
+			grass_instances += multimesh.visible_instance_count
+			if multimesh.mesh != null and multimesh.mesh.get_surface_count() > 0:
+				grass_vertices += multimesh.visible_instance_count * multimesh.mesh.surface_get_array_len(0)
+		print("[env] grass_instances=%d grass_vertices=%d" % [grass_instances, grass_vertices])
+		if _no_grass:
+			grass.visible = false
+			grass.set_process(false)
+	if _no_decor:
+		for node_name in ["WorldDecor", "Cover"]:
+			var decor := _scene.get_node_or_null(node_name)
+			if decor != null:
+				decor.visible = false
+	if _no_shadows:
+		for light in _scene.find_children("*", "DirectionalLight3D", true, false):
+			(light as DirectionalLight3D).shadow_enabled = false
+	if _no_post:
+		var post := root.get_node_or_null("PostProcess")
+		if post != null:
+			post.visible = false
 
 
 func _clear_enemies() -> void:
@@ -278,12 +321,13 @@ func _log_profile() -> void:
 			var snapshot: Dictionary = queue.call("snapshot")
 			attackers = int(snapshot.get("total", 0))
 			pending = int(snapshot.get("pending", 0))
-	var line := "[golem_ai] enemies=%d attackers=%d pending=%d flow_ms=%.2f try=%d reach=%d can=%d grant=%d fps=%.1f process_ms=%.1f physics_ms=%.1f nav_ms=%.1f draw=%d nodes=%d tick_ms_s=%.1f crowd_ms_s=%.1f attack_ms_s=%.1f gate_ms_s=%.1f total_ms_s=%.1f tick_ms_frame=%.2f crowd_ms_frame=%.2f attack_ms_frame=%.2f gate_ms_frame=%.2f total_ms_frame=%.2f rest_ms_frame=%.2f" % [
+	var line := "[golem_ai] enemies=%d attackers=%d pending=%d flow_ms=%.2f try=%d reach=%d can=%d grant=%d fps=%.1f process_ms=%.1f physics_ms=%.1f nav_ms=%.1f draw=%d prim=%d nodes=%d tick_ms_s=%.1f crowd_ms_s=%.1f attack_ms_s=%.1f gate_ms_s=%.1f total_ms_s=%.1f tick_ms_frame=%.2f crowd_ms_frame=%.2f attack_ms_frame=%.2f gate_ms_frame=%.2f total_ms_frame=%.2f rest_ms_frame=%.2f" % [
 		_spawned.size(), attackers, pending, _flow_build_ms, Golem.dbg_attempt, Golem.dbg_in_reach, Golem.dbg_can, Golem.dbg_grant, Engine.get_frames_per_second(),
 		Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
 		Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
 		Performance.get_monitor(Performance.TIME_NAVIGATION_PROCESS) * 1000.0,
 		int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
+		int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)),
 		int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
 		Golem.prof_tick_us / 1000.0 / seconds,
 		Golem.prof_crowd_us / 1000.0 / seconds,

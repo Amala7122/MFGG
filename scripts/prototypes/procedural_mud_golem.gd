@@ -394,6 +394,20 @@ func _move_physics(desired: Vector3, delta: float) -> void:
 		_cheap_physics = false
 		if is_instance_valid(_collision):
 			_collision.disabled = false
+	# 4–12m 中间档：保留碰撞，但只做一次 move_and_collide，不做多段 slide。
+	if flow_field != null and is_instance_valid(target) \
+			and global_position.distance_to(target.global_position) > 4.0:
+		velocity.x = move_toward(velocity.x, desired.x, delta * _p("acceleration"))
+		velocity.z = move_toward(velocity.z, desired.z, delta * _p("acceleration"))
+		velocity.y = 0.0
+		var motion := Vector3(velocity.x, 0.0, velocity.z) * delta
+		var collision := move_and_collide(motion)
+		if collision != null:
+			velocity = velocity.slide(collision.get_normal())
+		var mid := global_position
+		mid.y = Terrain.height_at(mid.x, mid.z) + 0.6
+		global_position = mid
+		return
 	# 顶墙时把“往墙里”的期望速度改成沿墙切向滑动，并轻推离墙；
 	# 否则 move_and_slide 清零速度后它还会原地播走路动画，看起来就是顶石头。
 	if is_on_wall():
