@@ -4,7 +4,10 @@ extends CharacterBody3D
 signal died(enemy: Node3D)
 const Lifecycle := preload("res://scripts/enemies/enemy_lifecycle.gd")
 const RenderBatch := preload("res://scripts/prototypes/mud_golem_render_batch.gd")
+const MergedBatchScript := preload("res://scripts/prototypes/fodder_merged_batch.gd")
 var _render_batch: MudGolemRenderBatch
+var _merged_batch
+var fodder_attack_phase := 0.0
 var _flash_remaining := 0.0
 
 const HealthUtil := preload("res://scripts/health_util.gd")
@@ -133,15 +136,22 @@ func _ready() -> void:
 	add_child(_health_label)
 	_update_health_label()
 	_health_label.visible = always_show_health_label
-	_render_batch = RenderBatch.acquire(self)
-	_render_batch.register(self, visual_root, torso_pivot, head_core, left_arm_pivot,
-		right_arm_pivot, left_leg_pivot, right_leg_pivot)
+	_render_batch = null
+	if fodder_visual:
+		_merged_batch = MergedBatchScript.acquire(self)
+		_merged_batch.register(self, visual_root)
+	else:
+		_render_batch = RenderBatch.acquire(self)
+		_render_batch.register(self, visual_root, torso_pivot, head_core, left_arm_pivot,
+			right_arm_pivot, left_leg_pivot, right_leg_pivot)
 	_reactions.setup(self, combat_reaction_profile, _collision)
 
 
 func _exit_tree() -> void:
 	if is_instance_valid(_render_batch):
 		_render_batch.unregister(self)
+	if is_instance_valid(_merged_batch):
+		_merged_batch.unregister(self)
 
 
 ## Only presentation reads this timer. Damage and combat timing never depend on rendering.
@@ -166,6 +176,8 @@ const CROWD_INTERVAL := 0.1
 const STILL_MOVE_INTERVAL := 6
 const AI_TICK_STRIDE := 2
 static var ai_stride := 2
+## 实验：保留 CharacterBody/碰撞，表现层改成单合并网格 + GPU 四肢。
+static var fodder_visual := false
 ## 共享流场：非空时，>8m 的移动只读流场方向，不再进入各自的战术规划。
 static var flow_field: RefCounted
 static var flow_min_distance := 3.5
@@ -509,6 +521,9 @@ func _set_locomotion(next_state: State) -> void:
 
 
 func _reset_pose() -> void:
+	fodder_attack_phase = 0.0
+	if fodder_visual:
+		return
 	torso_pivot.rotation = Vector3.ZERO
 	torso_pivot.position.y = 0.75
 	left_arm_pivot.rotation = Vector3.ZERO
@@ -531,6 +546,8 @@ func _build_procedural_mesh() -> void:
 	visual_root = Node3D.new()
 	visual_root.name = "VisualRoot"
 	add_child(visual_root)
+	if fodder_visual:
+		return
 
 	torso_pivot = Node3D.new()
 	torso_pivot.name = "TorsoPivot"
@@ -575,6 +592,8 @@ func _setup_collision() -> void:
 
 
 func _animate_idle(t: float) -> void:
+	if fodder_visual:
+		return
 	torso_pivot.position.y = 0.75 + sin(t * 3.0) * 0.03
 	head_core.rotation_degrees.z = 45.0 + sin(t * 2.0) * 10.0
 	left_arm_pivot.rotation.x = sin(t * 2.5) * 0.08
@@ -582,6 +601,8 @@ func _animate_idle(t: float) -> void:
 
 
 func _animate_walk(t: float) -> void:
+	if fodder_visual:
+		return
 	var w_speed := _p("walk_frequency")
 	left_leg_pivot.rotation.x = sin(t * w_speed) * 0.65
 	right_leg_pivot.rotation.x = -sin(t * w_speed) * 0.65
@@ -611,6 +632,15 @@ func trigger_attack(target_pos: Vector3) -> bool:
 	_attack_area.prepare(global_transform, _attack_spec(), attack_damage * _damage_scale,
 		_p("attack_windup") + _p("attack_swing"))
 	Telemetry.enemy_attack_started(self, "傀儡挥拳")
+	if fodder_visual:
+		_action_tween = create_tween().set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
+		_action_tween.tween_method(_set_fodder_attack_phase, 0.0, 0.5, _p("attack_windup"))
+		_action_tween.tween_callback(_attack_area.lock)
+		_action_tween.tween_method(_set_fodder_attack_phase, 0.5, 1.0, _p("attack_swing"))
+		_action_tween.tween_callback(_on_attack_hit_frame)
+		_action_tween.tween_method(_set_fodder_attack_phase, 1.0, 0.0, _p("attack_recovery"))
+		_action_tween.tween_callback(_finish_action)
+		return true
 	_action_tween = create_tween().set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
 	_action_tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	_action_tween.tween_property(right_arm_pivot, "rotation_degrees", Vector3(-95, 20, 0), _p("attack_windup"))
@@ -623,6 +653,10 @@ func trigger_attack(target_pos: Vector3) -> bool:
 	_action_tween.parallel().tween_property(torso_pivot, "rotation_degrees", Vector3.ZERO, _p("attack_recovery")).set_trans(Tween.TRANS_SINE)
 	_action_tween.tween_callback(_finish_action)
 	return true
+
+
+func _set_fodder_attack_phase(value: float) -> void:
+	fodder_attack_phase = clampf(value, 0.0, 1.0)
 
 
 func _on_attack_hit_frame() -> void:
@@ -656,6 +690,12 @@ func trigger_hit_stagger(knockback_dir: Vector3, minimum_seconds: float = 0.0) -
 	_reset_pose()
 	current_state = State.STAGGER
 	_push_velocity = Vector3(knockback_dir.x, 0.0, knockback_dir.z)
+	if fodder_visual:
+		_action_tween = create_tween().set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
+		_action_tween.tween_interval(maxf(minimum_seconds,
+			_p("stagger_hit_time") + _p("stagger_recovery")))
+		_action_tween.tween_callback(_finish_action)
+		return
 	_action_tween = create_tween().set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
 	_action_tween.tween_property(torso_pivot, "rotation_degrees", Vector3(-35, randf_range(-15, 15), 0), _p("stagger_hit_time")).set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
 	_action_tween.tween_interval(maxf(minimum_seconds - _p("stagger_hit_time") - _p("stagger_recovery"), 0.0))
@@ -747,6 +787,8 @@ func trigger_death_scatter() -> void:
 	# Remove the world batch instance before spawning rigidbody fragments.
 	if is_instance_valid(_render_batch):
 		_render_batch.unregister(self)
+	if is_instance_valid(_merged_batch):
+		_merged_batch.unregister(self)
 	for part in debris:
 		var world_transform: Transform3D = part.transform
 		var rb := RigidBody3D.new()

@@ -76,6 +76,8 @@ func _initialize() -> void:
 			_lite = true
 		elif arg == "--heightmap=on":
 			Terrain.collision_backend = "heightmap"
+		elif arg == "--merged=on":
+			Golem.fodder_visual = true
 		elif arg == "--lite-shockwave=on":
 			_lite_shockwave = true
 		elif arg.begins_with("--ablate-ai-after="):
