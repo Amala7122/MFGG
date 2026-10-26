@@ -268,12 +268,31 @@ func _clear_enemies() -> void:
 		await process_frame
 
 
+func _clear_fodder() -> void:
+	if is_instance_valid(_fodder_field):
+		_fodder_field.queue_free()
+	_fodder_field = null
+	for node in get_nodes_in_group("fodder_debris"):
+		if is_instance_valid(node):
+			node.queue_free()
+	for _frame in 2:
+		await process_frame
+
+
 func _restart() -> void:
 	if not _started or _restarting:
 		return
 	_restarting = true
 	await _clear_enemies()
-	await _spawn_golems()
+	await _clear_fodder()
+	if _fodder:
+		_fodder_field = FodderFieldScript.new()
+		_fodder_field.top_level = true
+		_scene.add_child(_fodder_field)
+		_fodder_field.setup(_player, _flow, _count, _player.global_position)
+		print("[fodder] restart units=%d" % _fodder_field.units())
+	else:
+		await _spawn_golems()
 	_started_msec = Time.get_ticks_msec()
 	_restarting = false
 

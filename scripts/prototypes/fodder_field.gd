@@ -65,6 +65,8 @@ var _point_query: PhysicsPointQueryParameters3D
 var _surface
 var _surface_ready := false
 var surface_build_ms := 0.0
+var _flow_clock := 0.0
+var _flow_anchor := Vector3.ZERO
 
 var _multimesh: MultiMesh
 var _multimesh_instance: MultiMeshInstance3D
@@ -235,6 +237,15 @@ func _physics_process(delta: float) -> void:
 		surface_flow.rebuild(player.global_position)
 		flow = surface_flow
 		print("[fodder] flow_cells=%d" % surface_flow.reachable_cells)
+		_flow_anchor = player.global_position
+		_flow_clock = 0.0
+	if flow != null:
+		flow.poll_rebuild()
+		_flow_clock += delta
+		if player.global_position.distance_to(_flow_anchor) > 2.0 or _flow_clock >= 3.0:
+			flow.request_rebuild(player.global_position)
+			_flow_anchor = player.global_position
+			_flow_clock = 0.0
 		for index in count:
 			if _alive[index] != 0:
 				var p := _positions[index]
