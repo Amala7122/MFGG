@@ -11,6 +11,7 @@ const HealthUtil := preload("res://scripts/health_util.gd")
 const Targeting := preload("res://scripts/targeting.gd")
 const Nav := preload("res://scripts/nav_steering.gd")
 const GroundMovement := preload("res://scripts/ground_movement.gd")
+const Terrain := preload("res://scripts/terrain_field.gd")
 const SpatialProfile := preload("res://scripts/combat_spatial_profile.gd")
 @export var combat_spatial_profile: SpatialProfile = preload("res://data/combat_spatial/ground.tres")
 var _steering := Nav.new()
@@ -170,6 +171,7 @@ static var flow_field: RefCounted
 static var flow_min_distance := 3.5
 var _flow_lane := 0.0
 var _cached_flow := Vector3.ZERO
+var _cheap_physics := false
 ## 远处只做低频移动/寻路；近身与攻击检查仍按原频率。
 static var far_move_stride := 1
 var _far_phase := 0
@@ -371,6 +373,25 @@ func _continue_motion(delta: float) -> void:
 
 
 func _move_physics(desired: Vector3, delta: float) -> void:
+	# 远处移动物理降级：走流场的怪 >4m 只做贴地平移，并临时关掉碰撞体，
+	# 不进物理 broadphase；贴身、攻击、阻挡再恢复完整物理。
+	if flow_field != null and is_instance_valid(target) \
+			and global_position.distance_to(target.global_position) > 4.0:
+		if not _cheap_physics:
+			_cheap_physics = true
+			if is_instance_valid(_collision):
+				_collision.disabled = true
+		velocity.x = move_toward(velocity.x, desired.x, delta * _p("acceleration"))
+		velocity.z = move_toward(velocity.z, desired.z, delta * _p("acceleration"))
+		velocity.y = 0.0
+		var next := global_position + Vector3(velocity.x, 0.0, velocity.z) * delta
+		next.y = Terrain.height_at(next.x, next.z) + 0.6
+		global_position = next
+		return
+	if _cheap_physics:
+		_cheap_physics = false
+		if is_instance_valid(_collision):
+			_collision.disabled = false
 	# 顶墙时把“往墙里”的期望速度改成沿墙切向滑动，并轻推离墙；
 	# 否则 move_and_slide 清零速度后它还会原地播走路动画，看起来就是顶石头。
 	if is_on_wall():

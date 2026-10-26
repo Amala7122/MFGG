@@ -212,6 +212,24 @@ func _process(_delta: float) -> void:
 		var bucket: Dictionary = _buckets[cell]
 		bucket["idle_frames"] = 0
 		var members: Array = grouped[cell]
+		# 视锥剔除：只上传/绘制相机可见的实例；背后的怪不再占 process 和 draw。
+		var camera := get_viewport().get_camera_3d()
+		if camera != null and DisplayServer.get_name() != "headless":
+			var visible_members: Array = []
+			for entry in members:
+				var actor := entry.ref.get_ref() as Node3D
+				if is_instance_valid(actor) and camera.is_position_in_frustum(actor.global_position + Vector3.UP * 0.9):
+					visible_members.append(entry)
+			members = visible_members
+		var container := bucket.container as Node3D
+		if members.is_empty():
+			for multimesh in bucket.groups:
+				(multimesh as MultiMesh).visible_instance_count = 0
+			if container != null:
+				container.visible = false
+			continue
+		if container != null:
+			container.visible = true
 		_ensure_capacity(bucket, members.size())
 		var multimeshes: Array = bucket.groups
 		var lowest := Vector3(INF, INF, INF)
