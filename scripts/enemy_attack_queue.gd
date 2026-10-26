@@ -207,8 +207,25 @@ func _choose(config: Dictionary) -> Dictionary:
 	_selection_policy = Policy.revision
 	_selected = {}
 	selection_scans += 1
+	# 近距离优先：同样能起手时，离目标最近的先拿名额；距离接近才按等待时长。
+	var chosen := {}
+	var best_distance_sq := INF
+	var best_since := INF
 	for candidate in pending:
-		if _fits(candidate, config): _selected = candidate; break
+		if not _fits(candidate, config):
+			continue
+		var owner := candidate.owner.get_ref() as Node3D
+		var target := candidate.target.get_ref() as Node3D
+		if owner == null or target == null:
+			continue
+		var distance_sq := owner.global_position.distance_squared_to(target.global_position)
+		var since := float(candidate.since)
+		if distance_sq < best_distance_sq - 0.25 \
+				or (absf(distance_sq - best_distance_sq) <= 0.25 and since < best_since):
+			chosen = candidate
+			best_distance_sq = distance_sq
+			best_since = since
+	_selected = chosen
 	return _selected
 
 func _fits(row: Dictionary, config: Dictionary) -> bool:

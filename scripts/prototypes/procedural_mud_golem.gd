@@ -154,6 +154,13 @@ const CROWD_INTERVAL := 0.1
 const STILL_MOVE_INTERVAL := 6
 const AI_TICK_STRIDE := 2
 static var ai_stride := 2
+## 排队等待时围着入场锚点小范围游荡，避免“原地踏步/完全静止”。
+const WANDER_RADIUS := 1.2
+const WANDER_SPEED := 0.55
+var _wander_anchor := Vector3.ZERO
+var _wander_direction := Vector3.ZERO
+var _wander_until_msec := 0
+var _wander_active := false
 var _still_frames := 0
 var _ai_phase := 0
 var _crowd_clock := 0.0
@@ -203,6 +210,8 @@ func _ai_physics(delta: float) -> void:
 		return
 	var queue_start := Time.get_ticks_usec()
 	var queue_wait := ai_enabled and current_state in [State.IDLE, State.WALK] and _crowd.defer_attack_check(target)
+	if not queue_wait:
+		_wander_active = false
 	if profile_enabled:
 		prof_crowd_us += Time.get_ticks_usec() - queue_start
 	var tick_start := Time.get_ticks_usec()
@@ -214,15 +223,23 @@ func _ai_physics(delta: float) -> void:
 		return
 	var desired := Vector3.ZERO
 	if queue_wait:
-		if _crowd_ready:
-			var wait_start := Time.get_ticks_usec()
-			_cached_wait = _crowd.waiting_velocity(target.global_position, move_speed, crowd_step)
-			if profile_enabled:
-				prof_crowd_us += Time.get_ticks_usec() - wait_start
-		var gate_start := Time.get_ticks_usec()
-		desired = _steering.spatial.gate_motion(_cached_wait, delta)
-		if profile_enabled:
-			prof_gate_us += Time.get_ticks_usec() - gate_start
+		# 排队等待：绕入场锚点小范围游荡，一半概率朝玩家方向；
+		# 看起来像在找位置/追人，而不是站在原地踏步。
+		if not _wander_active:
+			_wander_active = true
+			_wander_anchor = global_position
+			_pick_wander()
+		elif Time.get_ticks_msec() >= _wander_until_msec:
+			_pick_wander()
+		var desired_wander := _wander_direction * WANDER_SPEED
+		var offset := _wander_anchor - global_position
+		offset.y = 0.0
+		if offset.length_squared() > WANDER_RADIUS * WANDER_RADIUS:
+			desired_wander += offset.normalized() * WANDER_SPEED
+		elif offset.length_squared() > WANDER_RADIUS * WANDER_RADIUS * 0.64:
+			# 接近锚点边缘时收一点速度，避免绕出去太远。
+			desired_wander *= 0.45
+		desired = _steering.spatial.gate_motion(desired_wander, delta)
 		_set_locomotion(State.IDLE if desired.is_zero_approx() else State.WALK)
 	elif ai_enabled and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK]:
 		if HealthUtil.is_alive(target):
@@ -318,6 +335,19 @@ func _move_physics(desired: Vector3, delta: float) -> void:
 		else:
 			velocity.y -= _p("gravity") * delta
 		GroundMovement.move(self, delta)
+
+
+func _pick_wander() -> void:
+	var direction := Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0))
+	if direction.length_squared() < 0.01:
+		direction = Vector3.FORWARD
+	if is_instance_valid(target) and randf() < 0.5:
+		var to_target := target.global_position - global_position
+		to_target.y = 0.0
+		if to_target.length_squared() > 0.01:
+			direction = direction.normalized() * 0.4 + to_target.normalized() * 0.6
+	_wander_direction = direction.normalized()
+	_wander_until_msec = Time.get_ticks_msec() + randi_range(600, 1200)
 
 
 func _set_locomotion(next_state: State) -> void:
