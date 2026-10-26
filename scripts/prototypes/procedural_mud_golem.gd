@@ -106,6 +106,7 @@ func _ready() -> void:
 	_crowd_clock = fmod(float(get_instance_id() % 997) * 0.011, CROWD_INTERVAL)
 	_still_frames = int(get_instance_id() % STILL_MOVE_INTERVAL)
 	_ai_phase = int(get_instance_id() % maxi(ai_stride, 1))
+	_far_phase = int(get_instance_id() % maxi(far_move_stride, 1))
 	for key in ["move_speed", "attack_damage", "max_health", "attack_distance", "attack_interval"]:
 		set(key, float(_tuning[key]))
 	_armor = _p("armor")
@@ -163,6 +164,9 @@ const CROWD_INTERVAL := 0.1
 const STILL_MOVE_INTERVAL := 6
 const AI_TICK_STRIDE := 2
 static var ai_stride := 2
+## 远处只做低频移动/寻路；近身与攻击检查仍按原频率。
+static var far_move_stride := 2
+var _far_phase := 0
 ## 排队等待时围着入场锚点小范围游荡，避免“原地踏步/完全静止”。
 const WANDER_RADIUS := 1.2
 const WANDER_SPEED := 0.55
@@ -226,6 +230,13 @@ func _ai_physics(delta: float) -> void:
 	if not queue_wait:
 		_wander_active = false
 	var ticked := false
+	var target_distance := 0.0
+	if is_instance_valid(target):
+		target_distance = global_position.distance_to(target.global_position)
+	if not _close_hold and not queue_wait and target_distance > 6.0 and far_move_stride > 1 \
+			and (physics_frame + _far_phase) % far_move_stride != 0:
+		_continue_motion(delta)
+		return
 	if not _close_hold and not queue_wait:
 		var tick_start := Time.get_ticks_usec()
 		ticked = _steering.tick(delta, ai_enabled and _crowd.ready_to_move() and current_state in [State.IDLE, State.WALK], target, move_speed)
