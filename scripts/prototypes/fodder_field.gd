@@ -27,8 +27,9 @@ const MAX_DEBRIS := 72
 const AVOID_DISTANCE := 1.7
 const AVOID_INTERVAL := 3
 const AVOID_HOLD := 0.25
-const AVOID_STEP := 0.4
-const STEP_HEIGHT := 0.35
+const AVOID_STEP := 1.0
+const STEP_HEIGHT := 0.7
+const FLOW_SLOPE_HEIGHT := 2.8
 const SURFACE_RADIUS := 40.0
 const SURFACE_CELL := 1.0
 const RESOLVE_INTERVAL := 1
@@ -230,11 +231,13 @@ func _physics_process(delta: float) -> void:
 		_surface.build(get_world_3d(), player.global_position, SURFACE_RADIUS, SURFACE_CELL)
 		_surface_ready = true
 		surface_build_ms = _surface.build_usec / 1000.0
-		print("[fodder] surface_ms=%.1f radius=%.0f cell=%.1f step=%.2f" % [
-			surface_build_ms, SURFACE_RADIUS, SURFACE_CELL, STEP_HEIGHT])
+		print("[fodder] surface_ms=%.1f radius=%.0f cell=%.1f step=%.2f flow_step=%.2f" % [
+			surface_build_ms, SURFACE_RADIUS, SURFACE_CELL, STEP_HEIGHT, FLOW_SLOPE_HEIGHT])
 		# 用表面高度重建流场：平台/石头的高差边直接不可通行，单位从远处就绕。
 		var surface_flow := FlowFieldScript.new()
-		surface_flow.set_height_provider(_surface, STEP_HEIGHT)
+		# 流场按坡度放行（约 35°，4m 格 2.8m），不能拿 0.7m 步高去砍整条坡；
+		# 垂直台阶由移动层的 STEP_HEIGHT 拦截。
+		surface_flow.set_height_provider(_surface, FLOW_SLOPE_HEIGHT)
 		surface_flow.rebuild(player.global_position)
 		flow = surface_flow
 		print("[fodder] flow_cells=%d" % surface_flow.reachable_cells)
