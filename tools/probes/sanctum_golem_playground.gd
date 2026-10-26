@@ -247,12 +247,13 @@ func _tick() -> void:
 		if _pivot != null:
 			_pivot.rotation.y += 0.03
 	if _flow != null:
+		if _flow.poll_rebuild():
+			_flow_build_ms = _flow.rebuild_usec / 1000.0
 		var flow_now := Time.get_ticks_msec()
 		var flow_moved := _player.global_position.distance_to(_last_flow_pos)
-		# 玩家不动就不重建；只在他真正移动时更新流场，避免周期性 8ms 尖峰。
+		# 玩家不动就不重建；只在他真正移动时更新流场，避免周期性尖峰。
 		if flow_moved > 2.0 or (flow_now - _last_flow_msec >= 3000 and flow_moved > 0.5):
-			_flow.rebuild(_player.global_position)
-			_flow_build_ms = _flow.rebuild_usec / 1000.0
+			_flow.request_rebuild(_player.global_position)
 			_last_flow_msec = flow_now
 			_last_flow_pos = _player.global_position
 	if _ablate_ai_after > 0.0 and not _ablate_done \

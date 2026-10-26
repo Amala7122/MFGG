@@ -2,6 +2,7 @@ class_name FlowField
 extends RefCounted
 ## 共享流场：以玩家格为源做一次 BFS，所有炮灰只读自己所在格的方向。
 ## 网格是整张地图一次性烘焙的可行走 mask；流场重建只做 BFS。
+## BFS 可以放到 WorkerThreadPool，主线程只交换结果，玩家移动时不再占主线程。
 ## 只负责“往哪走”，近身战术、攻击、站位仍由敌人自己的控制器决定。
 
 const Terrain := preload("res://scripts/terrain_field.gd")
@@ -26,6 +27,13 @@ var rebuild_usec := 0
 var reachable_cells := 0
 var last_error := ""
 
+# 后台重建状态：worker 只写这些字段，主线程在任务完成后统一搬进 _distance。
+var _task_id := -1
+var _worker_center := Vector3.ZERO
+var _worker_result: Dictionary = {}
+var _pending_center := Vector3.ZERO
+var _has_pending := false
+
 
 func _ensure_mask() -> void:
 	if _mask_ready:
@@ -46,20 +54,57 @@ func _ensure_mask() -> void:
 	mask_build_usec = Time.get_ticks_usec() - started
 
 
+## 同步重建：仅用于首帧/测试；运行时应走 request_rebuild + poll_rebuild。
 func rebuild(center: Vector3) -> void:
 	_ensure_mask()
-	_n = _mask_n
-	_origin = _mask_origin
-	var started := Time.get_ticks_usec()
-	var total := _n * _n
-	if _distance.size() != total:
-		_distance.resize(total)
-	_distance.fill(-1)
-	var start := _cell_at(center.x, center.z)
-	if start < 0:
-		last_error = "outside"
-		rebuild_usec = Time.get_ticks_usec() - started
+	_apply(_compute(center))
+
+
+## 请求后台重建；如果已有任务在跑，只记录最新目标，完成后接着算。
+func request_rebuild(center: Vector3) -> void:
+	_ensure_mask()
+	if _task_id >= 0:
+		_pending_center = center
+		_has_pending = true
 		return
+	_worker_center = center
+	_task_id = WorkerThreadPool.add_task(Callable(self, "_worker_run"), true, "flow_field_rebuild")
+
+
+## 主线程轮询；返回 true 表示刚交换了一份新流场。
+func poll_rebuild() -> bool:
+	if _task_id < 0:
+		if _has_pending:
+			_has_pending = false
+			request_rebuild(_pending_center)
+		return false
+	if not WorkerThreadPool.is_task_completed(_task_id):
+		return false
+	WorkerThreadPool.wait_for_task_completion(_task_id)
+	_task_id = -1
+	_apply(_worker_result)
+	if _has_pending:
+		_has_pending = false
+		request_rebuild(_pending_center)
+	return true
+
+
+func _worker_run() -> void:
+	_worker_result = _compute(_worker_center)
+
+
+func _compute(center: Vector3) -> Dictionary:
+	var started := Time.get_ticks_usec()
+	var n := _mask_n
+	var origin := _mask_origin
+	var total := n * n
+	var distance := PackedInt32Array()
+	distance.resize(total)
+	distance.fill(-1)
+	var start := _cell_at(center.x, center.z, n, origin)
+	if start < 0:
+		return {"distance": distance, "n": n, "origin": origin, "reachable": 0,
+			"usec": Time.get_ticks_usec() - started, "error": "outside"}
 	# 玩家格即使坡度不可走也作为源头（人站在坡上），只要求邻居可走；
 	# 否则源会被挪到 4–8m 外，群怪会全停在那个格上。
 	var queue := PackedInt32Array()
@@ -68,39 +113,49 @@ func rebuild(center: Vector3) -> void:
 	var tail := 0
 	queue[tail] = start
 	tail += 1
-	_distance[start] = 0
+	distance[start] = 0
 	var reached := 1
 	while head < tail:
 		var index := queue[head]
 		head += 1
-		var ix: int = index % _n
-		var iz: int = int(index / _n)
-		var next_distance := _distance[index] + 1
+		var ix: int = index % n
+		var iz: int = int(index / n)
+		var next_distance := distance[index] + 1
 		for direction: Vector2i in DIRECTIONS:
 			var nx: int = ix + direction.x
 			var nz: int = iz + direction.y
-			if nx < 0 or nz < 0 or nx >= _n or nz >= _n:
+			if nx < 0 or nz < 0 or nx >= n or nz >= n:
 				continue
-			var neighbor: int = nz * _n + nx
-			if _mask[neighbor] == 0 or _distance[neighbor] >= 0:
+			var neighbor: int = nz * n + nx
+			if _mask[neighbor] == 0 or distance[neighbor] >= 0:
 				continue
 			if direction.x != 0 and direction.y != 0:
 				# 斜向必须两侧正交格都可走，避免穿墙角。
-				if _mask[iz * _n + nx] == 0 or _mask[nz * _n + ix] == 0:
+				if _mask[iz * n + nx] == 0 or _mask[nz * n + ix] == 0:
 					continue
-			_distance[neighbor] = next_distance
+			distance[neighbor] = next_distance
 			queue[tail] = neighbor
 			tail += 1
 			reached += 1
-	reachable_cells = reached
-	last_error = ""
-	rebuild_usec = Time.get_ticks_usec() - started
+	return {"distance": distance, "n": n, "origin": origin, "reachable": reached,
+		"usec": Time.get_ticks_usec() - started, "error": ""}
+
+
+func _apply(result: Dictionary) -> void:
+	if result.is_empty():
+		return
+	_distance = result.get("distance", PackedInt32Array())
+	_n = int(result.get("n", 0))
+	_origin = result.get("origin", Vector2.ZERO)
+	reachable_cells = int(result.get("reachable", 0))
+	rebuild_usec = int(result.get("usec", 0))
+	last_error = String(result.get("error", ""))
 
 
 func direction_at(world: Vector3) -> Vector3:
 	if _n <= 0 or _distance.is_empty():
 		return Vector3.ZERO
-	var index := _cell_at(world.x, world.z)
+	var index := _cell_at(world.x, world.z, _n, _origin)
 	if index < 0 or _distance[index] < 0:
 		return Vector3.ZERO
 	var ix: int = index % _n
@@ -128,16 +183,16 @@ func direction_at(world: Vector3) -> Vector3:
 	return Vector3(float(best_dx), 0.0, float(best_dz)).normalized()
 
 
-func _cell_at(x: float, z: float) -> int:
-	var ix := int(floor((x - _origin.x) / CELL_SIZE))
-	var iz := int(floor((z - _origin.y) / CELL_SIZE))
-	if ix < 0 or iz < 0 or ix >= _n or iz >= _n:
+func _cell_at(x: float, z: float, n: int, origin: Vector2) -> int:
+	var ix := int(floor((x - origin.x) / CELL_SIZE))
+	var iz := int(floor((z - origin.y) / CELL_SIZE))
+	if ix < 0 or iz < 0 or ix >= n or iz >= n:
 		return -1
-	return iz * _n + ix
+	return iz * n + ix
 
 
 func _nearest_walkable(index: int) -> int:
-	var ix: int = index % _n
+	var ix := index % _n
 	var iz: int = int(index / _n)
 	for radius in range(1, 6):
 		for dz in range(-radius, radius + 1):
