@@ -71,6 +71,11 @@ static var prof_attack_us := 0
 static var prof_gate_us := 0
 static var prof_total_us := 0
 static var prof_frames := 0
+static var dbg_attempt := 0
+static var dbg_in_reach := 0
+static var dbg_can := 0
+static var dbg_grant := 0
+static var dbg_printed := false
 
 
 static func reset_profile() -> void:
@@ -80,6 +85,10 @@ static func reset_profile() -> void:
 	prof_gate_us = 0
 	prof_total_us = 0
 	prof_frames = 0
+	dbg_attempt = 0
+	dbg_in_reach = 0
+	dbg_can = 0
+	dbg_grant = 0
 
 
 func _ready() -> void:
@@ -349,6 +358,7 @@ func _try_attack_first() -> bool:
 		return false
 	if not is_instance_valid(target):
 		return false
+	dbg_attempt += 1
 	var offset := target.global_position - global_position
 	offset.y = 0.0
 	var distance := offset.length()
@@ -356,6 +366,7 @@ func _try_attack_first() -> bool:
 	var hold := reach + 0.25
 	if distance > hold or distance <= 0.001:
 		return false
+	dbg_in_reach += 1
 	# 近身立即转身面向玩家；背后贴脸也能进入攻击扇区。
 	var direction := offset / distance
 	rotation.y = atan2(-direction.x, -direction.z)
@@ -363,10 +374,14 @@ func _try_attack_first() -> bool:
 	# 被石头挡住的继续寻路，不能在这里假装能打。
 	if not _spatial_can_attack():
 		return false
+	dbg_can += 1
 	_close_hold = true
 	if _attack_cooldown > 0.0:
 		return false
-	return trigger_attack(target.global_position)
+	var started := trigger_attack(target.global_position)
+	if started:
+		dbg_grant += 1
+	return started
 
 
 func _pick_wander() -> void:

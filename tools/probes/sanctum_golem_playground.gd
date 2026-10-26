@@ -134,6 +134,8 @@ func _spawn_golems() -> void:
 		if enemy == null:
 			continue
 		enemy.set_meta(&"crowd_seed", 314159 + index)
+		# 正式敌人标记：让它走 EnemyAttackQueue（否则试玩里会绕过队列上限）。
+		enemy.set_meta(&"formal_enemy", true)
 		var angle := TAU * float(index) / float(_count)
 		var radius: float = SPAWN_RING[index % SPAWN_RING.size()]
 		var x := _player.global_position.x + cos(angle) * radius
@@ -242,8 +244,16 @@ func _log_profile() -> void:
 	var now := Time.get_ticks_msec()
 	var seconds := maxf((now - _last_profile_msec) / 1000.0, 0.001)
 	var frames := maxi(Golem.prof_frames, 1)
-	var line := "[golem_ai] enemies=%d fps=%.1f process_ms=%.1f physics_ms=%.1f nav_ms=%.1f draw=%d nodes=%d tick_ms_s=%.1f crowd_ms_s=%.1f attack_ms_s=%.1f gate_ms_s=%.1f total_ms_s=%.1f tick_ms_frame=%.2f crowd_ms_frame=%.2f attack_ms_frame=%.2f gate_ms_frame=%.2f total_ms_frame=%.2f rest_ms_frame=%.2f" % [
-		_spawned.size(), Engine.get_frames_per_second(),
+	var attackers := 0
+	var pending := 0
+	if _scene != null:
+		var queue := _scene.get_node_or_null("EnemyAttackQueue")
+		if queue != null:
+			var snapshot: Dictionary = queue.call("snapshot")
+			attackers = int(snapshot.get("total", 0))
+			pending = int(snapshot.get("pending", 0))
+	var line := "[golem_ai] enemies=%d attackers=%d pending=%d try=%d reach=%d can=%d grant=%d fps=%.1f process_ms=%.1f physics_ms=%.1f nav_ms=%.1f draw=%d nodes=%d tick_ms_s=%.1f crowd_ms_s=%.1f attack_ms_s=%.1f gate_ms_s=%.1f total_ms_s=%.1f tick_ms_frame=%.2f crowd_ms_frame=%.2f attack_ms_frame=%.2f gate_ms_frame=%.2f total_ms_frame=%.2f rest_ms_frame=%.2f" % [
+		_spawned.size(), attackers, pending, Golem.dbg_attempt, Golem.dbg_in_reach, Golem.dbg_can, Golem.dbg_grant, Engine.get_frames_per_second(),
 		Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
 		Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
 		Performance.get_monitor(Performance.TIME_NAVIGATION_PROCESS) * 1000.0,

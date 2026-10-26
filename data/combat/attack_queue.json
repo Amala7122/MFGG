@@ -2,17 +2,17 @@
 	"version": 1,
 	"enabled": true,
 	"global": {
-		"max_active": 3,
+		"max_active": 5,
 		"max_ground": 2,
-		"starts_per_frame": 1,
-		"start_gap": 0.35,
+		"starts_per_frame": 2,
+		"start_gap": 0.15,
 		"waiting_speed_scale": 0.0
 	},
 	"profiles": {
 		"PrototypeMudGolem": {
-			"max_active": 2,
+			"max_active": 4,
 			"skills": {
-				"punch": 1
+				"punch": 2
 			}
 		},
 		"PrototypeFastBeast": {
