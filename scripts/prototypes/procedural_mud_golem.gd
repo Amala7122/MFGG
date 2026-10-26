@@ -169,8 +169,8 @@ static var ai_stride := 2
 ## 共享流场：非空时，>8m 的移动只读流场方向，不再进入各自的战术规划。
 static var flow_field: RefCounted
 static var flow_min_distance := 3.5
-## 低于这个距离恢复完整碰撞；4m 贴脸穿模太明显，改到 12m。
-static var flow_cheap_distance := 12.0
+## 低于这个距离恢复完整碰撞；8m 内保留物理，8m 外纯流场贴地。
+static var flow_cheap_distance := 8.0
 var _flow_lane := 0.0
 var _cached_flow := Vector3.ZERO
 var _cheap_physics := false
