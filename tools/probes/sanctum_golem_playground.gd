@@ -8,6 +8,7 @@ const Creatures := preload("res://scripts/enemies/creature_catalog.gd")
 const Terrain := preload("res://scripts/terrain_field.gd")
 const Golem := preload("res://scripts/prototypes/procedural_mud_golem.gd")
 const FlowFieldScript := preload("res://scripts/flow_field.gd")
+const FodderLiteScript := preload("res://scripts/prototypes/fodder_lite_field.gd")
 const PROFILE_PATH := "user://logs/golem_ai_profile.log"
 const SPAWN_RING := [8.0, 10.5, 13.0, 15.5]
 const COUNT := 30
@@ -44,6 +45,8 @@ var _no_grass := false
 var _no_decor := false
 var _no_shadows := false
 var _no_post := false
+var _lite := false
+var _lite_field
 
 
 func _initialize() -> void:
@@ -66,6 +69,8 @@ func _initialize() -> void:
 			_no_shadows = true
 		elif arg == "--no-post=on":
 			_no_post = true
+		elif arg == "--lite=on":
+			_lite = true
 		elif arg.begins_with("--ablate-ai-after="):
 			_ablate_ai_after = float(arg.trim_prefix("--ablate-ai-after="))
 		elif arg.begins_with("--max-physics-steps="):
@@ -75,7 +80,7 @@ func _initialize() -> void:
 		elif arg.begins_with("--max-fps="):
 			Engine.max_fps = clampi(int(arg.trim_prefix("--max-fps=")), 0, 240)
 		elif arg.begins_with("--count="):
-			_count = clampi(int(arg.trim_prefix("--count=")), 1, 200)
+			_count = clampi(int(arg.trim_prefix("--count=")), 1, 2000)
 		elif arg.begins_with("--ai-stride="):
 			Golem.ai_stride = clampi(int(arg.trim_prefix("--ai-stride=")), 1, 4)
 	# 低帧螺旋兜底：一帧最多 2 个固定物理步，避免 8 步把 AI 成本再放大 8 倍。
@@ -120,7 +125,6 @@ func _run() -> void:
 		spawn_point.set_process(false)
 		spawn_point.set_physics_process(false)
 	await _clear_enemies()
-	await _spawn_golems()
 	_apply_scene_ablations()
 	_flow = FlowFieldScript.new()
 	_flow.rebuild(_player.global_position)
@@ -130,6 +134,14 @@ func _run() -> void:
 	_last_flow_msec = Time.get_ticks_msec()
 	print("[flow] mask_ms=%.1f rebuild_ms=%.1f reachable=%d" % [
 		FlowFieldScript.mask_build_usec / 1000.0, _flow_build_ms, _flow.reachable_cells])
+	if _lite:
+		_lite_field = FodderLiteScript.new()
+		_lite_field.top_level = true
+		_scene.add_child(_lite_field)
+		_lite_field.setup(_player, _flow, _count, _player.global_position)
+		print("[lite] units=%d" % _lite_field.units())
+	else:
+		await _spawn_golems()
 	if _pause_batch:
 		var batch := _scene.find_child("MudGolemRenderBatch", true, false)
 		if batch != null:
@@ -144,7 +156,7 @@ func _run() -> void:
 	_add_hint()
 	_started = true
 	_started_msec = Time.get_ticks_msec()
-	Golem.profile_enabled = true
+	Golem.profile_enabled = not _lite
 	Golem.reset_profile()
 	_last_profile_msec = _started_msec
 	var header := FileAccess.open(PROFILE_PATH, FileAccess.WRITE)
@@ -313,6 +325,19 @@ func _tick() -> void:
 func _log_profile() -> void:
 	var now := Time.get_ticks_msec()
 	var seconds := maxf((now - _last_profile_msec) / 1000.0, 0.001)
+	if _lite_field != null:
+		var lite_line := "[lite] units=%d active=%d attacks=%d fps=%.1f process_ms=%.1f physics_ms=%.1f draw=%d prim=%d nodes=%d" % [
+			_lite_field.units(), _lite_field.active_attackers, _lite_field.total_attacks,
+			Engine.get_frames_per_second(),
+			Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
+			Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
+			int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
+			int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)),
+			int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))]
+		print(lite_line)
+		_lite_field.reset_stats()
+		_last_profile_msec = now
+		return
 	var frames := maxi(Golem.prof_frames, 1)
 	var attackers := 0
 	var pending := 0
@@ -375,10 +400,11 @@ func _add_hint() -> void:
 func _update_hint() -> void:
 	if _hint_label == null:
 		return
-	_hint_label.text = ("正式圣所 · %d 只泥土傀儡 · 无敌：%s · 物理步数上限 %d\n"
+	_hint_label.text = ("正式圣所 · %d 只%s · 无敌：%s · 物理步数上限 %d\n"
 		+ "R 重开 · F10 退出\n"
 		+ "F1 AI：%s · F2 冻结：%s · F3 阴影：%s · F4 天气粒子：%s · F5 后处理：%s") % [
 		_count,
+		"Fodder Lite" if _lite else "泥土傀儡",
 		"开" if _invincible else "关",
 		_max_physics_steps,
 		"开" if _ai_on else "关",
