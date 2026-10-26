@@ -174,13 +174,15 @@ func direction_at(world: Vector3) -> Vector3:
 	if _n <= 0 or _distance.is_empty():
 		return Vector3.ZERO
 	var index := _cell_at(world.x, world.z, _n, _origin)
-	if index < 0 or _distance[index] < 0:
+	if index < 0:
 		return Vector3.ZERO
-	var ix: int = index % _n
-	var iz: int = int(index / _n)
-	var best := _distance[index]
+	var current_distance := _distance[index]
+	# 不可达格：先指向最近的可达邻格，让单位从障碍内部/边缘走出来，而不是原地朝玩家顶。
+	var best := current_distance if current_distance >= 0 else 0x3FFFFFFF
 	var best_dx := 0
 	var best_dz := 0
+	var ix: int = index % _n
+	var iz: int = int(index / _n)
 	for direction: Vector2i in DIRECTIONS:
 		var nx: int = ix + direction.x
 		var nz: int = iz + direction.y

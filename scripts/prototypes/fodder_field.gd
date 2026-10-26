@@ -31,7 +31,7 @@ const AVOID_STEP := 0.4
 const STEP_HEIGHT := 0.35
 const SURFACE_RADIUS := 40.0
 const SURFACE_CELL := 1.0
-const RESOLVE_INTERVAL := 2
+const RESOLVE_INTERVAL := 1
 const RESOLVE_RADIUS := 0.35
 const RESOLVE_CENTER := 0.05
 
@@ -86,6 +86,7 @@ var kills := 0
 var ray_queries := 0
 var resolve_hits := 0
 var resolve_inside := 0
+var under_platform := 0
 
 
 func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3) -> void:
@@ -275,6 +276,26 @@ func _physics_process(delta: float) -> void:
 		to.y = 0.0
 		var distance := to.length()
 		var state := int(_state[index])
+		# 硬排除：不能站在高表面覆盖区的地面下（平台/大石头底部）。
+		if _surface_ready:
+			var terrain_here := Terrain.height_at(pos.x, pos.z)
+			var surface_here := _surface_height(pos.x, pos.z)
+			var ground_here := pos.y - BODY_OFFSET
+			if surface_here - terrain_here > STEP_HEIGHT and ground_here - terrain_here <= STEP_HEIGHT:
+				var best_dir := Vector3.ZERO
+				var best_height := INF
+				for step_index in 8:
+					var angle := TAU * float(step_index) / 8.0
+					var probe := pos + Vector3(cos(angle), 0.0, sin(angle)) * 1.6
+					var probe_height := _surface_height(probe.x, probe.z)
+					if probe_height - terrain_here <= STEP_HEIGHT and probe_height < best_height:
+						best_height = probe_height
+						best_dir = Vector3(cos(angle), 0.0, sin(angle))
+				if best_dir.length_squared() > 0.001:
+					pos += best_dir * 0.35
+					pos.y = Terrain.height_at(pos.x, pos.z) + BODY_OFFSET
+					_positions[index] = pos
+					under_platform += 1
 		_flash[index] = maxf(0.0, _flash[index] - delta * 3.0)
 		if state == STATE_HITSTUN:
 			_timer[index] -= delta
@@ -374,7 +395,15 @@ func _physics_process(delta: float) -> void:
 		var current_ground := pos.y - BODY_OFFSET
 		var next_ground := _surface_height(next.x, next.z)
 		if _surface_ready and absf(next_ground - current_ground) > STEP_HEIGHT:
-			next = pos
+			# 正面被台阶/平台挡住时，沿 X 或 Z 单轴滑动，避免整群顶死在边缘。
+			var slide_x := pos + Vector3(desired.x, 0.0, 0.0) * SPEED * delta
+			var slide_z := pos + Vector3(0.0, 0.0, desired.z) * SPEED * delta
+			if absf(_surface_height(slide_x.x, slide_x.z) - current_ground) <= STEP_HEIGHT:
+				next = slide_x
+			elif absf(_surface_height(slide_z.x, slide_z.z) - current_ground) <= STEP_HEIGHT:
+				next = slide_z
+			else:
+				next = pos
 		pos = next
 		pos = _snap_to_surface(pos)
 		# 人群互推会把个体挤进平台/石头；每 2 个物理帧做一次共享 shape 解算，
