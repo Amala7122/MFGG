@@ -107,6 +107,7 @@ func _ready() -> void:
 	_still_frames = int(get_instance_id() % STILL_MOVE_INTERVAL)
 	_ai_phase = int(get_instance_id() % maxi(ai_stride, 1))
 	_far_phase = int(get_instance_id() % maxi(far_move_stride, 1))
+	_flow_lane = randf_range(-1.0, 1.0)
 	for key in ["move_speed", "attack_damage", "max_health", "attack_distance", "attack_interval"]:
 		set(key, float(_tuning[key]))
 	_armor = _p("armor")
@@ -166,7 +167,9 @@ const AI_TICK_STRIDE := 2
 static var ai_stride := 2
 ## 共享流场：非空时，>8m 的移动只读流场方向，不再进入各自的战术规划。
 static var flow_field: RefCounted
-static var flow_min_distance := 8.0
+static var flow_min_distance := 3.5
+var _flow_lane := 0.0
+var _cached_flow := Vector3.ZERO
 ## 远处只做低频移动/寻路；近身与攻击检查仍按原频率。
 static var far_move_stride := 1
 var _far_phase := 0
@@ -234,9 +237,18 @@ func _ai_physics(delta: float) -> void:
 		if flow_offset.length() > flow_min_distance:
 			var flow_direction: Vector3 = flow_field.call("direction_at", global_position)
 			if flow_direction.length_squared() > 0.001:
-				var lateral_scale := float(int(get_instance_id() % 5) - 2) * 0.04
-				var lateral: Vector3 = Vector3(-flow_direction.z, 0.0, flow_direction.x) * lateral_scale
-				var flow_desired: Vector3 = (flow_direction + lateral).normalized() * move_speed
+				var flow_distance := flow_offset.length()
+				var approach := clampf((flow_distance - flow_min_distance) / 14.0, 0.0, 1.0)
+				var lateral: Vector3 = Vector3(-flow_direction.z, 0.0, flow_direction.x) \
+					* _flow_lane * (0.15 + approach * 0.45)
+				var base_direction: Vector3 = (flow_direction + lateral).normalized()
+				# 流场只给大方向；每 100ms 用一次 crowd 分离，避免全部吸成一条线。
+				if _crowd_ready:
+					_cached_flow = _crowd.steer(base_direction * move_speed,
+						target.global_position, crowd_step)
+				if _cached_flow.is_zero_approx():
+					_cached_flow = base_direction * move_speed
+				var flow_desired: Vector3 = _cached_flow
 				rotation.y = atan2(-flow_desired.x, -flow_desired.z)
 				_set_locomotion(State.WALK)
 				_animate_walk(anim_clock)

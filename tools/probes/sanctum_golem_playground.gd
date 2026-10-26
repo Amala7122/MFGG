@@ -205,7 +205,9 @@ func _tick() -> void:
 			_pivot.rotation.y += 0.03
 	if _flow != null:
 		var flow_now := Time.get_ticks_msec()
-		if flow_now - _last_flow_msec >= 500 or _player.global_position.distance_to(_last_flow_pos) > 4.0:
+		var flow_moved := _player.global_position.distance_to(_last_flow_pos)
+		# 玩家不动就不重建；只在他真正移动时更新流场，避免周期性 8ms 尖峰。
+		if flow_moved > 2.0 or (flow_now - _last_flow_msec >= 3000 and flow_moved > 0.5):
 			_flow.rebuild(_player.global_position)
 			_flow_build_ms = _flow.rebuild_usec / 1000.0
 			_last_flow_msec = flow_now

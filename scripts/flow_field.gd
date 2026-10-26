@@ -60,12 +60,8 @@ func rebuild(center: Vector3) -> void:
 		last_error = "outside"
 		rebuild_usec = Time.get_ticks_usec() - started
 		return
-	if _mask[start] == 0:
-		start = _nearest_walkable(start)
-		if start < 0:
-			last_error = "no_walkable_near_player"
-			rebuild_usec = Time.get_ticks_usec() - started
-			return
+	# 玩家格即使坡度不可走也作为源头（人站在坡上），只要求邻居可走；
+	# 否则源会被挪到 4–8m 外，群怪会全停在那个格上。
 	var queue := PackedInt32Array()
 	queue.resize(total)
 	var head := 0
