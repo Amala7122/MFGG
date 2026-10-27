@@ -7,18 +7,20 @@ extends RefCounted
 
 const Terrain := preload("res://scripts/terrain_field.gd")
 
-const CELL_SIZE := 4.0
+const CELL_SIZE := 2.0
 const MAX_SLOPE_COS := 0.70710678
 const DIRECTIONS := [
 	Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1),
 	Vector2i(1, 1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(-1, -1),
 ]
 
-static var _mask: PackedByteArray = PackedByteArray()
-static var _mask_n := 0
-static var _mask_origin := Vector2.ZERO
-static var _mask_ready := false
-static var mask_build_usec := 0
+var _mask: PackedByteArray = PackedByteArray()
+var _mask_n := 0
+var _mask_origin := Vector2.ZERO
+var _mask_ready := false
+var _mask_provider = null
+var _mask_profile = null
+var mask_build_usec := 0
 
 var _distance: PackedInt32Array = PackedInt32Array()
 var _n := 0
@@ -39,20 +41,57 @@ var _has_pending := false
 
 
 func _ensure_mask() -> void:
-	if _mask_ready:
+	if _mask_ready and _mask_provider == _height_provider and _mask_profile == _height_profile:
 		return
+	_mask_provider = _height_provider
+	_mask_profile = _height_profile
 	var started := Time.get_ticks_usec()
 	var half := Terrain.get_extent()
 	_mask_n = int(round(half * 2.0 / CELL_SIZE)) + 1
 	_mask_origin = Vector2(-half, -half)
 	_mask.resize(_mask_n * _mask_n)
-	for iz in _mask_n:
-		for ix in _mask_n:
-			var x := _mask_origin.x + float(ix) * CELL_SIZE
-			var z := _mask_origin.y + float(iz) * CELL_SIZE
-			var normal := Terrain.normal_at(x, z)
-			var walkable := normal.y >= MAX_SLOPE_COS
-			_mask[iz * _mask_n + ix] = 1 if walkable else 0
+	var ignore := _height_profile != null and bool(_height_profile.ignore_terrain)
+	var step_limit := INF
+	if _height_profile != null and not ignore:
+		step_limit = float(_height_profile.step_height)
+	var direct := _height_provider != null and _height_provider.get("heights") != null \
+		and _height_provider.get("terrain_heights") != null and bool(_height_provider.get("ready"))
+	if direct:
+		var source_heights: PackedFloat32Array = _height_provider.heights
+		var source_terrain: PackedFloat32Array = _height_provider.terrain_heights
+		var source_hits: PackedByteArray = _height_provider.hits
+		var source_n := int(_height_provider.n)
+		var source_cell := float(_height_provider.cell_size)
+		var source_origin: Vector2 = _height_provider.origin
+		for iz in _mask_n:
+			for ix in _mask_n:
+				var x := _mask_origin.x + float(ix) * CELL_SIZE
+				var z := _mask_origin.y + float(iz) * CELL_SIZE
+				var sx := clampi(int(round((x - source_origin.x) / source_cell)), 0, source_n - 1)
+				var sz := clampi(int(round((z - source_origin.y) / source_cell)), 0, source_n - 1)
+				var source_index := sz * source_n + sx
+				var walkable := true
+				if not ignore:
+					walkable = source_hits[source_index] != 0 \
+						and source_heights[source_index] - source_terrain[source_index] <= step_limit + 0.001
+				_mask[iz * _mask_n + ix] = 1 if walkable else 0
+	else:
+		for iz in _mask_n:
+			for ix in _mask_n:
+				var x := _mask_origin.x + float(ix) * CELL_SIZE
+				var z := _mask_origin.y + float(iz) * CELL_SIZE
+				var walkable := true
+				if not ignore:
+					if _height_provider != null and _height_provider.has_method("hit_at") \
+							and not bool(_height_provider.hit_at(x, z)):
+						walkable = false
+					elif _height_provider != null and _height_provider.has_method("height_at"):
+						var surface := float(_height_provider.height_at(x, z))
+						if surface - Terrain.height_at(x, z) > step_limit + 0.001:
+							walkable = false
+					else:
+						walkable = Terrain.normal_at(x, z).y >= MAX_SLOPE_COS
+				_mask[iz * _mask_n + ix] = 1 if walkable else 0
 	_mask_ready = true
 	mask_build_usec = Time.get_ticks_usec() - started
 
@@ -62,12 +101,14 @@ func set_height_provider(provider, step_height: float) -> void:
 	_height_provider = provider
 	_height_profile = null
 	_step_height = step_height
+	_mask_ready = false
 
 
 func set_height_profile(provider, profile) -> void:
 	_height_provider = provider
 	_height_profile = profile
 	_step_height = profile.flow_edge_limit(CELL_SIZE)
+	_mask_ready = false
 
 
 func rebuild(center: Vector3) -> void:

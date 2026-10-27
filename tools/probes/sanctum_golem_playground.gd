@@ -176,19 +176,20 @@ func _run() -> void:
 		spawn_point.set_physics_process(false)
 	await _clear_enemies()
 	_apply_scene_ablations()
-	_flow = FlowFieldScript.new()
-	_flow.rebuild(_player.global_position)
-	_flow_build_ms = _flow.rebuild_usec / 1000.0
-	Golem.flow_field = _flow
-	_last_flow_pos = _player.global_position
-	_last_flow_msec = Time.get_ticks_msec()
-	print("[flow] mask_ms=%.1f rebuild_ms=%.1f reachable=%d" % [
-		FlowFieldScript.mask_build_usec / 1000.0, _flow_build_ms, _flow.reachable_cells])
+	if not _fodder:
+		_flow = FlowFieldScript.new()
+		_flow.rebuild(_player.global_position)
+		_flow_build_ms = _flow.rebuild_usec / 1000.0
+		Golem.flow_field = _flow
+		_last_flow_pos = _player.global_position
+		_last_flow_msec = Time.get_ticks_msec()
+		print("[flow] mask_ms=%.1f rebuild_ms=%.1f reachable=%d" % [
+			_flow.mask_build_usec / 1000.0, _flow_build_ms, _flow.reachable_cells])
 	if _fodder:
 		_fodder_field = FodderFieldScript.new()
 		_fodder_field.top_level = true
 		_scene.add_child(_fodder_field)
-		_fodder_field.setup(_player, _flow, _count, _player.global_position, _make_fodder_profile())
+		_fodder_field.setup(_player, null, _count, _player.global_position, _make_fodder_profile())
 		if _fodder_flow_debug:
 			_fodder_field.toggle_flow_debug()
 		print("[fodder] units=%d" % _fodder_field.units())

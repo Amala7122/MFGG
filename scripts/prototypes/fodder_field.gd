@@ -7,6 +7,7 @@ extends Node3D
 
 const Terrain := preload("res://scripts/terrain_field.gd")
 const SurfaceGridScript := preload("res://scripts/prototypes/surface_grid.gd")
+const WalkabilityGridScript := preload("res://scripts/navigation/walkability_grid.gd")
 const FlowFieldScript := preload("res://scripts/flow_field.gd")
 const MovementProfileScript := preload("res://scripts/prototypes/movement_profile.gd")
 const MERGED_SHADER := preload("res://shaders/golem_fodder_merged.gdshader")
@@ -30,8 +31,9 @@ const AVOID_INTERVAL := 3
 const AVOID_HOLD := 0.25
 const AVOID_STEP := 1.0
 const STEP_HEIGHT := 0.7
-const SURFACE_RADIUS := 40.0
+const SURFACE_EXTENT := 60.0
 const SURFACE_CELL := 1.0
+const WALKABILITY_PATH := "res://data/navigation/sanctum_walkability.json"
 const SURFACE_BUILD_DELAY_FRAMES := 8
 const RESOLVE_INTERVAL := 1
 const RESOLVE_RADIUS := 0.35
@@ -79,6 +81,7 @@ var surface_build_ms := 0.0
 var _flow_clock := 0.0
 var _flow_anchor := Vector3.ZERO
 var _surface_delay := SURFACE_BUILD_DELAY_FRAMES
+var _flow_inited := false
 
 var _multimesh: MultiMesh
 var _multimesh_instance: MultiMeshInstance3D
@@ -172,7 +175,13 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 	_cast_query.collision_mask = 1
 	_cast_query.collide_with_areas = false
 	_cast_query.collide_with_bodies = true
-	_surface = SurfaceGridScript.new()
+	_surface = WalkabilityGridScript.new()
+	if _surface.load_json(WALKABILITY_PATH):
+		_surface_ready = true
+		surface_build_ms = 0.0
+		print("[fodder] walkability loaded %s vertices=%d" % [WALKABILITY_PATH, _surface.n * _surface.n])
+	else:
+		print("[fodder] walkability missing, will bake once at runtime")
 	_point_query = PhysicsPointQueryParameters3D.new()
 	_point_query.collision_mask = 1
 	_point_query.collide_with_areas = false
@@ -260,30 +269,34 @@ func _append_part(tool: SurfaceTool, mesh: Mesh, transform: Transform3D, part: i
 	return cursor
 
 
+func _init_surface_flow() -> void:
+	_flow_inited = true
+	var surface_flow := FlowFieldScript.new()
+	# 流场按 profile 的坡度放行；ignore_terrain 的蜘蛛不做高度约束。
+	surface_flow.set_height_profile(_surface, profile)
+	surface_flow.rebuild(player.global_position)
+	flow = surface_flow
+	print("[fodder] surface step=%.2f profile=%s ignore=%s flow_cells=%d" % [
+		step_height, profile.id, str(profile.ignore_terrain), surface_flow.reachable_cells])
+	_flow_anchor = player.global_position
+	_flow_clock = 0.0
+
+
 func _physics_process(delta: float) -> void:
 	if player == null or not is_instance_valid(player) or count <= 0:
 		return
 	if not _surface_ready and _surface != null:
-		# 场景刚切换时静态碰撞/物理空间可能还没同步；太早采表面会得到不完整世界，
-		# 第一波就会钻到石头/坡下面。等几个物理帧后再建，期间单位原地待命。
+		# 只有烘焙文件缺失时才回退到运行时构建；正常启动不应走到这里。
 		if _surface_delay > 0:
 			_surface_delay -= 1
 			return
-		_surface.build(get_world_3d(), player.global_position, SURFACE_RADIUS, SURFACE_CELL)
+		_surface.build(get_world_3d(), Vector2.ZERO, SURFACE_EXTENT, SURFACE_CELL)
 		_surface_ready = true
 		surface_build_ms = _surface.build_usec / 1000.0
-		print("[fodder] surface_ms=%.1f radius=%.0f cell=%.1f step=%.2f profile=%s ignore=%s" % [
-			surface_build_ms, SURFACE_RADIUS, SURFACE_CELL, step_height,
-			profile.id, str(profile.ignore_terrain)])
-		# 用表面高度重建流场：平台/石头的高差边直接不可通行，单位从远处就绕。
-		var surface_flow := FlowFieldScript.new()
-		# 流场按 profile 的坡度放行；ignore_terrain 的蜘蛛不做高度约束。
-		surface_flow.set_height_profile(_surface, profile)
-		surface_flow.rebuild(player.global_position)
-		flow = surface_flow
-		print("[fodder] flow_cells=%d" % surface_flow.reachable_cells)
-		_flow_anchor = player.global_position
-		_flow_clock = 0.0
+		print("[fodder] walkability baked at runtime ms=%.1f extent=%.0f cell=%.1f" % [
+			surface_build_ms, SURFACE_EXTENT, SURFACE_CELL])
+	if _surface_ready and not _flow_inited:
+		_init_surface_flow()
 	if flow != null:
 		flow.poll_rebuild()
 		_flow_clock += delta

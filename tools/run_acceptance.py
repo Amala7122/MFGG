@@ -46,6 +46,7 @@ CORE_TESTS = (
     "test_titan_sanctum_route",
     "test_creature_navigation_and_attacks",
     "test_mud_golem_architecture",
+    "test_walkability_grid",
     "test_fodder_terrain_clearance",
     "test_navigation_render_budget",
     "test_navigation_planner_yield",
