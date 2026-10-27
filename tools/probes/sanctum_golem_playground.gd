@@ -58,6 +58,10 @@ var _fodder_flow_debug := false
 var _map_click := false
 var _map_camera: Camera3D
 var _map_click_latched := false
+var _map_yaw := 0.0
+var _map_pitch := 0.98
+var _map_distance := 38.0
+var _map_last_mouse := Vector2.INF
 var _player_at := Vector2.INF
 var _shot_path := ""
 var _shot_at := 4.0
@@ -334,6 +338,7 @@ func _tick() -> void:
 	if not _started:
 		return
 	if _map_click:
+		_handle_map_orbit()
 		_update_map_camera()
 		_try_map_click()
 	if _autoplay:
@@ -503,6 +508,7 @@ func _setup_map_camera() -> void:
 	# 观察/传送模式：玩家只作为敌人目标，不再处理移动、射击、相机和鼠标捕获。
 	_player.process_mode = Node.PROCESS_MODE_DISABLED
 	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
+	_force_sunny()
 	_map_camera = Camera3D.new()
 	_map_camera.name = "MapClickCamera"
 	_map_camera.fov = 55.0
@@ -510,12 +516,62 @@ func _setup_map_camera() -> void:
 	_update_map_camera()
 
 
+func _force_sunny() -> void:
+	var weather := _find_script_node("res://scripts/weather_system.gd")
+	if weather != null:
+		for method in ["set_cloud_coverage", "set_rain_amount", "set_snow_amount", "set_fog_amount"]:
+			weather.call(method, 0.0)
+		weather.set_process(false)
+		weather.set_physics_process(false)
+	var timeline := _find_script_node("res://scripts/weather_timeline.gd")
+	if timeline != null:
+		timeline.set_process(false)
+		timeline.set_physics_process(false)
+		var debug_label = timeline.get("_debug_label")
+		if debug_label is Label:
+			debug_label.visible = false
+	var time_of_day := _find_script_node("res://addons/sky_3d/src/TimeOfDay.gd")
+	if time_of_day != null:
+		time_of_day.set("current_time", 12.0)
+		time_of_day.set_process(false)
+	print("[pathlab] weather frozen sunny")
+
+
+func _find_script_node(path: String) -> Node:
+	for node in _scene.find_children("*", "Node", true, false):
+		var script = node.get_script()
+		if script != null and String(script.resource_path) == path:
+			return node
+	return null
+
+
+func _handle_map_orbit() -> void:
+	var mouse := root.get_viewport().get_mouse_position()
+	if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+		if _map_last_mouse != Vector2.INF:
+			var delta := mouse - _map_last_mouse
+			_map_yaw -= delta.x * 0.008
+			_map_pitch = clampf(_map_pitch - delta.y * 0.006, 0.18, 1.45)
+		_map_last_mouse = mouse
+	else:
+		_map_last_mouse = Vector2.INF
+	if Input.is_mouse_button_pressed(MOUSE_BUTTON_WHEEL_UP):
+		_map_distance = clampf(_map_distance - 2.0, 12.0, 70.0)
+	if Input.is_mouse_button_pressed(MOUSE_BUTTON_WHEEL_DOWN):
+		_map_distance = clampf(_map_distance + 2.0, 12.0, 70.0)
+
+
 func _update_map_camera() -> void:
 	if _map_camera == null or not is_instance_valid(_player):
 		return
 	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
-	_map_camera.global_position = _player.global_position + Vector3(0.0, 30.0, 20.0)
-	_map_camera.look_at(_player.global_position + Vector3(0.0, 0.5, 0.0), Vector3.UP)
+	var focus := _player.global_position + Vector3(0.0, 1.0, 0.0)
+	var offset := Vector3(
+		sin(_map_yaw) * cos(_map_pitch),
+		sin(_map_pitch),
+		cos(_map_yaw) * cos(_map_pitch)) * _map_distance
+	_map_camera.global_position = focus + offset
+	_map_camera.look_at(focus, Vector3.UP)
 	_map_camera.current = true
 
 
@@ -550,7 +606,7 @@ func _update_hint() -> void:
 		return
 	_hint_label.text = ("正式圣所 · %d 只%s · 无敌：%s · 物理步数上限 %d\n"
 		+ "R 重开 · F10 退出\n"
-		+ ("左键点地图传送玩家 · " if _map_click else "")
+		+ ("左键点地图传送 · 右键拖动旋转 · 滚轮缩放 · " if _map_click else "")
 		+ "F1 AI：%s · F2 冻结：%s · F3 阴影：%s · F4 天气粒子：%s · F5 后处理：%s · F6 流场：%s") % [
 		_count,
 		"Fodder 数据场" if _fodder else "泥土傀儡",
