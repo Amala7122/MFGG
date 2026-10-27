@@ -66,6 +66,8 @@ var _map_status := ""
 var _map_status_clock := 0.0
 var _map_last_click := Vector2(INF, INF)
 var _map_last_reachable := false
+var _count_spin: SpinBox
+var _count_layer: CanvasLayer
 var _map_sweep := false
 var _sweep_seconds := 2.5
 var _player_at := Vector2.INF
@@ -217,6 +219,8 @@ func _run() -> void:
 			timeline.set_physics_process(false)
 			print("[playground] weather process paused")
 	_add_hint()
+	if _fodder:
+		_add_count_panel()
 	if _map_click:
 		_setup_map_camera()
 	_started = true
@@ -648,6 +652,9 @@ func _update_map_camera() -> void:
 func _try_map_click() -> void:
 	var pressed := Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
 	if pressed and not _map_click_latched and _map_camera != null:
+		if root.get_viewport().gui_get_hovered_control() != null:
+			_map_click_latched = true
+			return
 		var mouse := root.get_viewport().get_mouse_position()
 		var from := _map_camera.project_ray_origin(mouse)
 		var to := from + _map_camera.project_ray_normal(mouse) * 300.0
@@ -705,6 +712,62 @@ func _update_map_status() -> void:
 	if _map_status != text:
 		_map_status = text
 		_update_hint()
+
+
+func _add_count_panel() -> void:
+	_count_layer = CanvasLayer.new()
+	_count_layer.layer = 20
+	root.add_child(_count_layer)
+	var panel := PanelContainer.new()
+	panel.position = Vector2(24, 168)
+	panel.custom_minimum_size = Vector2(360, 44)
+	_count_layer.add_child(panel)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	panel.add_child(row)
+	var label := Label.new()
+	label.text = "Fodder 数量"
+	label.add_theme_font_size_override("font_size", 14)
+	row.add_child(label)
+	_count_spin = SpinBox.new()
+	_count_spin.min_value = 1
+	_count_spin.max_value = 1000
+	_count_spin.step = 1
+	_count_spin.value = _count
+	_count_spin.custom_minimum_size = Vector2(90, 0)
+	row.add_child(_count_spin)
+	var minus := Button.new()
+	minus.text = "-100"
+	minus.pressed.connect(func() -> void:
+		_count_spin.value = maxf(1, _count_spin.value - 100))
+	row.add_child(minus)
+	var plus := Button.new()
+	plus.text = "+100"
+	plus.pressed.connect(func() -> void:
+		_count_spin.value = minf(1000, _count_spin.value + 100))
+	row.add_child(plus)
+	var apply := Button.new()
+	apply.text = "应用"
+	apply.pressed.connect(func() -> void:
+		_set_fodder_count(int(_count_spin.value)))
+	row.add_child(apply)
+
+
+func _set_fodder_count(value: int) -> void:
+	var target := clampi(value, 1, 1000)
+	if not _fodder or _restarting or target == _count:
+		return
+	_restarting = true
+	_count = target
+	await _clear_fodder()
+	_fodder_field = FodderFieldScript.new()
+	_fodder_field.top_level = true
+	_scene.add_child(_fodder_field)
+	_fodder_field.setup(_player, null, _count, _player.global_position, _make_fodder_profile())
+	_started_msec = Time.get_ticks_msec()
+	_restarting = false
+	print("[pathlab] fodder_count=%d" % _count)
+	_update_hint()
 
 
 func _add_hint() -> void:
