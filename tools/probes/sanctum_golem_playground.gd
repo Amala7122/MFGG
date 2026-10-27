@@ -55,6 +55,9 @@ var _fodder_ignore_terrain := false
 var _fodder_step := 0.7
 var _fodder_slope := 40.0
 var _fodder_flow_debug := false
+var _map_click := false
+var _map_camera: Camera3D
+var _map_click_latched := false
 var _player_at := Vector2.INF
 var _shot_path := ""
 var _shot_at := 4.0
@@ -99,6 +102,8 @@ func _initialize() -> void:
 			_fodder_slope = float(arg.trim_prefix("--fodder-slope="))
 		elif arg == "--fodder-flow-debug=on":
 			_fodder_flow_debug = true
+		elif arg == "--map-click=on":
+			_map_click = true
 		elif arg.begins_with("--player-at="):
 			var parts := arg.trim_prefix("--player-at=").split(",")
 			if parts.size() == 2:
@@ -197,6 +202,8 @@ func _run() -> void:
 			timeline.set_physics_process(false)
 			print("[playground] weather process paused")
 	_add_hint()
+	if _map_click:
+		_setup_map_camera()
 	_started = true
 	_started_msec = Time.get_ticks_msec()
 	Golem.profile_enabled = not _fodder
@@ -326,6 +333,9 @@ func _restart() -> void:
 func _tick() -> void:
 	if not _started:
 		return
+	if _map_click:
+		_update_map_camera()
+		_try_map_click()
 	if _autoplay:
 		Input.action_press("move_right")
 		Input.action_press("shoot")
@@ -489,6 +499,37 @@ func _pressed_once(key: Key) -> bool:
 	return down and not was
 
 
+func _setup_map_camera() -> void:
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
+	_map_camera = Camera3D.new()
+	_map_camera.name = "MapClickCamera"
+	_map_camera.fov = 55.0
+	_scene.add_child(_map_camera)
+	_update_map_camera()
+
+
+func _update_map_camera() -> void:
+	if _map_camera == null or not is_instance_valid(_player):
+		return
+	_map_camera.global_position = _player.global_position + Vector3(0.0, 30.0, 20.0)
+	_map_camera.look_at(_player.global_position + Vector3(0.0, 0.5, 0.0), Vector3.UP)
+	_map_camera.current = true
+
+
+func _try_map_click() -> void:
+	var pressed := Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+	if pressed and not _map_click_latched and _map_camera != null:
+		var mouse := root.get_viewport().get_mouse_position()
+		var from := _map_camera.project_ray_origin(mouse)
+		var to := from + _map_camera.project_ray_normal(mouse) * 300.0
+		var query := PhysicsRayQueryParameters3D.create(from, to, 1)
+		var hit: Dictionary = _scene.get_world_3d().direct_space_state.intersect_ray(query)
+		if not hit.is_empty():
+			_player.global_position = hit.position + Vector3.UP * 0.2
+			_update_map_camera()
+	_map_click_latched = pressed
+
+
 func _add_hint() -> void:
 	var layer := CanvasLayer.new()
 	layer.name = "PlaygroundHint"
@@ -506,6 +547,7 @@ func _update_hint() -> void:
 		return
 	_hint_label.text = ("正式圣所 · %d 只%s · 无敌：%s · 物理步数上限 %d\n"
 		+ "R 重开 · F10 退出\n"
+		+ ("左键点地图传送玩家 · " if _map_click else "")
 		+ "F1 AI：%s · F2 冻结：%s · F3 阴影：%s · F4 天气粒子：%s · F5 后处理：%s · F6 流场：%s") % [
 		_count,
 		"Fodder 数据场" if _fodder else "泥土傀儡",
