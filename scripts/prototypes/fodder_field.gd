@@ -201,6 +201,13 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 			_place_out_of_blocker(index)
 
 
+func _line_clear_to_target(pos: Vector3, target: Vector3) -> bool:
+	var from := pos + Vector3.UP * 0.8
+	var to := target + Vector3.UP * 0.8
+	var query := PhysicsRayQueryParameters3D.create(from, to, 1)
+	return get_world_3d().direct_space_state.intersect_ray(query).is_empty()
+
+
 func _place_out_of_blocker(index: int) -> void:
 	var p := _positions[index]
 	if not _surface.blocked_at(p.x, p.z):
@@ -541,7 +548,10 @@ func _physics_process(delta: float) -> void:
 		var desired := (direction + push * SEPARATION_STRENGTH).normalized()
 		_detour_timer[index] = maxf(0.0, _detour_timer[index] - delta)
 		if _detour_timer[index] > 0.0 and _detour_dir[index].length_squared() > 0.001:
-			desired = (desired * 0.25 + _detour_dir[index] * 1.5).normalized()
+			# 凹角处不能用“径向 + 切线”混合，否则径向分量会持续把单位压回墙角。
+			desired = _detour_dir[index]
+			if _line_clear_to_target(pos, target):
+				_detour_timer[index] = 0.0
 		var probe := pos + desired * SPEED * delta
 		var current_ground := pos.y - BODY_OFFSET
 		var probe_ground := _surface_height(probe.x, probe.z)
@@ -563,11 +573,24 @@ func _physics_process(delta: float) -> void:
 				var safe: float = clampf(float(fractions[0]), 0.0, 1.0)
 				move_delta *= safe
 				if safe < 0.2 and _detour_timer[index] <= 0.0:
-					var tangent := Vector3(-desired.z, 0.0, desired.x)
+					var normal := Vector3.ZERO
+					var rest := get_world_3d().direct_space_state.get_rest_info(_cast_query)
+					if not rest.is_empty():
+						normal = rest.get("normal", Vector3.ZERO)
+					var tangent := Vector3(-normal.z, 0.0, normal.x)
+					if tangent.length_squared() < 0.001:
+						tangent = Vector3(-desired.z, 0.0, desired.x)
 					if tangent.dot(to) < 0.0:
 						tangent = -tangent
+					# 凹角处两侧墙都可能挡：用 clearance 探针选更空的一侧，避免左右抖动。
+					var left_clearance: float = _surface.clearance_at(
+						pos.x + tangent.x * 1.4, pos.z + tangent.z * 1.4)
+					var right_clearance: float = _surface.clearance_at(
+						pos.x - tangent.x * 1.4, pos.z - tangent.z * 1.4)
+					if right_clearance > left_clearance + 0.15:
+						tangent = -tangent
 					_detour_dir[index] = tangent
-					_detour_timer[index] = 0.6
+					_detour_timer[index] = 1.0
 		var next := pos + move_delta
 		var next_ground := _surface_height(next.x, next.z)
 		if step_up:
