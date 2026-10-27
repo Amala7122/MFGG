@@ -253,6 +253,20 @@ func direction_at(world: Vector3) -> Vector3:
 	return Vector3(float(best_dx), 0.0, float(best_dz)).normalized()
 
 
+func is_reachable(world: Vector3) -> bool:
+	if _n <= 0:
+		return false
+	var index := _cell_at(world.x, world.z, _n, _origin)
+	return index >= 0 and _distance[index] >= 0
+
+
+func distance_at(world: Vector3) -> int:
+	if _n <= 0:
+		return -1
+	var index := _cell_at(world.x, world.z, _n, _origin)
+	return -1 if index < 0 else _distance[index]
+
+
 func debug_cells(center: Vector3, radius: float) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	if _n <= 0 or _distance.is_empty():

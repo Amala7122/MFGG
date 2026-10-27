@@ -62,6 +62,8 @@ var _map_yaw := 0.0
 var _map_pitch := 0.98
 var _map_distance := 38.0
 var _map_last_mouse := Vector2.INF
+var _map_status := ""
+var _map_status_clock := 0.0
 var _player_at := Vector2.INF
 var _shot_path := ""
 var _shot_at := 4.0
@@ -342,6 +344,7 @@ func _tick() -> void:
 		_handle_map_orbit()
 		_update_map_camera()
 		_try_map_click()
+		_update_map_status()
 	if _autoplay:
 		Input.action_press("move_right")
 		Input.action_press("shoot")
@@ -585,9 +588,36 @@ func _try_map_click() -> void:
 		var query := PhysicsRayQueryParameters3D.create(from, to, 1)
 		var hit: Dictionary = _scene.get_world_3d().direct_space_state.intersect_ray(query)
 		if not hit.is_empty():
-			_player.global_position = hit.position + Vector3.UP * 1.0
+			var previous_target: Vector3 = hit.position
+			var reachable: bool = _fodder_field != null and _fodder_field.is_world_reachable(previous_target)
+			_map_status = "click target reachable=%s  (from previous position)" % str(reachable)
+			print("[pathlab] click target=%s reachable=%s" % [str(previous_target), str(reachable)])
+			_player.global_position = hit.position + Vector3.UP * 0.1
 			_update_map_camera()
+			_map_status_clock = 0.0
+			_update_hint()
 	_map_click_latched = pressed
+
+
+func _update_map_status() -> void:
+	if _fodder_field == null or not is_instance_valid(_player):
+		return
+	_map_status_clock += 1.0 / 30.0
+	if _map_status_clock < 0.5:
+		return
+	_map_status_clock = 0.0
+	var near := 0
+	var nearest := INF
+	for position in _fodder_field.live_positions():
+		var distance := Vector2(position.x - _player.global_position.x,
+			position.z - _player.global_position.z).length()
+		nearest = minf(nearest, distance)
+		if distance <= 4.0:
+			near += 1
+	var text := "near4=%d nearest=%.1f" % [near, nearest]
+	if _map_status != text:
+		_map_status = text
+		_update_hint()
 
 
 func _add_hint() -> void:
@@ -608,7 +638,8 @@ func _update_hint() -> void:
 	_hint_label.text = ("正式圣所 · %d 只%s · 无敌：%s · 物理步数上限 %d\n"
 		+ "R 重开 · F10 退出\n"
 		+ ("左键点地图传送 · 右键拖动旋转 · 滚轮缩放 · " if _map_click else "")
-		+ "F1 AI：%s · F2 冻结：%s · F3 阴影：%s · F4 天气粒子：%s · F5 后处理：%s · F6 流场：%s") % [
+		+ "F1 AI：%s · F2 冻结：%s · F3 阴影：%s · F4 天气粒子：%s · F5 后处理：%s · F6 流场：%s"
+		+ ("\n" + _map_status if _map_click else "")) % [
 		_count,
 		"Fodder 数据场" if _fodder else "泥土傀儡",
 		"开" if _invincible else "关",

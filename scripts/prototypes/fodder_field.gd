@@ -875,6 +875,10 @@ func _spawn_debris(index: int) -> void:
 		_debris_count += 1
 
 
+func is_world_reachable(position: Vector3) -> bool:
+	return flow != null and flow.is_reachable(position)
+
+
 func units() -> int:
 	return count
 
