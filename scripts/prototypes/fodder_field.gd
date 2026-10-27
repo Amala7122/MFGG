@@ -446,7 +446,11 @@ func _physics_process(delta: float) -> void:
 		var probe := pos + desired * SPEED * delta
 		var current_ground := pos.y - BODY_OFFSET
 		var probe_ground := _surface_height(probe.x, probe.z)
-		var step_up := probe_ground > current_ground and probe_ground - current_ground <= step_height
+		# 台阶检测要向前看 0.6m：cast 只看当前胶囊，脚还没进台面就先撞立面，
+		# 会把本来能上的低台/坡沿误判成墙。
+		var step_probe := pos + desired * 0.6
+		var step_ground := _surface_height(step_probe.x, step_probe.z)
+		var step_up := step_ground > current_ground and step_ground - current_ground <= step_height
 		var move_delta := desired * SPEED * delta
 		# 目标只是抬脚可上的台阶时，不做 cast_motion：cast 会撞到垂直面，
 		# 把 0.35m 台沿误判成墙。高墙/大落差才扫掠。
@@ -465,6 +469,8 @@ func _physics_process(delta: float) -> void:
 					_detour_timer[index] = 0.6
 		var next := pos + move_delta
 		var next_ground := _surface_height(next.x, next.z)
+		if step_up:
+			next.y = step_ground + BODY_OFFSET
 		if _surface_ready and not profile.ignore_terrain and absf(next_ground - current_ground) > step_height:
 			# 正面被台阶/平台挡住时，沿 X 或 Z 单轴滑动，避免整群顶死在边缘。
 			var slide_x := pos + Vector3(desired.x, 0.0, 0.0) * SPEED * delta
