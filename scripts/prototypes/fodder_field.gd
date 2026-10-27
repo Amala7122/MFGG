@@ -68,6 +68,7 @@ var _slot_angle := PackedFloat32Array()
 var _slot_radius := PackedFloat32Array()
 var _detour_dir := PackedVector3Array()
 var _detour_timer := PackedFloat32Array()
+var _ground_heights := PackedFloat32Array()
 var _resolve_shape: CapsuleShape3D
 var _resolve_query: PhysicsShapeQueryParameters3D
 var _cast_query: PhysicsShapeQueryParameters3D
@@ -130,6 +131,7 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 	_slot_radius.resize(count)
 	_detour_dir.resize(count)
 	_detour_timer.resize(count)
+	_ground_heights.resize(count)
 	_build_visuals()
 	alive_count = count
 	for index in count:
@@ -155,6 +157,7 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 		_slot_radius[index] = ATTACK_RANGE + 0.25 + float(index % 3) * 0.9
 		_detour_dir[index] = Vector3.ZERO
 		_detour_timer[index] = 0.0
+		_ground_heights[index] = Terrain.height_at(x, z)
 	add_to_group("fodder_fields")
 	_resolve_shape = CapsuleShape3D.new()
 	_resolve_shape.radius = RESOLVE_RADIUS
@@ -295,9 +298,11 @@ func _physics_process(delta: float) -> void:
 				var target_ground: float = _surface.height_at(p.x, p.z)
 				# 只允许 35cm 以内的抬升；高平台内的单位保持原位，让胶囊解算把它们推出去，
 				# 避免首帧“瞬移站上高平台”。
-				if target_ground - current_ground <= step_height + 0.001:
+				if target_ground - current_ground <= step_height + 0.001 \
+						or target_ground - Terrain.height_at(p.x, p.z) <= step_height + 0.001:
 					p.y = target_ground + BODY_OFFSET
 					_positions[index] = p
+				_ground_heights[index] = Terrain.height_at(p.x, p.z)
 	var target := player.global_position
 	var grid: Dictionary = {}
 	for index in count:
@@ -313,6 +318,20 @@ func _physics_process(delta: float) -> void:
 		if _alive[index] == 0:
 			continue
 		var pos := _positions[index]
+		# 硬性防钻地：低于地形就立刻抬回地面；不依赖 step 修正。
+		var terrain_floor := Terrain.height_at(pos.x, pos.z) + BODY_OFFSET
+		if pos.y < terrain_floor:
+			pos.y = terrain_floor
+			_positions[index] = pos
+		# 用实际向下射线贴地，而不是 1m 最近格；陡坡上后者会把单位放进坡体。
+		if (Engine.get_physics_frames() + index) % 4 == 0:
+			var ground_ray := PhysicsRayQueryParameters3D.create(
+				Vector3(pos.x, pos.y + 6.0, pos.z), Vector3(pos.x, pos.y - 6.0, pos.z), 1)
+			var ground_hit := get_world_3d().direct_space_state.intersect_ray(ground_ray)
+			if not ground_hit.is_empty():
+				_ground_heights[index] = float(ground_hit.position.y)
+			else:
+				_ground_heights[index] = Terrain.height_at(pos.x, pos.z)
 		var to := target - pos
 		to.y = 0.0
 		var distance := to.length()
@@ -342,7 +361,8 @@ func _physics_process(delta: float) -> void:
 			_timer[index] -= delta
 			pos += _velocity[index] * delta
 			_velocity[index] *= maxf(0.0, 1.0 - delta * 5.0)
-			pos = _snap_to_surface(pos)
+			pos = _snap_to_surface(pos, index)
+			pos.y = maxf(pos.y, Terrain.height_at(pos.x, pos.z) + BODY_OFFSET)
 			_positions[index] = pos
 			_move_weight[index] = 0.0
 			if _timer[index] <= 0.0:
@@ -482,7 +502,8 @@ func _physics_process(delta: float) -> void:
 			else:
 				next = pos
 		pos = next
-		pos = _snap_to_surface(pos)
+		pos = _snap_to_surface(pos, index)
+		pos.y = maxf(pos.y, Terrain.height_at(pos.x, pos.z) + BODY_OFFSET)
 		# 人群互推会把个体挤进平台/石头；每 2 个物理帧做一次共享 shape 解算，
 		# 把重叠的身体沿接触法线推出去，避免整群站进静态几何。
 		if (Engine.get_physics_frames() + index) % RESOLVE_INTERVAL == 0:
@@ -508,7 +529,7 @@ func _physics_process(delta: float) -> void:
 					if inside_push.length_squared() < 0.0001:
 						break
 					pos += inside_push.normalized() * 0.28
-					pos = _snap_to_surface(pos)
+					pos = _snap_to_surface(pos, index)
 					continue
 				resolve_hits += hits.size()
 				var resolve_push := Vector3.ZERO
@@ -523,7 +544,7 @@ func _physics_process(delta: float) -> void:
 				if resolve_push.length_squared() < 0.0001:
 					break
 				pos += resolve_push.normalized() * 0.22
-				pos = _snap_to_surface(pos)
+				pos = _snap_to_surface(pos, index)
 		_positions[index] = pos
 		_yaw[index] = atan2(-desired.x, -desired.z)
 		_move_weight[index] = 1.0
@@ -531,12 +552,17 @@ func _physics_process(delta: float) -> void:
 	active_attackers = active
 
 
-func _snap_to_surface(pos: Vector3) -> Vector3:
+func _snap_to_surface(pos: Vector3, index: int) -> Vector3:
 	if not _surface_ready:
 		pos.y = Terrain.height_at(pos.x, pos.z) + BODY_OFFSET
 		return pos
 	var current_ground := pos.y - BODY_OFFSET
-	var target := _surface_height(pos.x, pos.z)
+	var target := _ground_heights[index]
+	# 已经低于地形时无条件抬回；step 只限制“主动上台阶”，不能阻止纠错。
+	var terrain_here := Terrain.height_at(pos.x, pos.z)
+	if target > current_ground + 0.001 and target - terrain_here <= step_height + 0.001:
+		pos.y = target + BODY_OFFSET
+		return pos
 	if profile.ignore_terrain or absf(target - current_ground) <= step_height + 0.001:
 		pos.y = target + BODY_OFFSET
 	return pos
@@ -691,7 +717,10 @@ func _process(_delta: float) -> void:
 	var visual_root := Transform3D(Basis(Vector3.UP, PI), Vector3(0, -0.65, 0))
 	for slot in _render_indices.size():
 		var index := _render_indices[slot]
-		var body := Transform3D(Basis(Vector3.UP, _yaw[index]), _positions[index])
+		var display_pos := _positions[index]
+		display_pos.y = maxf(display_pos.y,
+			Terrain.height_at(display_pos.x, display_pos.z) + BODY_OFFSET)
+		var body := Transform3D(Basis(Vector3.UP, _yaw[index]), display_pos)
 		_multimesh.set_instance_transform(slot, body * visual_root)
 		var attack := 0.0
 		if _state[index] == STATE_WINDUP:
