@@ -500,6 +500,8 @@ func _pressed_once(key: Key) -> bool:
 
 
 func _setup_map_camera() -> void:
+	# 观察/传送模式：玩家只作为敌人目标，不再处理移动、射击、相机和鼠标捕获。
+	_player.process_mode = Node.PROCESS_MODE_DISABLED
 	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 	_map_camera = Camera3D.new()
 	_map_camera.name = "MapClickCamera"
@@ -511,6 +513,7 @@ func _setup_map_camera() -> void:
 func _update_map_camera() -> void:
 	if _map_camera == null or not is_instance_valid(_player):
 		return
+	MouseControl.mode = Input.MOUSE_MODE_VISIBLE
 	_map_camera.global_position = _player.global_position + Vector3(0.0, 30.0, 20.0)
 	_map_camera.look_at(_player.global_position + Vector3(0.0, 0.5, 0.0), Vector3.UP)
 	_map_camera.current = true
@@ -525,7 +528,7 @@ func _try_map_click() -> void:
 		var query := PhysicsRayQueryParameters3D.create(from, to, 1)
 		var hit: Dictionary = _scene.get_world_3d().direct_space_state.intersect_ray(query)
 		if not hit.is_empty():
-			_player.global_position = hit.position + Vector3.UP * 0.2
+			_player.global_position = hit.position + Vector3.UP * 1.0
 			_update_map_camera()
 	_map_click_latched = pressed
 
