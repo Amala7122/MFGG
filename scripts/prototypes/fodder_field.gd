@@ -36,7 +36,7 @@ const SURFACE_CELL := 1.0
 const WALKABILITY_PATH := "res://data/navigation/sanctum_walkability.json"
 const SURFACE_BUILD_DELAY_FRAMES := 8
 const RESOLVE_INTERVAL := 2
-const RESOLVE_RADIUS := 0.35
+const RESOLVE_RADIUS := 0.42
 const RESOLVE_CENTER := 0.05
 
 const STATE_MOVE := 0
