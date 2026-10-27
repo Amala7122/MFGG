@@ -24,6 +24,7 @@
 - `test_walkability_grid.gd`：离线 walkability 烘焙文件的加载守卫；校验 160m / 1m 的全图网格、真实几何命中数、加载不重建、全高度有限，并抽样 200+ 格。地图或烘焙尺寸变了会直接失败，提醒重跑 `bake_walkability.gd`。
 - `test_walkability_coverage.gd`：从烘焙网格中心做 1m 连通性 BFS；要求 99% 以上未阻挡格可达、孤立开放格 <100，并验证所有“树冠下”格子可走（树冠顶面高度 - 导航高度 >1m）。本次 24,644 个开放格 24,629 可达，43 个树冠下格子全部可达。
 - `test_fodder_reachability.gd`：15 个开放地图点各生成一份全新 100 只 Fodder，等待 8 秒物理时间，要求至少 5 只进入 4m；记录每点 `near4/nearest`。不是“2 秒到 4m”的伪指标，而是实际追击收敛。
+- `test_fodder_blocker_recovery.gd`：在 `(67,38)` 生成 100 只，检查 4 秒后没有活体停在 body-blocked 格；同时要求 `unstuck` 真的触发过。覆盖生成/挤压进岩石后的恢复。
 
 - `test_phantom_sample_lifecycle.gd`：独立 sample 启动不弹开始页、不暂停；遍历 18 个 2D/3D sample，释放旧场景后刷新持久取景器，最后验证无 Host 刷新安全。与 `test_runtime_world_visibility.gd` 的正式主场景菜单检查一起运行。
 

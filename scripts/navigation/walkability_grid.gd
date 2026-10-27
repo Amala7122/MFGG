@@ -131,6 +131,35 @@ func nav_height_at(x: float, z: float) -> float:
 	return walk_heights[iz * n + ix]
 
 
+func blocked_at(x: float, z: float) -> bool:
+	if not ready or n <= 0:
+		return false
+	var ix := clampi(int(round((x - origin.x) / cell_size)), 0, n - 1)
+	var iz := clampi(int(round((z - origin.y) / cell_size)), 0, n - 1)
+	return blocked[iz * n + ix] != 0
+
+
+func nearest_open(x: float, z: float, max_radius_cells := 12) -> Vector3:
+	if not ready or n <= 0:
+		return Vector3(x, Terrain.height_at(x, z), z)
+	var cx := clampi(int(round((x - origin.x) / cell_size)), 0, n - 1)
+	var cz := clampi(int(round((z - origin.y) / cell_size)), 0, n - 1)
+	for radius in range(0, max_radius_cells + 1):
+		for dz in range(-radius, radius + 1):
+			for dx in range(-radius, radius + 1):
+				if radius > 0 and absi(dx) != radius and absi(dz) != radius:
+					continue
+				var ix := cx + dx
+				var iz := cz + dz
+				if ix < 0 or iz < 0 or ix >= n or iz >= n:
+					continue
+				var index := iz * n + ix
+				if blocked[index] == 0:
+					return Vector3(origin.x + float(ix) * cell_size,
+						walk_heights[index], origin.y + float(iz) * cell_size)
+	return Vector3(x, nav_height_at(x, z), z)
+
+
 func hit_at(x: float, z: float) -> bool:
 	if not ready or n <= 0:
 		return false

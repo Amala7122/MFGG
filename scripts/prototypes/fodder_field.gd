@@ -84,6 +84,8 @@ var _surface_delay := SURFACE_BUILD_DELAY_FRAMES
 var _flow_inited := false
 var _dirty_centers: Array[Vector2] = []
 var _dirty_clock := 0.0
+var _last_positions := PackedVector3Array()
+var _stuck_clock := 0.0
 
 var _multimesh: MultiMesh
 var _multimesh_instance: MultiMeshInstance3D
@@ -104,6 +106,7 @@ var ray_queries := 0
 var resolve_hits := 0
 var resolve_inside := 0
 var under_platform := 0
+var unstuck_count := 0
 var _flow_debug := false
 var _flow_debug_mesh: MeshInstance3D
 var _flow_debug_panel: Control
@@ -137,6 +140,7 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 	_detour_dir.resize(count)
 	_detour_timer.resize(count)
 	_ground_heights.resize(count)
+	_last_positions.resize(count)
 	_build_visuals()
 	alive_count = count
 	for index in count:
@@ -163,6 +167,7 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 		_detour_dir[index] = Vector3.ZERO
 		_detour_timer[index] = 0.0
 		_ground_heights[index] = Terrain.height_at(x, z)
+		_last_positions[index] = _positions[index]
 	add_to_group("fodder_fields")
 	_resolve_shape = CapsuleShape3D.new()
 	_resolve_shape.radius = RESOLVE_RADIUS
@@ -191,6 +196,30 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 	_point_query.collision_mask = 1
 	_point_query.collide_with_areas = false
 	_point_query.collide_with_bodies = true
+	if _surface_ready:
+		for index in count:
+			_place_out_of_blocker(index)
+
+
+func _place_out_of_blocker(index: int) -> void:
+	var p := _positions[index]
+	if not _surface.blocked_at(p.x, p.z):
+		return
+	var open: Vector3 = _surface.nearest_open(p.x, p.z, 12)
+	var away := Vector3(open.x - p.x, 0.0, open.z - p.z)
+	if away.length_squared() < 0.001:
+		away = Vector3.FORWARD
+	away = away.normalized()
+	var shifted := open + away * 1.2
+	if not _surface.blocked_at(shifted.x, shifted.z):
+		open = shifted
+	_positions[index] = open + Vector3.UP * BODY_OFFSET
+	_ground_heights[index] = open.y
+	_velocity[index] = Vector3.ZERO
+	_state[index] = STATE_MOVE
+	_detour_dir[index] = away
+	_detour_timer[index] = 0.8
+	unstuck_count += 1
 
 
 func _build_visuals() -> void:
@@ -316,6 +345,17 @@ func _physics_process(delta: float) -> void:
 			_dirty_centers.clear()
 			flow = null
 			_flow_inited = false
+	if _surface_ready:
+		_stuck_clock += delta
+		if _stuck_clock >= 1.0:
+			_stuck_clock = 0.0
+			for index in count:
+				if _alive[index] == 0:
+					continue
+				var current := _positions[index]
+				if _surface.blocked_at(current.x, current.z):
+					_place_out_of_blocker(index)
+				_last_positions[index] = _positions[index]
 	if flow != null:
 		flow.poll_rebuild()
 		_flow_clock += delta
@@ -352,6 +392,9 @@ func _physics_process(delta: float) -> void:
 		if _alive[index] == 0:
 			continue
 		var pos := _positions[index]
+		if _surface_ready and _surface.blocked_at(pos.x, pos.z):
+			_place_out_of_blocker(index)
+			pos = _positions[index]
 		# 硬性防钻地：低于地形就立刻抬回地面；不依赖 step 修正。
 		var terrain_floor := Terrain.height_at(pos.x, pos.z) + BODY_OFFSET
 		if pos.y < terrain_floor:
@@ -906,6 +949,10 @@ func nearest_reachable(position: Vector3) -> Vector3:
 
 func is_world_reachable(position: Vector3) -> bool:
 	return flow != null and flow.is_reachable(position)
+
+
+func is_position_blocked(position: Vector3) -> bool:
+	return _surface != null and _surface.ready and _surface.blocked_at(position.x, position.z)
 
 
 func units() -> int:
