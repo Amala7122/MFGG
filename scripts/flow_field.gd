@@ -8,6 +8,8 @@ extends RefCounted
 const Terrain := preload("res://scripts/terrain_field.gd")
 
 const CELL_SIZE := 2.0
+const WALL_MARGIN := 1.4
+const WALL_PENALTY := 4.0
 const MAX_SLOPE_COS := 0.70710678
 const DIRECTIONS := [
 	Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1),
@@ -22,7 +24,7 @@ var _mask_provider = null
 var _mask_profile = null
 var mask_build_usec := 0
 
-var _distance: PackedInt32Array = PackedInt32Array()
+var _distance: PackedFloat32Array = PackedFloat32Array()
 var _n := 0
 var _origin := Vector2.ZERO
 var _height_provider = null
@@ -165,9 +167,9 @@ func _compute(center: Vector3) -> Dictionary:
 	var n := _mask_n
 	var origin := _mask_origin
 	var total := n * n
-	var distance := PackedInt32Array()
+	var distance := PackedFloat32Array()
 	distance.resize(total)
-	distance.fill(-1)
+	distance.fill(1.0e20)
 	var start := _cell_at(center.x, center.z, n, origin)
 	var source := start
 	var tracking := true
@@ -178,13 +180,9 @@ func _compute(center: Vector3) -> Dictionary:
 		return {"distance": distance, "n": n, "origin": origin, "reachable": 0,
 			"usec": Time.get_ticks_usec() - started, "error": "outside",
 			"target": center, "tracking": false}
-	var queue := PackedInt32Array()
-	queue.resize(total)
-	var head := 0
-	var tail := 0
-	queue[tail] = source
-	tail += 1
-	distance[source] = 0
+	var queue: Array[int] = []
+	distance[source] = 0.0
+	_heap_push(queue, distance, source)
 	var reached := 1
 	var source_ix: int = source % n
 	var source_iz: int = int(source / n)
@@ -193,32 +191,90 @@ func _compute(center: Vector3) -> Dictionary:
 			origin.y + float(source_iz) * CELL_SIZE),
 		origin.y + float(source_iz) * CELL_SIZE)
 	var goal := center if tracking else anchor
-	while head < tail:
-		var index := queue[head]
-		head += 1
+	while not queue.is_empty():
+		var index := _heap_pop(queue, distance)
+		if index < 0:
+			break
 		var ix: int = index % n
 		var iz: int = int(index / n)
-		var next_distance := distance[index] + 1
+		var current_distance := distance[index]
 		for direction: Vector2i in DIRECTIONS:
 			var nx: int = ix + direction.x
 			var nz: int = iz + direction.y
 			if nx < 0 or nz < 0 or nx >= n or nz >= n:
 				continue
 			var neighbor: int = nz * n + nx
-			if _mask[neighbor] == 0 or distance[neighbor] >= 0:
+			if _mask[neighbor] == 0:
 				continue
 			if direction.x != 0 and direction.y != 0:
 				if _mask[iz * n + nx] == 0 or _mask[nz * n + ix] == 0:
 					continue
 			if not _edge_allowed(ix, iz, nx, nz):
 				continue
-			distance[neighbor] = next_distance
-			queue[tail] = neighbor
-			tail += 1
-			reached += 1
+			var step := 1.41421356 if direction.x != 0 and direction.y != 0 else 1.0
+			var penalty := _wall_penalty(nx, nz)
+			var candidate := current_distance + step * (1.0 + penalty)
+			if candidate + 0.0001 < distance[neighbor]:
+				if distance[neighbor] >= 1.0e19:
+					reached += 1
+				distance[neighbor] = candidate
+				_heap_push(queue, distance, neighbor)
 	return {"distance": distance, "n": n, "origin": origin, "reachable": reached,
 		"usec": Time.get_ticks_usec() - started, "error": "",
 		"target": goal, "tracking": tracking}
+
+
+func _wall_penalty(nx: int, nz: int) -> float:
+	if _height_provider == null or _height_profile == null \
+			or bool(_height_profile.ignore_terrain):
+		return 0.0
+	if not _height_provider.has_method("clearance_at"):
+		return 0.0
+	var x := _mask_origin.x + float(nx) * CELL_SIZE
+	var z := _mask_origin.y + float(nz) * CELL_SIZE
+	var clearance := float(_height_provider.clearance_at(x, z))
+	if clearance >= WALL_MARGIN:
+		return 0.0
+	var normalized := (WALL_MARGIN - clearance) / WALL_MARGIN
+	return WALL_PENALTY * normalized * normalized
+
+
+func _heap_push(heap: Array[int], priorities: PackedFloat32Array, index: int) -> void:
+	heap.append(index)
+	var child := heap.size() - 1
+	while child > 0:
+		var parent := (child - 1) / 2
+		if priorities[heap[parent]] <= priorities[heap[child]]:
+			break
+		var swap := heap[parent]
+		heap[parent] = heap[child]
+		heap[child] = swap
+		child = parent
+
+
+func _heap_pop(heap: Array[int], priorities: PackedFloat32Array) -> int:
+	if heap.is_empty():
+		return -1
+	var result := heap[0]
+	var last: int = heap.pop_back()
+	if not heap.is_empty():
+		heap[0] = last
+		var parent := 0
+		while true:
+			var left := parent * 2 + 1
+			if left >= heap.size():
+				break
+			var right := left + 1
+			var best := left
+			if right < heap.size() and priorities[heap[right]] < priorities[heap[left]]:
+				best = right
+			if priorities[heap[parent]] <= priorities[heap[best]]:
+				break
+			var swap := heap[parent]
+			heap[parent] = heap[best]
+			heap[best] = swap
+			parent = best
+	return result
 
 
 func _height_at_world(x: float, z: float) -> float:
@@ -290,7 +346,7 @@ func _edge_allowed(ix: int, iz: int, nx: int, nz: int) -> bool:
 func _apply(result: Dictionary) -> void:
 	if result.is_empty():
 		return
-	_distance = result.get("distance", PackedInt32Array())
+	_distance = result.get("distance", PackedFloat32Array())
 	_n = int(result.get("n", 0))
 	_origin = result.get("origin", Vector2.ZERO)
 	reachable_cells = int(result.get("reachable", 0))
@@ -312,7 +368,7 @@ func direction_at(world: Vector3) -> Vector3:
 		return Vector3.ZERO
 	var current_distance := _distance[index]
 	# 不可达格：先指向最近的可达邻格，让单位从障碍内部/边缘走出来，而不是原地朝玩家顶。
-	var best := current_distance if current_distance >= 0 else 0x3FFFFFFF
+	var best := current_distance if current_distance < 1.0e19 else 1.0e20
 	var best_dx := 0
 	var best_dz := 0
 	var ix: int = index % _n
@@ -323,7 +379,7 @@ func direction_at(world: Vector3) -> Vector3:
 		if nx < 0 or nz < 0 or nx >= _n or nz >= _n:
 			continue
 		var neighbor: int = nz * _n + nx
-		if _distance[neighbor] < 0:
+		if _distance[neighbor] >= 1.0e19:
 			continue
 		if direction.x != 0 and direction.y != 0:
 			if _mask[iz * _n + nx] == 0 or _mask[nz * _n + ix] == 0:
@@ -359,7 +415,7 @@ func nearest_reachable(world: Vector3, max_radius_cells := 40) -> Vector3:
 				if ix < 0 or iz < 0 or ix >= _n or iz >= _n:
 					continue
 				var candidate := iz * _n + ix
-				if _distance[candidate] >= 0:
+				if _distance[candidate] < 1.0e19:
 					return Vector3(_origin.x + float(ix) * CELL_SIZE,
 						_height_at_world(_origin.x + float(ix) * CELL_SIZE,
 							_origin.y + float(iz) * CELL_SIZE),
@@ -371,14 +427,14 @@ func is_reachable(world: Vector3) -> bool:
 	if _n <= 0:
 		return false
 	var index := _cell_at(world.x, world.z, _n, _origin)
-	return index >= 0 and _distance[index] >= 0
+	return index >= 0 and _distance[index] < 1.0e19
 
 
-func distance_at(world: Vector3) -> int:
+func distance_at(world: Vector3) -> float:
 	if _n <= 0:
-		return -1
+		return -1.0
 	var index := _cell_at(world.x, world.z, _n, _origin)
-	return -1 if index < 0 else _distance[index]
+	return -1.0 if index < 0 else _distance[index]
 
 
 func debug_cells(center: Vector3, radius: float) -> Array[Dictionary]:

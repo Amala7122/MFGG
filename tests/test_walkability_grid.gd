@@ -24,6 +24,17 @@ func _run() -> void:
 	_check(is_equal_approx(grid.cell_size, 1.0), "walkability cell size is 1m")
 	_check(grid.hit_count > 20000, "walkability has real geometry hits: %d" % grid.hit_count)
 	_check(grid.build_usec == 0, "load does not rebuild the grid")
+	_check(grid.clearance.size() == grid.n * grid.n, "clearance field covers the grid")
+	var blocked_cells := 0
+	var min_open_clearance := INF
+	for index in grid.n * grid.n:
+		if grid.blocked[index] != 0:
+			blocked_cells += 1
+		else:
+			min_open_clearance = minf(min_open_clearance, grid.clearance[index])
+	_check(blocked_cells > 0, "blocker cells exist")
+	_check(min_open_clearance > 0.0, "open cells have positive clearance")
+	_check(min_open_clearance < 100.0, "clearance is in metres, not sentinel values")
 	var finite := true
 	for value in grid.heights:
 		if not is_finite(value):

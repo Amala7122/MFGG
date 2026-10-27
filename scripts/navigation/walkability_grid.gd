@@ -15,6 +15,7 @@ var terrain_heights := PackedFloat32Array()
 var walk_heights := PackedFloat32Array()
 var hits := PackedByteArray()
 var blocked := PackedByteArray()
+var clearance := PackedFloat32Array()
 var ready := false
 var build_usec := 0
 var hit_count := 0
@@ -30,6 +31,7 @@ func build(world: World3D, center: Vector2, extent: float, cell := 1.0) -> void:
 	walk_heights.resize(n * n)
 	hits.resize(n * n)
 	blocked.resize(n * n)
+	clearance.resize(n * n)
 	var started := Time.get_ticks_usec()
 	var space := world.direct_space_state
 	hit_count = 0
@@ -60,6 +62,32 @@ func build(world: World3D, center: Vector2, extent: float, cell := 1.0) -> void:
 				hit_count += 1
 	ready = true
 	build_usec = Time.get_ticks_usec() - started
+	_compute_clearance()
+
+
+func _compute_clearance() -> void:
+	clearance.resize(n * n)
+	for index in n * n:
+		clearance[index] = 0.0 if blocked[index] != 0 else 1.0e20
+	var diagonal := 1.41421356
+	for iz in range(1, n):
+		for ix in range(1, n):
+			var index := iz * n + ix
+			if blocked[index] != 0:
+				continue
+			clearance[index] = minf(clearance[index], clearance[index - n - 1] + diagonal)
+			clearance[index] = minf(clearance[index], clearance[index - n] + 1.0)
+			clearance[index] = minf(clearance[index], clearance[index - 1] + 1.0)
+	for iz in range(n - 2, -1, -1):
+		for ix in range(n - 2, -1, -1):
+			var index := iz * n + ix
+			if blocked[index] != 0:
+				continue
+			clearance[index] = minf(clearance[index], clearance[index + n + 1] + diagonal)
+			clearance[index] = minf(clearance[index], clearance[index + n] + 1.0)
+			clearance[index] = minf(clearance[index], clearance[index + 1] + 1.0)
+	for index in n * n:
+		clearance[index] = minf(clearance[index], 1.0e20) * cell_size
 
 
 func rebake_region(world: World3D, center: Vector2, radius: float) -> int:
@@ -99,6 +127,7 @@ func rebake_region(world: World3D, center: Vector2, radius: float) -> int:
 					hit_count += 1
 			touched += 1
 	build_usec = 0
+	_compute_clearance()
 	return touched
 
 
@@ -129,6 +158,14 @@ func nav_height_at(x: float, z: float) -> float:
 	var ix := clampi(int(round((x - origin.x) / cell_size)), 0, n - 1)
 	var iz := clampi(int(round((z - origin.y) / cell_size)), 0, n - 1)
 	return walk_heights[iz * n + ix]
+
+
+func clearance_at(x: float, z: float) -> float:
+	if not ready or n <= 0:
+		return 100.0
+	var ix := clampi(int(round((x - origin.x) / cell_size)), 0, n - 1)
+	var iz := clampi(int(round((z - origin.y) / cell_size)), 0, n - 1)
+	return clearance[iz * n + ix]
 
 
 func blocked_at(x: float, z: float) -> bool:
@@ -181,6 +218,7 @@ func to_dict() -> Dictionary:
 		"walk_heights": Array(walk_heights),
 		"hits": Array(hits),
 		"blocked": Array(blocked),
+		"clearance": Array(clearance),
 		"hit_count": hit_count,
 		"build_usec": build_usec,
 	}
@@ -226,6 +264,13 @@ func from_dict(data: Dictionary) -> bool:
 	var blocked_values: Array = data.get("blocked", [])
 	for index in mini(blocked_values.size(), n * n):
 		blocked[index] = int(blocked_values[index])
+	clearance.resize(n * n)
+	var clearance_values: Array = data.get("clearance", [])
+	if clearance_values.size() == n * n:
+		for index in n * n:
+			clearance[index] = float(clearance_values[index])
+	else:
+		_compute_clearance()
 	hit_count = int(data.get("hit_count", 0))
 	build_usec = 0
 	ready = true
