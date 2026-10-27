@@ -64,6 +64,8 @@ var _alive := PackedByteArray()
 var _render_indices := PackedInt32Array()
 var _avoid_dirs := PackedVector3Array()
 var _avoid_timers := PackedFloat32Array()
+var _slot_angle := PackedFloat32Array()
+var _slot_radius := PackedFloat32Array()
 var _resolve_shape: CapsuleShape3D
 var _resolve_query: PhysicsShapeQueryParameters3D
 var _cast_query: PhysicsShapeQueryParameters3D
@@ -96,6 +98,8 @@ var resolve_inside := 0
 var under_platform := 0
 var _flow_debug := false
 var _flow_debug_mesh: MeshInstance3D
+var _flow_debug_panel: Control
+var _flow_debug_layer: CanvasLayer
 var _flow_debug_clock := 0.0
 
 
@@ -120,6 +124,8 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 	_alive.resize(count)
 	_avoid_dirs.resize(count)
 	_avoid_timers.resize(count)
+	_slot_angle.resize(count)
+	_slot_radius.resize(count)
 	_build_visuals()
 	alive_count = count
 	for index in count:
@@ -140,6 +146,9 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 		_alive[index] = 1
 		_avoid_dirs[index] = Vector3.ZERO
 		_avoid_timers[index] = 0.0
+		# 黄金角分位：靠近玩家后走向自己的槽位，避免全部从同一侧挤成一条线。
+		_slot_angle[index] = float(index) * 2.399963 + 0.35
+		_slot_radius[index] = ATTACK_RANGE + 0.25 + float(index % 3) * 0.9
 	add_to_group("fodder_fields")
 	_resolve_shape = CapsuleShape3D.new()
 	_resolve_shape.radius = RESOLVE_RADIUS
@@ -371,6 +380,14 @@ func _physics_process(delta: float) -> void:
 			direction = flow.call("direction_at", pos)
 		if direction.length_squared() < 0.001:
 			direction = to.normalized() if distance > 0.001 else Vector3.FORWARD
+		# 近距离改走自己的环形槽位，形成包围而不是排队。
+		if distance < 14.0:
+			var slot := target + Vector3(cos(_slot_angle[index]), 0.0,
+				sin(_slot_angle[index])) * _slot_radius[index]
+			var to_slot := slot - pos
+			to_slot.y = 0.0
+			if to_slot.length() > 0.2:
+				direction = (direction * 0.35 + to_slot.normalized() * 1.35).normalized()
 		_avoid_timers[index] = maxf(0.0, _avoid_timers[index] - delta)
 		if (Engine.get_physics_frames() + index) % AVOID_INTERVAL == 0:
 			var origin := pos + Vector3.UP * 0.6
@@ -507,21 +524,62 @@ func _surface_height(x: float, z: float) -> float:
 
 func toggle_flow_debug() -> void:
 	_flow_debug = not _flow_debug
-	if _flow_debug and _flow_debug_mesh == null:
-		var material := StandardMaterial3D.new()
-		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		material.vertex_color_use_as_albedo = true
-		material.cull_mode = BaseMaterial3D.CULL_DISABLED
-		material.no_depth_test = false
-		material.render_priority = 10
-		_flow_debug_mesh = MeshInstance3D.new()
-		_flow_debug_mesh.name = "FlowDebugOverlay"
-		_flow_debug_mesh.material_override = material
-		add_child(_flow_debug_mesh)
-	if _flow_debug_mesh != null:
-		_flow_debug_mesh.visible = _flow_debug
+	if _flow_debug and _flow_debug_panel == null:
+		_flow_debug_layer = CanvasLayer.new()
+		_flow_debug_layer.layer = 10
+		add_child(_flow_debug_layer)
+		_flow_debug_panel = Control.new()
+		_flow_debug_panel.name = "FlowDebugPanel"
+		_flow_debug_panel.position = Vector2(20, 150)
+		_flow_debug_panel.size = Vector2(360, 400)
+		_flow_debug_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_flow_debug_layer.add_child(_flow_debug_panel)
+		_flow_debug_panel.draw.connect(_draw_flow_panel)
+	if _flow_debug_panel != null:
+		_flow_debug_panel.visible = _flow_debug
+		_flow_debug_panel.queue_redraw()
 	_flow_debug_clock = 0.0
 	print("[fodder] flow_debug=%s" % str(_flow_debug))
+
+
+func _draw_flow_panel() -> void:
+	if _flow_debug_panel == null or flow == null or not _surface_ready or player == null:
+		return
+	var font := ThemeDB.fallback_font
+	var size := _flow_debug_panel.size
+	_flow_debug_panel.draw_rect(Rect2(Vector2.ZERO, size), Color(0.02, 0.03, 0.04, 0.8), true)
+	_flow_debug_panel.draw_rect(Rect2(Vector2.ZERO, size), Color(0.4, 0.8, 0.9, 0.9), false, 1.0)
+	_flow_debug_panel.draw_string(font, Vector2(8, 18),
+		"FLOW 40m  cyan=dir  red=blocked  yellow=high",
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.85, 0.95, 1.0))
+	var center := Vector2(size.x * 0.5, size.y * 0.5 + 10.0)
+	var radius_m := 20.0
+	var scale := (size.x - 30.0) * 0.5 / radius_m
+	var player_world := player.global_position
+	for cell in flow.debug_cells(player_world, radius_m):
+		var world: Vector3 = cell.world
+		var local := Vector2(world.x - player_world.x, world.z - player_world.z)
+		var point := center + Vector2(local.x, local.y) * scale
+		var ground: float = _surface.height_at(world.x, world.z)
+		var relative := ground - Terrain.height_at(world.x, world.z)
+		if relative > 3.0:
+			continue
+		if relative > step_height:
+			_flow_debug_panel.draw_rect(Rect2(point - Vector2(2, 2), Vector2(4, 4)),
+				Color(1.0, 0.7, 0.05))
+			continue
+		if int(cell.distance) < 0:
+			_flow_debug_panel.draw_rect(Rect2(point - Vector2(1.5, 1.5), Vector2(3, 3)),
+				Color(1.0, 0.15, 0.08))
+			continue
+		var direction: Vector3 = cell.direction
+		if direction.length_squared() < 0.001:
+			continue
+		_flow_debug_panel.draw_line(point, point + Vector2(direction.x, direction.z) * 7.0,
+			Color(0.1, 1.0, 0.95), 1.5)
+	_flow_debug_panel.draw_circle(center, 3.5, Color(1, 1, 1))
+	_flow_debug_panel.draw_string(font, Vector2(8, size.y - 10),
+		"player=white  F6 close", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.8, 0.9, 1.0))
 
 
 func _rebuild_flow_debug() -> void:
@@ -530,18 +588,27 @@ func _rebuild_flow_debug() -> void:
 	var mesh := ImmediateMesh.new()
 	mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
 	var debug_cell_count := 0
-	for cell in flow.debug_cells(player.global_position, 22.0):
-		debug_cell_count += 1
+	var player_world := player.global_position
+	for cell in flow.debug_cells(player_world, 22.0):
 		var world: Vector3 = cell.world
+		var horizontal := Vector2(world.x - player_world.x, world.z - player_world.z).length()
+		# 玩家身边 3m 内的格子跳过：贴近相机的三角会糊满屏幕。
+		if horizontal < 3.0 or horizontal > 20.0:
+			continue
 		var ground: float = _surface.height_at(world.x, world.z)
-		var base := Vector3(world.x, ground + 2.6, world.z)
+		var relative := ground - Terrain.height_at(world.x, world.z)
+		# 树冠/远景高面不作为“可走表面”画，避免天空黄块。
+		if relative > 3.0:
+			continue
+		debug_cell_count += 1
+		var base := Vector3(world.x, ground + 1.2, world.z)
 		var blocked: bool = int(cell.distance) < 0
-		var high: bool = ground - Terrain.height_at(world.x, world.z) > step_height
+		var high: bool = relative > step_height
 		if high:
-			_add_debug_square(mesh, base, 0.35, Color(1.0, 0.7, 0.05))
+			_add_debug_square(mesh, base, 0.18, Color(1.0, 0.7, 0.05))
 			continue
 		if blocked:
-			_add_debug_square(mesh, base, 0.28, Color(1.0, 0.1, 0.05))
+			_add_debug_square(mesh, base, 0.16, Color(1.0, 0.1, 0.05))
 			continue
 		var direction: Vector3 = cell.direction
 		if direction.length_squared() < 0.001:
@@ -569,14 +636,14 @@ func _add_debug_square(mesh: ImmediateMesh, center: Vector3, half: float, color:
 func _add_debug_arrow(mesh: ImmediateMesh, base: Vector3, direction: Vector3, color: Color) -> void:
 	var flat := Vector3(direction.x, 0.0, direction.z).normalized()
 	var side := Vector3(-flat.z, 0.0, flat.x)
-	var tip := base + flat * 1.8
-	var left := base + side * 0.30
-	var right := base - side * 0.30
+	var tip := base + flat * 0.95
+	var left := base + side * 0.16
+	var right := base - side * 0.16
 	_add_debug_tri(mesh, left, right, tip, color)
-	var shaft_a := base + side * 0.09
-	var shaft_b := base - side * 0.09
-	var shaft_c := base + flat * 1.0 + side * 0.09
-	var shaft_d := base + flat * 1.0 - side * 0.09
+	var shaft_a := base + side * 0.05
+	var shaft_b := base - side * 0.05
+	var shaft_c := base + flat * 0.55 + side * 0.05
+	var shaft_d := base + flat * 0.55 - side * 0.05
 	_add_debug_tri(mesh, shaft_a, shaft_b, shaft_c, color)
 	_add_debug_tri(mesh, shaft_b, shaft_d, shaft_c, color)
 
@@ -586,7 +653,8 @@ func _process(_delta: float) -> void:
 		_flow_debug_clock += _delta
 		if _flow_debug_clock >= 0.4:
 			_flow_debug_clock = 0.0
-			_rebuild_flow_debug()
+			if _flow_debug_panel != null:
+				_flow_debug_panel.queue_redraw()
 	if _multimesh == null:
 		return
 	_render_indices.clear()
