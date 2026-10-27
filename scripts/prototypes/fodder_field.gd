@@ -66,6 +66,8 @@ var _avoid_dirs := PackedVector3Array()
 var _avoid_timers := PackedFloat32Array()
 var _slot_angle := PackedFloat32Array()
 var _slot_radius := PackedFloat32Array()
+var _detour_dir := PackedVector3Array()
+var _detour_timer := PackedFloat32Array()
 var _resolve_shape: CapsuleShape3D
 var _resolve_query: PhysicsShapeQueryParameters3D
 var _cast_query: PhysicsShapeQueryParameters3D
@@ -126,6 +128,8 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 	_avoid_timers.resize(count)
 	_slot_angle.resize(count)
 	_slot_radius.resize(count)
+	_detour_dir.resize(count)
+	_detour_timer.resize(count)
 	_build_visuals()
 	alive_count = count
 	for index in count:
@@ -149,6 +153,8 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 		# 黄金角分位：靠近玩家后走向自己的槽位，避免全部从同一侧挤成一条线。
 		_slot_angle[index] = float(index) * 2.399963 + 0.35
 		_slot_radius[index] = ATTACK_RANGE + 0.25 + float(index % 3) * 0.9
+		_detour_dir[index] = Vector3.ZERO
+		_detour_timer[index] = 0.0
 	add_to_group("fodder_fields")
 	_resolve_shape = CapsuleShape3D.new()
 	_resolve_shape.radius = RESOLVE_RADIUS
@@ -434,16 +440,30 @@ func _physics_process(delta: float) -> void:
 		if distance > 0.001 and distance < PLAYER_RADIUS:
 			push += -to.normalized() * (1.0 - distance / PLAYER_RADIUS) * 2.0
 		var desired := (direction + push * SEPARATION_STRENGTH).normalized()
+		_detour_timer[index] = maxf(0.0, _detour_timer[index] - delta)
+		if _detour_timer[index] > 0.0 and _detour_dir[index].length_squared() > 0.001:
+			desired = (desired * 0.25 + _detour_dir[index] * 1.5).normalized()
+		var probe := pos + desired * SPEED * delta
+		var current_ground := pos.y - BODY_OFFSET
+		var probe_ground := _surface_height(probe.x, probe.z)
+		var step_up := probe_ground > current_ground and probe_ground - current_ground <= step_height
 		var move_delta := desired * SPEED * delta
-		# 移动前扫掠：细墙/薄柱即使流场/表面网格漏掉，也不允许走进去。
-		if not profile.ignore_terrain:
+		# 目标只是抬脚可上的台阶时，不做 cast_motion：cast 会撞到垂直面，
+		# 把 0.35m 台沿误判成墙。高墙/大落差才扫掠。
+		if not profile.ignore_terrain and not step_up:
 			_cast_query.transform = Transform3D(Basis(), pos + Vector3.UP * RESOLVE_CENTER)
 			_cast_query.motion = move_delta
 			var fractions := get_world_3d().direct_space_state.cast_motion(_cast_query)
 			if not fractions.is_empty():
-				move_delta *= clampf(float(fractions[0]), 0.0, 1.0)
+				var safe: float = clampf(float(fractions[0]), 0.0, 1.0)
+				move_delta *= safe
+				if safe < 0.2 and _detour_timer[index] <= 0.0:
+					var tangent := Vector3(-desired.z, 0.0, desired.x)
+					if tangent.dot(to) < 0.0:
+						tangent = -tangent
+					_detour_dir[index] = tangent
+					_detour_timer[index] = 0.6
 		var next := pos + move_delta
-		var current_ground := pos.y - BODY_OFFSET
 		var next_ground := _surface_height(next.x, next.z)
 		if _surface_ready and not profile.ignore_terrain and absf(next_ground - current_ground) > step_height:
 			# 正面被台阶/平台挡住时，沿 X 或 Z 单轴滑动，避免整群顶死在边缘。
