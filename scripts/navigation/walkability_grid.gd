@@ -12,7 +12,9 @@ var n := 0
 var origin := Vector2.ZERO
 var heights := PackedFloat32Array()
 var terrain_heights := PackedFloat32Array()
+var walk_heights := PackedFloat32Array()
 var hits := PackedByteArray()
+var blocked := PackedByteArray()
 var ready := false
 var build_usec := 0
 var hit_count := 0
@@ -25,7 +27,9 @@ func build(world: World3D, center: Vector2, extent: float, cell := 1.0) -> void:
 	origin = center - Vector2(extent, extent)
 	heights.resize(n * n)
 	terrain_heights.resize(n * n)
+	walk_heights.resize(n * n)
 	hits.resize(n * n)
+	blocked.resize(n * n)
 	var started := Time.get_ticks_usec()
 	var space := world.direct_space_state
 	hit_count = 0
@@ -38,6 +42,15 @@ func build(world: World3D, center: Vector2, extent: float, cell := 1.0) -> void:
 			var hit := space.intersect_ray(query)
 			var index := iz * n + ix
 			terrain_heights[index] = Terrain.height_at(x, z)
+			var walk_query := PhysicsRayQueryParameters3D.create(
+				Vector3(x, terrain_heights[index] + 2.0, z),
+				Vector3(x, terrain_heights[index] - 1.0, z), 1)
+			var walk_hit := space.intersect_ray(walk_query)
+			if walk_hit.is_empty():
+				walk_heights[index] = terrain_heights[index]
+			else:
+				walk_heights[index] = float(walk_hit.position.y)
+			blocked[index] = 1 if _body_blocked(space, x, z, terrain_heights[index]) else 0
 			if hit.is_empty():
 				heights[index] = terrain_heights[index]
 				hits[index] = 0
@@ -68,6 +81,12 @@ func rebake_region(world: World3D, center: Vector2, radius: float) -> int:
 			var hit := space.intersect_ray(query)
 			var was_hit := hits[index] != 0
 			terrain_heights[index] = Terrain.height_at(x, z)
+			var walk_query := PhysicsRayQueryParameters3D.create(
+				Vector3(x, terrain_heights[index] + 2.0, z),
+				Vector3(x, terrain_heights[index] - 1.0, z), 1)
+			var walk_hit := space.intersect_ray(walk_query)
+			walk_heights[index] = float(walk_hit.position.y) if not walk_hit.is_empty() else terrain_heights[index]
+			blocked[index] = 1 if _body_blocked(space, x, z, terrain_heights[index]) else 0
 			if hit.is_empty():
 				heights[index] = terrain_heights[index]
 				hits[index] = 0
@@ -83,12 +102,33 @@ func rebake_region(world: World3D, center: Vector2, radius: float) -> int:
 	return touched
 
 
+func _body_blocked(space: PhysicsDirectSpaceState3D, x: float, z: float, terrain: float) -> bool:
+	var query := PhysicsPointQueryParameters3D.new()
+	query.collision_mask = 1
+	query.collide_with_areas = false
+	query.collide_with_bodies = true
+	for offset in [Vector2.ZERO, Vector2(0.32, 0.0), Vector2(-0.32, 0.0),
+			Vector2(0.0, 0.32), Vector2(0.0, -0.32)]:
+		query.position = Vector3(x + offset.x, terrain + 0.9, z + offset.y)
+		if not space.intersect_point(query, 1).is_empty():
+			return true
+	return false
+
+
 func height_at(x: float, z: float) -> float:
 	if not ready or n <= 0:
 		return Terrain.height_at(x, z)
 	var ix := clampi(int(round((x - origin.x) / cell_size)), 0, n - 1)
 	var iz := clampi(int(round((z - origin.y) / cell_size)), 0, n - 1)
 	return heights[iz * n + ix]
+
+
+func nav_height_at(x: float, z: float) -> float:
+	if not ready or n <= 0:
+		return Terrain.height_at(x, z)
+	var ix := clampi(int(round((x - origin.x) / cell_size)), 0, n - 1)
+	var iz := clampi(int(round((z - origin.y) / cell_size)), 0, n - 1)
+	return walk_heights[iz * n + ix]
 
 
 func hit_at(x: float, z: float) -> bool:
@@ -109,7 +149,9 @@ func to_dict() -> Dictionary:
 		"origin_z": origin.y,
 		"heights": Array(heights),
 		"terrain_heights": Array(terrain_heights),
+		"walk_heights": Array(walk_heights),
 		"hits": Array(hits),
+		"blocked": Array(blocked),
 		"hit_count": hit_count,
 		"build_usec": build_usec,
 	}
@@ -140,9 +182,21 @@ func from_dict(data: Dictionary) -> bool:
 	else:
 		for index in n * n:
 			terrain_heights[index] = heights[index]
+	walk_heights.resize(n * n)
+	var walk_values: Array = data.get("walk_heights", [])
+	if walk_values.size() == n * n:
+		for index in n * n:
+			walk_heights[index] = float(walk_values[index])
+	else:
+		for index in n * n:
+			walk_heights[index] = terrain_heights[index]
 	hits.resize(n * n)
 	for index in mini(hit_values.size(), n * n):
 		hits[index] = int(hit_values[index])
+	blocked.resize(n * n)
+	var blocked_values: Array = data.get("blocked", [])
+	for index in mini(blocked_values.size(), n * n):
+		blocked[index] = int(blocked_values[index])
 	hit_count = int(data.get("hit_count", 0))
 	build_usec = 0
 	ready = true

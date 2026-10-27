@@ -35,7 +35,7 @@ const SURFACE_EXTENT := 80.0
 const SURFACE_CELL := 1.0
 const WALKABILITY_PATH := "res://data/navigation/sanctum_walkability.json"
 const SURFACE_BUILD_DELAY_FRAMES := 8
-const RESOLVE_INTERVAL := 1
+const RESOLVE_INTERVAL := 2
 const RESOLVE_RADIUS := 0.35
 const RESOLVE_CENTER := 0.05
 
@@ -360,7 +360,7 @@ func _physics_process(delta: float) -> void:
 		# 用实际向下射线贴地，而不是 1m 最近格；陡坡上后者会把单位放进坡体。
 		if (Engine.get_physics_frames() + index) % 4 == 0:
 			var ground_ray := PhysicsRayQueryParameters3D.create(
-				Vector3(pos.x, pos.y + 6.0, pos.z), Vector3(pos.x, pos.y - 6.0, pos.z), 1)
+				Vector3(pos.x, pos.y + 0.5, pos.z), Vector3(pos.x, pos.y - 4.0, pos.z), 1)
 			var ground_hit := get_world_3d().direct_space_state.intersect_ray(ground_ray)
 			if not ground_hit.is_empty():
 				_ground_heights[index] = float(ground_hit.position.y)
@@ -504,11 +504,13 @@ func _physics_process(delta: float) -> void:
 		# 会把本来能上的低台/坡沿误判成墙。
 		var step_probe := pos + desired * 0.6
 		var step_ground := _surface_height(step_probe.x, step_probe.z)
-		var step_up := step_ground > current_ground and step_ground - current_ground <= step_height
+		var step_change := step_ground - current_ground
+		var step_up := step_change > 0.0 and step_change <= step_height
+		var step_ok := absf(step_change) <= step_height
 		var move_delta := desired * SPEED * delta
 		# 目标只是抬脚可上的台阶时，不做 cast_motion：cast 会撞到垂直面，
 		# 把 0.35m 台沿误判成墙。高墙/大落差才扫掠。
-		if not profile.ignore_terrain and not step_up:
+		if not profile.ignore_terrain and not step_ok:
 			_cast_query.transform = Transform3D(Basis(), pos + Vector3.UP * RESOLVE_CENTER)
 			_cast_query.motion = move_delta
 			var fractions := get_world_3d().direct_space_state.cast_motion(_cast_query)
@@ -604,7 +606,7 @@ func _snap_to_surface(pos: Vector3, index: int) -> Vector3:
 
 func _surface_height(x: float, z: float) -> float:
 	if _surface != null and _surface.ready:
-		return _surface.height_at(x, z)
+		return _surface.nav_height_at(x, z)
 	return Terrain.height_at(x, z)
 
 

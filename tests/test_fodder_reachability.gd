@@ -14,8 +14,17 @@ const POINTS := [
 	Vector2(40, -30),
 	Vector2(20, 20),
 	Vector2(-48, -20),
+	Vector2(30, 40),
+	Vector2(-50, 50),
+	Vector2(50, -50),
+	Vector2(10, -50),
+	Vector2(-10, 50),
+	Vector2(60, 0),
+	Vector2(-60, 0),
+	Vector2(0, 60),
+	Vector2(0, -60),
 ]
-const WAIT_FRAMES := 180
+const WAIT_FRAMES := 240
 const MIN_NEAR := 5
 
 var _failures := 0

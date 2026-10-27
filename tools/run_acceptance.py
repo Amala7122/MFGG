@@ -47,6 +47,7 @@ CORE_TESTS = (
     "test_creature_navigation_and_attacks",
     "test_mud_golem_architecture",
     "test_walkability_grid",
+    "test_walkability_coverage",
     "test_fodder_terrain_clearance",
     "test_fodder_reachability",
     "test_navigation_render_budget",

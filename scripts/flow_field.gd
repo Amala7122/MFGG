@@ -77,8 +77,12 @@ func _ensure_mask() -> void:
 				var source_index := sz * source_n + sx
 				var walkable := true
 				if not ignore:
-					walkable = source_hits[source_index] != 0 \
-						and source_heights[source_index] - source_terrain[source_index] <= step_limit + 0.001
+					if _height_provider.get("blocked") != null:
+						var source_blocked: PackedByteArray = _height_provider.blocked
+						walkable = source_blocked[source_index] == 0
+					else:
+						walkable = source_hits[source_index] != 0 \
+							and source_heights[source_index] - source_terrain[source_index] <= step_limit + 0.001
 				_mask[iz * _mask_n + ix] = 1 if walkable else 0
 	else:
 		for iz in _mask_n:
@@ -218,9 +222,13 @@ func _compute(center: Vector3) -> Dictionary:
 
 
 func _height_at_world(x: float, z: float) -> float:
-	if _height_provider == null or not _height_provider.has_method("height_at"):
+	if _height_provider == null:
 		return Terrain.height_at(x, z)
-	return float(_height_provider.height_at(x, z))
+	if _height_provider.has_method("nav_height_at"):
+		return float(_height_provider.nav_height_at(x, z))
+	if _height_provider.has_method("height_at"):
+		return float(_height_provider.height_at(x, z))
+	return Terrain.height_at(x, z)
 
 
 func _cell_is_high(index: int) -> bool:
