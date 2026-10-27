@@ -212,6 +212,32 @@ func direction_at(world: Vector3) -> Vector3:
 	return Vector3(float(best_dx), 0.0, float(best_dz)).normalized()
 
 
+func debug_cells(center: Vector3, radius: float) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	if _n <= 0 or _distance.is_empty():
+		return result
+	var min_x := int(floor((center.x - radius - _origin.x) / CELL_SIZE))
+	var max_x := int(ceil((center.x + radius - _origin.x) / CELL_SIZE))
+	var min_z := int(floor((center.z - radius - _origin.y) / CELL_SIZE))
+	var max_z := int(ceil((center.z + radius - _origin.y) / CELL_SIZE))
+	min_x = clampi(min_x, 0, _n - 1)
+	max_x = clampi(max_x, 0, _n - 1)
+	min_z = clampi(min_z, 0, _n - 1)
+	max_z = clampi(max_z, 0, _n - 1)
+	for iz in range(min_z, max_z + 1):
+		for ix in range(min_x, max_x + 1):
+			var index := iz * _n + ix
+			var world := Vector3(_origin.x + float(ix) * CELL_SIZE, 0.0,
+				_origin.y + float(iz) * CELL_SIZE)
+			var distance := _distance[index]
+			result.append({
+				"world": world,
+				"distance": distance,
+				"direction": direction_at(world),
+			})
+	return result
+
+
 func _cell_at(x: float, z: float, n: int, origin: Vector2) -> int:
 	var ix := int(floor((x - origin.x) / CELL_SIZE))
 	var iz := int(floor((z - origin.y) / CELL_SIZE))

@@ -66,6 +66,7 @@ var _avoid_dirs := PackedVector3Array()
 var _avoid_timers := PackedFloat32Array()
 var _resolve_shape: CapsuleShape3D
 var _resolve_query: PhysicsShapeQueryParameters3D
+var _cast_query: PhysicsShapeQueryParameters3D
 var _point_query: PhysicsPointQueryParameters3D
 var _surface
 var _surface_ready := false
@@ -93,6 +94,9 @@ var ray_queries := 0
 var resolve_hits := 0
 var resolve_inside := 0
 var under_platform := 0
+var _flow_debug := false
+var _flow_debug_mesh: MeshInstance3D
+var _flow_debug_clock := 0.0
 
 
 func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
@@ -145,6 +149,11 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 	_resolve_query.collision_mask = 1
 	_resolve_query.collide_with_areas = false
 	_resolve_query.collide_with_bodies = true
+	_cast_query = PhysicsShapeQueryParameters3D.new()
+	_cast_query.shape = _resolve_shape
+	_cast_query.collision_mask = 1
+	_cast_query.collide_with_areas = false
+	_cast_query.collide_with_bodies = true
 	_surface = SurfaceGridScript.new()
 	_point_query = PhysicsPointQueryParameters3D.new()
 	_point_query.collision_mask = 1
@@ -408,7 +417,15 @@ func _physics_process(delta: float) -> void:
 		if distance > 0.001 and distance < PLAYER_RADIUS:
 			push += -to.normalized() * (1.0 - distance / PLAYER_RADIUS) * 2.0
 		var desired := (direction + push * SEPARATION_STRENGTH).normalized()
-		var next := pos + desired * SPEED * delta
+		var move_delta := desired * SPEED * delta
+		# 移动前扫掠：细墙/薄柱即使流场/表面网格漏掉，也不允许走进去。
+		if not profile.ignore_terrain:
+			_cast_query.transform = Transform3D(Basis(), pos + Vector3.UP * RESOLVE_CENTER)
+			_cast_query.motion = move_delta
+			var fractions := get_world_3d().direct_space_state.cast_motion(_cast_query)
+			if not fractions.is_empty():
+				move_delta *= clampf(float(fractions[0]), 0.0, 1.0)
+		var next := pos + move_delta
 		var current_ground := pos.y - BODY_OFFSET
 		var next_ground := _surface_height(next.x, next.z)
 		if _surface_ready and not profile.ignore_terrain and absf(next_ground - current_ground) > step_height:
@@ -488,7 +505,88 @@ func _surface_height(x: float, z: float) -> float:
 	return Terrain.height_at(x, z)
 
 
+func toggle_flow_debug() -> void:
+	_flow_debug = not _flow_debug
+	if _flow_debug and _flow_debug_mesh == null:
+		var material := StandardMaterial3D.new()
+		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		material.vertex_color_use_as_albedo = true
+		material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		material.no_depth_test = false
+		material.render_priority = 10
+		_flow_debug_mesh = MeshInstance3D.new()
+		_flow_debug_mesh.name = "FlowDebugOverlay"
+		_flow_debug_mesh.material_override = material
+		add_child(_flow_debug_mesh)
+	if _flow_debug_mesh != null:
+		_flow_debug_mesh.visible = _flow_debug
+	_flow_debug_clock = 0.0
+	print("[fodder] flow_debug=%s" % str(_flow_debug))
+
+
+func _rebuild_flow_debug() -> void:
+	if not _flow_debug or _flow_debug_mesh == null or flow == null or not _surface_ready:
+		return
+	var mesh := ImmediateMesh.new()
+	mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	var debug_cell_count := 0
+	for cell in flow.debug_cells(player.global_position, 22.0):
+		debug_cell_count += 1
+		var world: Vector3 = cell.world
+		var ground: float = _surface.height_at(world.x, world.z)
+		var base := Vector3(world.x, ground + 2.6, world.z)
+		var blocked: bool = int(cell.distance) < 0
+		var high: bool = ground - Terrain.height_at(world.x, world.z) > step_height
+		if high:
+			_add_debug_square(mesh, base, 0.35, Color(1.0, 0.7, 0.05))
+			continue
+		if blocked:
+			_add_debug_square(mesh, base, 0.28, Color(1.0, 0.1, 0.05))
+			continue
+		var direction: Vector3 = cell.direction
+		if direction.length_squared() < 0.001:
+			continue
+		_add_debug_arrow(mesh, base, direction, Color(0.05, 1.0, 0.95))
+	mesh.surface_end()
+	_flow_debug_mesh.mesh = mesh
+
+
+func _add_debug_tri(mesh: ImmediateMesh, a: Vector3, b: Vector3, c: Vector3, color: Color) -> void:
+	for point in [a, b, c]:
+		mesh.surface_set_color(color)
+		mesh.surface_add_vertex(point)
+
+
+func _add_debug_square(mesh: ImmediateMesh, center: Vector3, half: float, color: Color) -> void:
+	var a := center + Vector3(-half, 0, -half)
+	var b := center + Vector3(half, 0, -half)
+	var c := center + Vector3(half, 0, half)
+	var d := center + Vector3(-half, 0, half)
+	_add_debug_tri(mesh, a, b, c, color)
+	_add_debug_tri(mesh, a, c, d, color)
+
+
+func _add_debug_arrow(mesh: ImmediateMesh, base: Vector3, direction: Vector3, color: Color) -> void:
+	var flat := Vector3(direction.x, 0.0, direction.z).normalized()
+	var side := Vector3(-flat.z, 0.0, flat.x)
+	var tip := base + flat * 1.8
+	var left := base + side * 0.30
+	var right := base - side * 0.30
+	_add_debug_tri(mesh, left, right, tip, color)
+	var shaft_a := base + side * 0.09
+	var shaft_b := base - side * 0.09
+	var shaft_c := base + flat * 1.0 + side * 0.09
+	var shaft_d := base + flat * 1.0 - side * 0.09
+	_add_debug_tri(mesh, shaft_a, shaft_b, shaft_c, color)
+	_add_debug_tri(mesh, shaft_b, shaft_d, shaft_c, color)
+
+
 func _process(_delta: float) -> void:
+	if _flow_debug:
+		_flow_debug_clock += _delta
+		if _flow_debug_clock >= 0.4:
+			_flow_debug_clock = 0.0
+			_rebuild_flow_debug()
 	if _multimesh == null:
 		return
 	_render_indices.clear()

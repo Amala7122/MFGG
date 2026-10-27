@@ -54,6 +54,7 @@ var _last_fodder_aoe := 0
 var _fodder_ignore_terrain := false
 var _fodder_step := 0.7
 var _fodder_slope := 40.0
+var _fodder_flow_debug := false
 var _player_at := Vector2.INF
 var _shot_path := ""
 var _shot_at := 4.0
@@ -96,6 +97,8 @@ func _initialize() -> void:
 			_fodder_step = float(arg.trim_prefix("--fodder-step="))
 		elif arg.begins_with("--fodder-slope="):
 			_fodder_slope = float(arg.trim_prefix("--fodder-slope="))
+		elif arg == "--fodder-flow-debug=on":
+			_fodder_flow_debug = true
 		elif arg.begins_with("--player-at="):
 			var parts := arg.trim_prefix("--player-at=").split(",")
 			if parts.size() == 2:
@@ -177,6 +180,8 @@ func _run() -> void:
 		_fodder_field.top_level = true
 		_scene.add_child(_fodder_field)
 		_fodder_field.setup(_player, _flow, _count, _player.global_position, _make_fodder_profile())
+		if _fodder_flow_debug:
+			_fodder_field.toggle_flow_debug()
 		print("[fodder] units=%d" % _fodder_field.units())
 	else:
 		await _spawn_golems()
@@ -309,6 +314,8 @@ func _restart() -> void:
 		_fodder_field.top_level = true
 		_scene.add_child(_fodder_field)
 		_fodder_field.setup(_player, _flow, _count, _player.global_position, _make_fodder_profile())
+		if _fodder_flow_debug:
+			_fodder_field.toggle_flow_debug()
 		print("[fodder] restart units=%d" % _fodder_field.units())
 	else:
 		await _spawn_golems()
@@ -381,6 +388,10 @@ func _tick() -> void:
 		var post := root.get_node_or_null("PostProcess")
 		if post != null:
 			post.visible = _post_on
+		_update_hint()
+	if _pressed_once(KEY_F6):
+		if _fodder_field != null:
+			_fodder_field.toggle_flow_debug()
 		_update_hint()
 	if not _shot_done and _shot_path != "" \
 			and (Time.get_ticks_msec() - _started_msec) / 1000.0 >= _shot_at:
@@ -495,7 +506,7 @@ func _update_hint() -> void:
 		return
 	_hint_label.text = ("正式圣所 · %d 只%s · 无敌：%s · 物理步数上限 %d\n"
 		+ "R 重开 · F10 退出\n"
-		+ "F1 AI：%s · F2 冻结：%s · F3 阴影：%s · F4 天气粒子：%s · F5 后处理：%s") % [
+		+ "F1 AI：%s · F2 冻结：%s · F3 阴影：%s · F4 天气粒子：%s · F5 后处理：%s · F6 流场：%s") % [
 		_count,
 		"Fodder 数据场" if _fodder else "泥土傀儡",
 		"开" if _invincible else "关",
@@ -504,4 +515,5 @@ func _update_hint() -> void:
 		"是" if _frozen else "否",
 		"开" if _shadows_on else "关",
 		"开" if _weather_on else "关",
-		"开" if _post_on else "关"]
+		"开" if _post_on else "关",
+		"开" if _fodder_field != null and _fodder_field._flow_debug else "关"]
