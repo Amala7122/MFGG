@@ -145,7 +145,7 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 	alive_count = count
 	for index in count:
 		var angle := TAU * float(index) / float(maxi(count, 1))
-		var ring := 8.0 + float(index % 7) * 1.8
+		var ring := 12.0 + float(index % 7) * 1.8
 		var x := center.x + cos(angle) * ring
 		var z := center.z + sin(angle) * ring
 		_positions[index] = Vector3(x, Terrain.height_at(x, z) + BODY_OFFSET, z)
@@ -205,7 +205,7 @@ func _place_out_of_blocker(index: int) -> void:
 	var p := _positions[index]
 	if not _surface.blocked_at(p.x, p.z):
 		return
-	var open: Vector3 = _surface.nearest_open(p.x, p.z, 12)
+	var open: Vector3 = _surface.nearest_open_away(p.x, p.z, player.global_position, 20)
 	var away := Vector3(open.x - p.x, 0.0, open.z - p.z)
 	if away.length_squared() < 0.001:
 		away = Vector3.FORWARD
@@ -487,10 +487,12 @@ func _physics_process(delta: float) -> void:
 		if distance < 14.0:
 			var slot := target + Vector3(cos(_slot_angle[index]), 0.0,
 				sin(_slot_angle[index])) * _slot_radius[index]
-			var to_slot := slot - pos
-			to_slot.y = 0.0
-			if to_slot.length() > 0.2:
-				direction = (direction * 0.35 + to_slot.normalized() * 1.35).normalized()
+			# 槽位落在墙体/岩石里时不要往里挤，否则会被推出后又反复卡住。
+			if not _surface.blocked_at(slot.x, slot.z):
+				var to_slot := slot - pos
+				to_slot.y = 0.0
+				if to_slot.length() > 0.2:
+					direction = (direction * 0.35 + to_slot.normalized() * 1.35).normalized()
 		_avoid_timers[index] = maxf(0.0, _avoid_timers[index] - delta)
 		if (Engine.get_physics_frames() + index) % AVOID_INTERVAL == 0:
 			var origin := pos + Vector3.UP * 0.6

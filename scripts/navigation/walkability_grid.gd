@@ -197,6 +197,40 @@ func nearest_open(x: float, z: float, max_radius_cells := 12) -> Vector3:
 	return Vector3(x, nav_height_at(x, z), z)
 
 
+func nearest_open_away(x: float, z: float, avoid: Vector3, max_radius_cells := 20) -> Vector3:
+	if not ready or n <= 0:
+		return Vector3(x, Terrain.height_at(x, z), z)
+	var cx := clampi(int(round((x - origin.x) / cell_size)), 0, n - 1)
+	var cz := clampi(int(round((z - origin.y) / cell_size)), 0, n - 1)
+	var current_distance := Vector2(x - avoid.x, z - avoid.z).length()
+	var best := Vector3(x, nav_height_at(x, z), z)
+	var best_score := INF
+	for radius in range(0, max_radius_cells + 1):
+		for dz in range(-radius, radius + 1):
+			for dx in range(-radius, radius + 1):
+				if radius > 0 and absi(dx) != radius and absi(dz) != radius:
+					continue
+				var ix := cx + dx
+				var iz := cz + dz
+				if ix < 0 or iz < 0 or ix >= n or iz >= n:
+					continue
+				var index := iz * n + ix
+				if blocked[index] != 0:
+					continue
+				var wx := origin.x + float(ix) * cell_size
+				var wz := origin.y + float(iz) * cell_size
+				var distance_to_avoid := Vector2(wx - avoid.x, wz - avoid.z).length()
+				if distance_to_avoid < current_distance - 0.5:
+					continue
+				var score := Vector2(wx - x, wz - z).length() + maxf(0.0, 2.0 - distance_to_avoid) * 2.0
+				if score < best_score:
+					best_score = score
+					best = Vector3(wx, walk_heights[index], wz)
+		if best_score < INF:
+			return best
+	return Vector3(x, nav_height_at(x, z), z)
+
+
 func hit_at(x: float, z: float) -> bool:
 	if not ready or n <= 0:
 		return false
