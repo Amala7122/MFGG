@@ -48,6 +48,7 @@ CORE_TESTS = (
     "test_mud_golem_architecture",
     "test_walkability_grid",
     "test_fodder_terrain_clearance",
+    "test_fodder_reachability",
     "test_navigation_render_budget",
     "test_navigation_planner_yield",
     "test_main_run_preparation",

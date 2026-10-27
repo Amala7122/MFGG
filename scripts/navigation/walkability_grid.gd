@@ -49,6 +49,40 @@ func build(world: World3D, center: Vector2, extent: float, cell := 1.0) -> void:
 	build_usec = Time.get_ticks_usec() - started
 
 
+func rebake_region(world: World3D, center: Vector2, radius: float) -> int:
+	if not ready or n <= 0:
+		return 0
+	var min_x := clampi(int(floor((center.x - radius - origin.x) / cell_size)), 0, n - 1)
+	var max_x := clampi(int(ceil((center.x + radius - origin.x) / cell_size)), 0, n - 1)
+	var min_z := clampi(int(floor((center.y - radius - origin.y) / cell_size)), 0, n - 1)
+	var max_z := clampi(int(ceil((center.y + radius - origin.y) / cell_size)), 0, n - 1)
+	var space := world.direct_space_state
+	var touched := 0
+	for iz in range(min_z, max_z + 1):
+		for ix in range(min_x, max_x + 1):
+			var x := origin.x + float(ix) * cell_size
+			var z := origin.y + float(iz) * cell_size
+			var index := iz * n + ix
+			var query := PhysicsRayQueryParameters3D.create(
+				Vector3(x, 200.0, z), Vector3(x, -100.0, z), 1)
+			var hit := space.intersect_ray(query)
+			var was_hit := hits[index] != 0
+			terrain_heights[index] = Terrain.height_at(x, z)
+			if hit.is_empty():
+				heights[index] = terrain_heights[index]
+				hits[index] = 0
+				if was_hit:
+					hit_count -= 1
+			else:
+				heights[index] = float(hit.position.y)
+				hits[index] = 1
+				if not was_hit:
+					hit_count += 1
+			touched += 1
+	build_usec = 0
+	return touched
+
+
 func height_at(x: float, z: float) -> float:
 	if not ready or n <= 0:
 		return Terrain.height_at(x, z)

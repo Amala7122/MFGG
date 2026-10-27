@@ -22,6 +22,7 @@
 - `test_navigation_stress_soak.gd`：复用压力实现，256 个体连续四次跨区域迁移目标，最后保留 90 秒追踪窗口，总上限 150 秒物理时间；和基础六轮合计 1216 个体记录。
 - `test_fodder_terrain_clearance.gd`：正式圣所里 100 只 Fodder 的贴地不变量，不手写地图坐标；在出生点周围 48 个网格点之间移动玩家，每个物理帧对每只活体做向下射线，并和 `Terrain.height_at` 交叉检查。“脚低于实际表面 >0.08m”即失败，同时报告总采样数、最差穿透与坐标。覆盖坡、台、石头和墙，不依赖逐个模型；本次 14,400 个单位帧最差 0.033m。
 - `test_walkability_grid.gd`：离线 walkability 烘焙文件的加载守卫；校验 160m / 1m 的全图网格、真实几何命中数、加载不重建、全高度有限，并抽样 200+ 格。地图或烘焙尺寸变了会直接失败，提醒重跑 `bake_walkability.gd`。
+- `test_fodder_reachability.gd`：6 个开放地图点各生成一份全新 100 只 Fodder，等待 6 秒物理时间，要求至少 5 只进入 4m；记录每点 `near4/nearest`。不是“2 秒到 4m”的伪指标，而是实际追击收敛。
 
 - `test_phantom_sample_lifecycle.gd`：独立 sample 启动不弹开始页、不暂停；遍历 18 个 2D/3D sample，释放旧场景后刷新持久取景器，最后验证无 Host 刷新安全。与 `test_runtime_world_visibility.gd` 的正式主场景菜单检查一起运行。
 

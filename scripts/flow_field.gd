@@ -28,6 +28,9 @@ var _origin := Vector2.ZERO
 var _height_provider = null
 var _height_profile = null
 var _step_height := INF
+var _edge_step := INF
+var target_position := Vector3.ZERO
+var tracking_player := true
 var rebuild_usec := 0
 var reachable_cells := 0
 var last_error := ""
@@ -103,6 +106,7 @@ func set_height_provider(provider, step_height: float) -> void:
 	_height_provider = provider
 	_height_profile = null
 	_step_height = step_height
+	_edge_step = step_height
 	_mask_ready = false
 
 
@@ -110,6 +114,7 @@ func set_height_profile(provider, profile) -> void:
 	_height_provider = provider
 	_height_profile = profile
 	_step_height = profile.flow_edge_limit(CELL_SIZE)
+	_edge_step = profile.step_height
 	_mask_ready = false
 
 
@@ -160,32 +165,36 @@ func _compute(center: Vector3) -> Dictionary:
 	distance.resize(total)
 	distance.fill(-1)
 	var start := _cell_at(center.x, center.z, n, origin)
-	if start < 0:
+	var source := start
+	var tracking := true
+	if source < 0 or _mask[source] == 0 or _cell_is_high(source):
+		source = _nearest_ground_cell(start, n)
+		tracking = false
+	if source < 0:
 		return {"distance": distance, "n": n, "origin": origin, "reachable": 0,
-			"usec": Time.get_ticks_usec() - started, "error": "outside"}
-	# 玩家格即使坡度不可走也作为源头（人站在坡上），只要求邻居可走；
-	# 否则源会被挪到 4–8m 外，群怪会全停在那个格上。
+			"usec": Time.get_ticks_usec() - started, "error": "outside",
+			"target": center, "tracking": false}
 	var queue := PackedInt32Array()
 	queue.resize(total)
 	var head := 0
 	var tail := 0
-	queue[tail] = start
+	queue[tail] = source
 	tail += 1
-	distance[start] = 0
+	distance[source] = 0
 	var reached := 1
+	var source_ix: int = source % n
+	var source_iz: int = int(source / n)
+	var anchor := Vector3(origin.x + float(source_ix) * CELL_SIZE,
+		_height_at_world(origin.x + float(source_ix) * CELL_SIZE,
+			origin.y + float(source_iz) * CELL_SIZE),
+		origin.y + float(source_iz) * CELL_SIZE)
+	var goal := center if tracking else anchor
 	while head < tail:
 		var index := queue[head]
 		head += 1
 		var ix: int = index % n
 		var iz: int = int(index / n)
 		var next_distance := distance[index] + 1
-		var current_height := 0.0
-		var height_checked := _height_provider != null and not (
-			_height_profile != null and bool(_height_profile.ignore_terrain))
-		if height_checked:
-			var wx := origin.x + float(ix) * CELL_SIZE
-			var wz := origin.y + float(iz) * CELL_SIZE
-			current_height = _height_provider.height_at(wx, wz)
 		for direction: Vector2i in DIRECTIONS:
 			var nx: int = ix + direction.x
 			var nz: int = iz + direction.y
@@ -194,21 +203,80 @@ func _compute(center: Vector3) -> Dictionary:
 			var neighbor: int = nz * n + nx
 			if _mask[neighbor] == 0 or distance[neighbor] >= 0:
 				continue
-			if height_checked:
-				var wx2 := origin.x + float(nx) * CELL_SIZE
-				var wz2 := origin.y + float(nz) * CELL_SIZE
-				if absf(_height_provider.height_at(wx2, wz2) - current_height) > _step_height + 0.001:
-					continue
 			if direction.x != 0 and direction.y != 0:
-				# 斜向必须两侧正交格都可走，避免穿墙角。
 				if _mask[iz * n + nx] == 0 or _mask[nz * n + ix] == 0:
 					continue
+			if not _edge_allowed(ix, iz, nx, nz):
+				continue
 			distance[neighbor] = next_distance
 			queue[tail] = neighbor
 			tail += 1
 			reached += 1
 	return {"distance": distance, "n": n, "origin": origin, "reachable": reached,
-		"usec": Time.get_ticks_usec() - started, "error": ""}
+		"usec": Time.get_ticks_usec() - started, "error": "",
+		"target": goal, "tracking": tracking}
+
+
+func _height_at_world(x: float, z: float) -> float:
+	if _height_provider == null or not _height_provider.has_method("height_at"):
+		return Terrain.height_at(x, z)
+	return float(_height_provider.height_at(x, z))
+
+
+func _cell_is_high(index: int) -> bool:
+	if _height_profile != null and bool(_height_profile.ignore_terrain):
+		return false
+	if _height_provider == null:
+		return false
+	var ix: int = index % _mask_n
+	var iz: int = int(index / _mask_n)
+	var x := _mask_origin.x + float(ix) * CELL_SIZE
+	var z := _mask_origin.y + float(iz) * CELL_SIZE
+	return _height_at_world(x, z) - Terrain.height_at(x, z) > _edge_step + 0.001
+
+
+func _nearest_ground_cell(start: int, n: int) -> int:
+	var sx := -1
+	var sz := -1
+	if start >= 0:
+		sx = start % n
+		sz = int(start / n)
+	else:
+		sx = int(n / 2)
+		sz = int(n / 2)
+	for radius in range(1, 25):
+		for dz in range(-radius, radius + 1):
+			for dx in range(-radius, radius + 1):
+				if absi(dx) != radius and absi(dz) != radius:
+					continue
+				var ix := sx + dx
+				var iz := sz + dz
+				if ix < 0 or iz < 0 or ix >= n or iz >= n:
+					continue
+				var index := iz * n + ix
+				if _mask[index] != 0 and not _cell_is_high(index):
+					return index
+	return -1
+
+
+func _edge_allowed(ix: int, iz: int, nx: int, nz: int) -> bool:
+	if _height_provider == null or _height_profile == null:
+		return true
+	if bool(_height_profile.ignore_terrain):
+		return true
+	var ax := _mask_origin.x + float(ix) * CELL_SIZE
+	var az := _mask_origin.y + float(iz) * CELL_SIZE
+	var bx := _mask_origin.x + float(nx) * CELL_SIZE
+	var bz := _mask_origin.y + float(nz) * CELL_SIZE
+	var steps := maxi(2, int(ceil(Vector2(bx - ax, bz - az).length() / 0.5)))
+	var previous := _height_at_world(ax, az)
+	for step in range(1, steps + 1):
+		var t := float(step) / float(steps)
+		var height := _height_at_world(lerpf(ax, bx, t), lerpf(az, bz, t))
+		if absf(height - previous) > _edge_step + 0.02:
+			return false
+		previous = height
+	return true
 
 
 func _apply(result: Dictionary) -> void:
@@ -220,6 +288,12 @@ func _apply(result: Dictionary) -> void:
 	reachable_cells = int(result.get("reachable", 0))
 	rebuild_usec = int(result.get("usec", 0))
 	last_error = String(result.get("error", ""))
+	target_position = result.get("target", Vector3.ZERO)
+	tracking_player = bool(result.get("tracking", true))
+
+
+func movement_target() -> Vector3:
+	return target_position
 
 
 func direction_at(world: Vector3) -> Vector3:
@@ -253,6 +327,36 @@ func direction_at(world: Vector3) -> Vector3:
 	if best_dx == 0 and best_dz == 0:
 		return Vector3.ZERO
 	return Vector3(float(best_dx), 0.0, float(best_dz)).normalized()
+
+
+func nearest_reachable(world: Vector3, max_radius_cells := 40) -> Vector3:
+	if _n <= 0:
+		return world
+	var index := _cell_at(world.x, world.z, _n, _origin)
+	var center_x := 0
+	var center_z := 0
+	if index >= 0:
+		center_x = index % _n
+		center_z = int(index / _n)
+	else:
+		center_x = int(clampf((world.x - _origin.x) / CELL_SIZE, 0.0, float(_n - 1)))
+		center_z = int(clampf((world.z - _origin.y) / CELL_SIZE, 0.0, float(_n - 1)))
+	for radius in range(0, max_radius_cells + 1):
+		for dz in range(-radius, radius + 1):
+			for dx in range(-radius, radius + 1):
+				if radius > 0 and absi(dx) != radius and absi(dz) != radius:
+					continue
+				var ix := center_x + dx
+				var iz := center_z + dz
+				if ix < 0 or iz < 0 or ix >= _n or iz >= _n:
+					continue
+				var candidate := iz * _n + ix
+				if _distance[candidate] >= 0:
+					return Vector3(_origin.x + float(ix) * CELL_SIZE,
+						_height_at_world(_origin.x + float(ix) * CELL_SIZE,
+							_origin.y + float(iz) * CELL_SIZE),
+						_origin.y + float(iz) * CELL_SIZE)
+	return world
 
 
 func is_reachable(world: Vector3) -> bool:

@@ -82,6 +82,8 @@ var _flow_clock := 0.0
 var _flow_anchor := Vector3.ZERO
 var _surface_delay := SURFACE_BUILD_DELAY_FRAMES
 var _flow_inited := false
+var _dirty_centers: Array[Vector2] = []
+var _dirty_clock := 0.0
 
 var _multimesh: MultiMesh
 var _multimesh_instance: MultiMeshInstance3D
@@ -182,6 +184,9 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 		print("[fodder] walkability loaded %s vertices=%d" % [WALKABILITY_PATH, _surface.n * _surface.n])
 	else:
 		print("[fodder] walkability missing, will bake once at runtime")
+	for prop in get_tree().get_nodes_in_group("destructible_props"):
+		if is_instance_valid(prop) and not prop.tree_exiting.is_connected(_on_destructible_exiting):
+			prop.tree_exiting.connect(_on_destructible_exiting.bind(prop))
 	_point_query = PhysicsPointQueryParameters3D.new()
 	_point_query.collision_mask = 1
 	_point_query.collide_with_areas = false
@@ -269,6 +274,11 @@ func _append_part(tool: SurfaceTool, mesh: Mesh, transform: Transform3D, part: i
 	return cursor
 
 
+func _on_destructible_exiting(prop: Node) -> void:
+	if is_instance_valid(prop):
+		_dirty_centers.append(Vector2(prop.global_position.x, prop.global_position.z))
+
+
 func _init_surface_flow() -> void:
 	_flow_inited = true
 	var surface_flow := FlowFieldScript.new()
@@ -297,6 +307,15 @@ func _physics_process(delta: float) -> void:
 			surface_build_ms, SURFACE_EXTENT, SURFACE_CELL])
 	if _surface_ready and not _flow_inited:
 		_init_surface_flow()
+	if _surface_ready and not _dirty_centers.is_empty():
+		_dirty_clock += delta
+		if _dirty_clock >= 0.3:
+			_dirty_clock = 0.0
+			for center: Vector2 in _dirty_centers:
+				_surface.rebake_region(get_world_3d(), center, 12.0)
+			_dirty_centers.clear()
+			flow = null
+			_flow_inited = false
 	if flow != null:
 		flow.poll_rebuild()
 		_flow_clock += delta
@@ -317,6 +336,8 @@ func _physics_process(delta: float) -> void:
 					_positions[index] = p
 				_ground_heights[index] = Terrain.height_at(p.x, p.z)
 	var target := player.global_position
+	if flow != null and flow.has_method("movement_target") and not bool(flow.get("tracking_player")):
+		target = flow.movement_target()
 	var grid: Dictionary = {}
 	for index in count:
 		if _alive[index] == 0:
@@ -352,7 +373,7 @@ func _physics_process(delta: float) -> void:
 		# 硬排除：不能站在高表面覆盖区的地面下（平台/大石头底部）。
 		if _surface_ready and not profile.ignore_terrain:
 			var terrain_here := Terrain.height_at(pos.x, pos.z)
-			var surface_here := _surface_height(pos.x, pos.z)
+			var surface_here := _ground_heights[index]
 			var ground_here := pos.y - BODY_OFFSET
 			if surface_here - terrain_here > step_height and ground_here - terrain_here <= step_height:
 				var best_dir := Vector3.ZERO
@@ -873,6 +894,12 @@ func _spawn_debris(index: int) -> void:
 		rb.angular_velocity = direction * randf_range(1.0, 4.0)
 		get_tree().create_timer(6.0).timeout.connect(rb.queue_free)
 		_debris_count += 1
+
+
+func nearest_reachable(position: Vector3) -> Vector3:
+	if flow == null:
+		return position
+	return flow.nearest_reachable(position)
 
 
 func is_world_reachable(position: Vector3) -> bool:

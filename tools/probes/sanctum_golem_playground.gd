@@ -662,10 +662,14 @@ func _try_map_click() -> void:
 				return
 			var previous_target: Vector3 = hit.position
 			var reachable: bool = _fodder_field != null and _fodder_field.is_world_reachable(previous_target)
+			var nearest_point := previous_target
+			if not reachable and _fodder_field != null:
+				nearest_point = _fodder_field.nearest_reachable(previous_target)
 			_map_last_click = Vector2(previous_target.x, previous_target.z)
 			_map_last_reachable = reachable
-			_map_status = "click=(%.1f, %.1f) reachable=%s  (from previous player)" % [
-				_map_last_click.x, _map_last_click.y, str(reachable)]
+			_map_status = "click=(%.1f, %.1f) reachable=%s nearest=(%.1f, %.1f)" % [
+				_map_last_click.x, _map_last_click.y, str(reachable),
+				nearest_point.x, nearest_point.z]
 			var coordinate_text := "%.2f, %.2f" % [_map_last_click.x, _map_last_click.y]
 			DisplayServer.clipboard_set(coordinate_text)
 			print("[pathlab] click target=(%.2f, %.2f) reachable=%s coordinate_copied=%s" % [
