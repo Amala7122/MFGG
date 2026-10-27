@@ -47,6 +47,8 @@ func _ensure_mask() -> void:
 	_mask_profile = _height_profile
 	var started := Time.get_ticks_usec()
 	var half := Terrain.get_extent()
+	if _height_provider != null and _height_provider.get("half_extent") != null:
+		half = float(_height_provider.half_extent)
 	_mask_n = int(round(half * 2.0 / CELL_SIZE)) + 1
 	_mask_origin = Vector2(-half, -half)
 	_mask.resize(_mask_n * _mask_n)

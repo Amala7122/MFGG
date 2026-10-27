@@ -20,9 +20,9 @@ func _run() -> void:
 	var grid := Walkability.new()
 	var loaded := grid.load_json(PATH)
 	_check(loaded, "walkability bake file loads")
-	_check(grid.n == 121, "walkability covers 120m at 1m: n=%d" % grid.n)
+	_check(grid.n == 161, "walkability covers 160m at 1m: n=%d" % grid.n)
 	_check(is_equal_approx(grid.cell_size, 1.0), "walkability cell size is 1m")
-	_check(grid.hit_count > 12000, "walkability has real geometry hits: %d" % grid.hit_count)
+	_check(grid.hit_count > 20000, "walkability has real geometry hits: %d" % grid.hit_count)
 	_check(grid.build_usec == 0, "load does not rebuild the grid")
 	var finite := true
 	for value in grid.heights:

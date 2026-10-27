@@ -36,7 +36,7 @@ func _run() -> void:
 		quit(1)
 		return
 	var grid := Walkability.new()
-	grid.build(scene.get_world_3d(), Vector2.ZERO, 60.0, 1.0)
+	grid.build(scene.get_world_3d(), Vector2.ZERO, 80.0, 1.0)
 	var ok := grid.save_json(OUTPUT)
 	print("[bake] vertices=%d hits=%d ms=%.1f saved=%s ok=%s" % [
 		grid.n * grid.n, grid.hit_count, grid.build_usec / 1000.0, OUTPUT, str(ok)])

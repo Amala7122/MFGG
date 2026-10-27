@@ -654,6 +654,12 @@ func _try_map_click() -> void:
 		var query := PhysicsRayQueryParameters3D.create(from, to, 1)
 		var hit: Dictionary = _scene.get_world_3d().direct_space_state.intersect_ray(query)
 		if not hit.is_empty():
+			if absf(hit.position.x) > 80.0 or absf(hit.position.z) > 80.0:
+				_map_status = "click outside baked map (±80m): (%.1f, %.1f)" % [
+					hit.position.x, hit.position.z]
+				_update_hint()
+				_map_click_latched = true
+				return
 			var previous_target: Vector3 = hit.position
 			var reachable: bool = _fodder_field != null and _fodder_field.is_world_reachable(previous_target)
 			_map_last_click = Vector2(previous_target.x, previous_target.z)
