@@ -562,7 +562,26 @@ func _physics_process(delta: float) -> void:
 		var step_change := step_ground - current_ground
 		var step_up := step_change > 0.0 and step_change <= step_height
 		var step_ok := absf(step_change) <= step_height
+		var probe_blocked: bool = _surface_ready and _surface.blocked_at(step_probe.x, step_probe.z)
+		var current_blocked: bool = _surface_ready and _surface.blocked_at(pos.x, pos.z)
 		var move_delta := desired * SPEED * delta
+		# 导航判为墙/高台的格子，即使高度差在 step 内也不许踏上去；
+		# 否则单位会爬上高台顶，再因为下不去而卡在台沿。
+		if probe_blocked and not current_blocked:
+			var tangent := Vector3(-desired.z, 0.0, desired.x)
+			if tangent.dot(to) < 0.0:
+				tangent = -tangent
+			var left_clearance: float = _surface.clearance_at(
+				pos.x + tangent.x * 1.4, pos.z + tangent.z * 1.4)
+			var right_clearance: float = _surface.clearance_at(
+				pos.x - tangent.x * 1.4, pos.z - tangent.z * 1.4)
+			if right_clearance > left_clearance + 0.15:
+				tangent = -tangent
+			_detour_dir[index] = tangent
+			_detour_timer[index] = 1.0
+			move_delta = Vector3.ZERO
+			step_ok = false
+			step_up = false
 		# 目标只是抬脚可上的台阶时，不做 cast_motion：cast 会撞到垂直面，
 		# 把 0.35m 台沿误判成墙。高墙/大落差才扫掠。
 		if not profile.ignore_terrain and not step_ok:
