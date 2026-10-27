@@ -459,6 +459,8 @@ func _tick() -> void:
 		if _fodder_field != null:
 			_fodder_field.toggle_flow_debug()
 		_update_hint()
+	if _pressed_once(KEY_F7):
+		_save_manual_shot()
 	if not _shot_done and _shot_path != "" \
 			and (Time.get_ticks_msec() - _started_msec) / 1000.0 >= _shot_at:
 		_shot_done = true
@@ -546,6 +548,23 @@ func _log_profile() -> void:
 	print(line)
 	Golem.reset_profile()
 	_last_profile_msec = now
+
+
+func _save_manual_shot() -> void:
+	var directory := "D:/Godot/lab/_tests/pathlab_shots"
+	DirAccess.make_dir_recursive_absolute(directory)
+	var stamp := Time.get_datetime_string_from_system().replace(":", "-")
+	var path := "%s/pathlab_%s.png" % [directory, stamp]
+	var image := root.get_texture().get_image()
+	if image == null:
+		print("[shot] failed: no viewport texture")
+		return
+	var error := image.save_png(path)
+	if error != OK:
+		print("[shot] failed: %s error=%d" % [path, error])
+		return
+	DisplayServer.clipboard_set(path)
+	print("[shot] %s" % path)
 
 
 func _pressed_once(key: Key) -> bool:
@@ -696,7 +715,7 @@ func _update_hint() -> void:
 	_hint_label.text = ("正式圣所 · %d 只%s · 无敌：%s · 物理步数上限 %d\n"
 		+ "R 重开 · F10 退出\n"
 		+ ("左键点地图传送 · 右键拖动旋转 · 滚轮缩放 · " if _map_click else "")
-		+ "F1 AI：%s · F2 冻结：%s · F3 阴影：%s · F4 天气粒子：%s · F5 后处理：%s · F6 流场：%s"
+		+ "F1 AI：%s · F2 冻结：%s · F3 阴影：%s · F4 天气粒子：%s · F5 后处理：%s · F6 流场：%s · F7 截图"
 		+ ("\n" + _map_status if _map_click else "")) % [
 		_count,
 		"Fodder 数据场" if _fodder else "泥土傀儡",
