@@ -64,6 +64,10 @@ var _map_distance := 38.0
 var _map_last_mouse := Vector2.INF
 var _map_status := ""
 var _map_status_clock := 0.0
+var _map_last_click := Vector2(INF, INF)
+var _map_last_reachable := false
+var _map_sweep := false
+var _sweep_seconds := 2.5
 var _player_at := Vector2.INF
 var _shot_path := ""
 var _shot_at := 4.0
@@ -110,6 +114,10 @@ func _initialize() -> void:
 			_fodder_flow_debug = true
 		elif arg == "--map-click=on":
 			_map_click = true
+		elif arg == "--map-sweep=on":
+			_map_sweep = true
+		elif arg.begins_with("--sweep-seconds="):
+			_sweep_seconds = maxf(float(arg.trim_prefix("--sweep-seconds=")), 0.5)
 		elif arg.begins_with("--player-at="):
 			var parts := arg.trim_prefix("--player-at=").split(",")
 			if parts.size() == 2:
@@ -213,6 +221,10 @@ func _run() -> void:
 		_setup_map_camera()
 	_started = true
 	_started_msec = Time.get_ticks_msec()
+	if _map_sweep:
+		await _run_map_sweep()
+		quit()
+		return
 	Golem.profile_enabled = not _fodder
 	Golem.reset_profile()
 	_last_profile_msec = _started_msec
@@ -335,6 +347,41 @@ func _restart() -> void:
 		await _spawn_golems()
 	_started_msec = Time.get_ticks_msec()
 	_restarting = false
+
+
+func _run_map_sweep() -> void:
+	print("[sweep] begin seconds=%.1f points=25" % _sweep_seconds)
+	var failures := 0
+	for row in 5:
+		for column in 5:
+			var x := float(column - 2) * 24.0
+			var z := float(row - 2) * 24.0
+			_player.global_position = Vector3(x, Terrain.height_at(x, z) + 0.2, z)
+			var initial_nearest := _sweep_nearest(x, z)
+			for _frame in int(_sweep_seconds * 30.0):
+				await physics_frame
+			var near := 0
+			var nearest := INF
+			for position in _fodder_field.live_positions():
+				var distance := Vector2(position.x - x, position.z - z).length()
+				nearest = minf(nearest, distance)
+				if distance <= 4.0:
+					near += 1
+			var progress := initial_nearest - nearest
+			var failed := nearest > 4.0 and progress < 1.5
+			if failed:
+				failures += 1
+			print("[sweep] point=(%.1f, %.1f) start=%.1f end=%.1f progress=%.1f near4=%d fail=%s" % [
+				x, z, initial_nearest, nearest, progress, near, str(failed)])
+	print("[sweep] failures=%d/25" % failures)
+	quit(0 if failures == 0 else 1)
+
+
+func _sweep_nearest(x: float, z: float) -> float:
+	var nearest := INF
+	for position in _fodder_field.live_positions():
+		nearest = minf(nearest, Vector2(position.x - x, position.z - z).length())
+	return nearest
 
 
 func _tick() -> void:
@@ -555,7 +602,7 @@ func _handle_map_orbit() -> void:
 		if _map_last_mouse != Vector2.INF:
 			var delta := mouse - _map_last_mouse
 			_map_yaw -= delta.x * 0.008
-			_map_pitch = clampf(_map_pitch - delta.y * 0.006, 0.18, 1.45)
+			_map_pitch = clampf(_map_pitch + delta.y * 0.006, 0.18, 1.45)
 		_map_last_mouse = mouse
 	else:
 		_map_last_mouse = Vector2.INF
@@ -590,8 +637,14 @@ func _try_map_click() -> void:
 		if not hit.is_empty():
 			var previous_target: Vector3 = hit.position
 			var reachable: bool = _fodder_field != null and _fodder_field.is_world_reachable(previous_target)
-			_map_status = "click target reachable=%s  (from previous position)" % str(reachable)
-			print("[pathlab] click target=%s reachable=%s" % [str(previous_target), str(reachable)])
+			_map_last_click = Vector2(previous_target.x, previous_target.z)
+			_map_last_reachable = reachable
+			_map_status = "click=(%.1f, %.1f) reachable=%s  (from previous player)" % [
+				_map_last_click.x, _map_last_click.y, str(reachable)]
+			var coordinate_text := "%.2f, %.2f" % [_map_last_click.x, _map_last_click.y]
+			DisplayServer.clipboard_set(coordinate_text)
+			print("[pathlab] click target=(%.2f, %.2f) reachable=%s coordinate_copied=%s" % [
+				previous_target.x, previous_target.z, str(reachable), coordinate_text])
 			_player.global_position = hit.position + Vector3.UP * 0.1
 			_update_map_camera()
 			_map_status_clock = 0.0
@@ -614,7 +667,12 @@ func _update_map_status() -> void:
 		nearest = minf(nearest, distance)
 		if distance <= 4.0:
 			near += 1
-	var text := "near4=%d nearest=%.1f" % [near, nearest]
+	var text := "player=(%.1f, %.1f) y=%.2f  near4=%d nearest=%.1f" % [
+		_player.global_position.x, _player.global_position.z,
+		_player.global_position.y, near, nearest]
+	if _map_last_click.x != INF:
+		text += "  click=(%.1f, %.1f) reachable=%s" % [
+			_map_last_click.x, _map_last_click.y, str(_map_last_reachable)]
 	if _map_status != text:
 		_map_status = text
 		_update_hint()
