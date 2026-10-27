@@ -866,6 +866,22 @@ func units() -> int:
 	return count
 
 
+func is_surface_ready() -> bool:
+	return _surface_ready
+
+
+func body_offset() -> float:
+	return BODY_OFFSET
+
+
+func live_positions() -> Array[Vector3]:
+	var result: Array[Vector3] = []
+	for index in count:
+		if _alive[index] != 0:
+			result.append(_positions[index])
+	return result
+
+
 func reset_stats() -> void:
 	total_attacks = 0
 	hits_taken = 0
