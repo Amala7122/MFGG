@@ -1,0 +1,99 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/preview/preview_walker.gd" id="1_um21r"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_7gkd6"]
+radius = 0.33
+height = 1.78
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_w6kn1"]
+content_margin_left = 14.0
+content_margin_top = 12.0
+content_margin_right = 14.0
+content_margin_bottom = 12.0
+bg_color = Color(0.015, 0.02, 0.025, 0.84)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.48, 0.54, 0.6, 0.55)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[node name="PreviewWalker" type="CharacterBody3D" unique_id=2143956979]
+script = ExtResource("1_um21r")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=171766750]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.89, 0)
+shape = SubResource("CapsuleShape3D_7gkd6")
+
+[node name="Head" type="Node3D" parent="." unique_id=931425379]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.62, 0)
+
+[node name="Camera3D" type="Camera3D" parent="Head" unique_id=1029047758]
+current = true
+fov = 76.0
+near = 0.04
+far = 2200.0
+
+[node name="UI" type="CanvasLayer" parent="." unique_id=805189675]
+layer = 10
+
+[node name="Root" type="Control" parent="UI" unique_id=1047540120]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="Panel" type="PanelContainer" parent="UI/Root" unique_id=741269554]
+custom_minimum_size = Vector2(420, 0)
+layout_mode = 0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = 16.0
+offset_bottom = 16.0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_w6kn1")
+
+[node name="Margin" type="MarginContainer" parent="UI/Root/Panel" unique_id=526494208]
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="UI/Root/Panel/Margin" unique_id=1527017968]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Title" type="Label" parent="UI/Root/Panel/Margin/VBox" unique_id=1514873389]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.88, 0.91, 0.94, 1)
+theme_override_font_sizes/font_size = 17
+text = "圣所回廊 · 编辑器预览"
+
+[node name="Controls" type="Label" parent="UI/Root/Panel/Margin/VBox" unique_id=3302429]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.72, 0.77, 0.82, 1)
+theme_override_font_sizes/font_size = 13
+text = "WASD 移动 · Shift 冲刺 · 空格 跳
+左键锁定视角 · Esc 释放 · R 回到起点"
+autowrap_mode = 3
+
+[node name="Hint" type="Label" parent="UI/Root/Panel/Margin/VBox" unique_id=2124704820]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.52, 0.78, 0.92, 1)
+theme_override_font_sizes/font_size = 12
+text = "点击画面锁定视角"
+
+[node name="Crosshair" type="ColorRect" parent="UI/Root" unique_id=1274603589]
+layout_mode = 0
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -2.0
+offset_top = -2.0
+offset_right = 2.0
+offset_bottom = 2.0
+mouse_filter = 2
+color = Color(0.86, 0.92, 1, 0.68)

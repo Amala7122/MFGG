@@ -4,7 +4,8 @@ extends SceneTree
 ## of the manual PathLab click loop.
 const MainScene := preload("res://scenes/sanctum_main.tscn")
 const Fodder := preload("res://scripts/prototypes/fodder_field.gd")
-const Profile := preload("res://scripts/prototypes/movement_profile.gd")
+const NavDataset := preload("res://scripts/navigation/nav_dataset.gd")
+const NAV_PATH := "res://data/navigation/sanctum_nav.json"
 const Terrain := preload("res://scripts/terrain_field.gd")
 
 const POINTS := [
@@ -24,7 +25,9 @@ const POINTS := [
 	Vector2(0, 60),
 	Vector2(0, -60),
 ]
-const WAIT_FRAMES := 240
+## 0.76m 身体 + 1.7m 分离：人群收敛比 0.42m 时代慢，4 秒窗口对紧凑街区不够；
+## 用 5 秒仍保持“至少 5/100 进入 4m”的原门槛，不降低通过标准。
+const WAIT_FRAMES := 300
 const MIN_NEAR := 5
 
 var _failures := 0
@@ -78,12 +81,14 @@ func _run() -> void:
 	for _frame in 2:
 		await process_frame
 
+	var nav := NavDataset.load_file(NAV_PATH)
+	var profile := NavDataset.load_profile(nav)
 	for point in POINTS:
 		var field := Fodder.new()
 		field.top_level = true
 		scene.add_child(field)
 		player.global_position = Vector3(point.x, Terrain.height_at(point.x, point.y) + 0.2, point.y)
-		field.setup(player, null, 100, player.global_position, Profile.new())
+		field.setup(player, null, 100, player.global_position, profile, nav)
 		for _frame in WAIT_FRAMES:
 			await physics_frame
 		var near := 0

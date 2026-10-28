@@ -4,7 +4,7 @@
 
 ## 哪个台子在哪（先看这张表）
 
-当前共有 **12 个可直接 F6 运行的有效入口**。统计不包含 `enemy_prototypes/` 与
+当前共有 **13 个可直接 F6 运行的有效入口**。统计不包含 `enemy_prototypes/` 与
 `visual_lab/` 里的被加载子场景、`spatial_lab/` 的场景零件、`legacy/` 旧原型，也不把
 根目录历史转发壳 `combat_lab.tscn` 重复计数。
 
@@ -22,6 +22,7 @@
 | `spatial_lab/` | `capability_lab.tscn` | 空间能力：跳障、浅坑返程 / 深坑拒绝、破障、墙顶接战 |
 | `combat_lab/` | `combat_lab.tscn` | **主战斗实验场**：120×90 米大空场、图鉴全兵种、七种程序化敌人、参数面板、循环战斗与统计；六小怪已进入圣所主场景，此处仍可单种/混编观察调参 |
 | `visual_lab/` | `enemy_visual_lab.tscn` | **敌人视觉实验场**：外形 / 剪影 / 姿态（泥土傀儡、沉积泰坦及尚未正式投放的新外形；大型盾卫已按要求撤出） |
+| **`sanctum_arena/`** ★场景试作 | `sanctum_arena.tscn` | **新圣所关卡试作**：南门、下沉庭院、上层回廊、内门与中殿高坛；编辑器优先的静态几何，无战斗，F6 步行预览；[说明](sanctum_arena/README.md) |
 | `painterly_lab/` | `painterly_style_lab.tscn` | 绘画风格实验（材质、描边、天空） |
 | `weather_lab/` | `weather_lab.tscn`、`sanctum_sky3d_experiment.tscn` | 天气与环境 / 天空 |
 | `enemy_prototypes/` | —（被上面几个台子 `preload`） | 七种程序化敌人战斗场景：泥傀儡 / 沉积泰坦 / 迅捷晶兽 / 晶刺蜂 / 爆囊爬兽 / 棱眼蛛 / 裂甲兜虫 |
@@ -51,6 +52,7 @@ prototypes/
 ├─ visual_lab/           纯视觉观察台：造型、轮廓、材质、姿态
 ├─ painterly_lab/        绘画风格实验（材质 / 描边 / 天空）
 ├─ weather_lab/          天空、天气、环境等隔离实验场
+├─ sanctum_arena/        新圣所关卡试作（编辑器优先、无战斗、F6 步行预览）
 ├─ enemy_prototypes/     七种程序化敌人场景（被上面几个台子共用）
 ├─ README.md             本文件（含"哪个台子在哪"索引表）
 ├─ STATUS.md             原型生命周期登记

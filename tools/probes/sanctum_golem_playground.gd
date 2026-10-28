@@ -8,6 +8,8 @@ const Creatures := preload("res://scripts/enemies/creature_catalog.gd")
 const Terrain := preload("res://scripts/terrain_field.gd")
 const Golem := preload("res://scripts/prototypes/procedural_mud_golem.gd")
 const FlowFieldScript := preload("res://scripts/flow_field.gd")
+const NavData := preload("res://scripts/navigation/nav_dataset.gd")
+const NAV_PATH := "res://data/navigation/sanctum_nav.json"
 const FodderFieldScript := preload("res://scripts/prototypes/fodder_field.gd")
 const MovementProfileScript := preload("res://scripts/prototypes/movement_profile.gd")
 const CombatFX := preload("res://scripts/combat_fx.gd")
@@ -34,6 +36,7 @@ var _hint_label: Label
 var _last_profile_msec := 0
 var _flow
 var _flow_build_ms := 0.0
+var _nav: Dictionary = {}
 var _last_flow_msec := 0
 var _last_flow_pos := Vector3.ZERO
 var _autoplay := false
@@ -55,6 +58,7 @@ var _fodder_ignore_terrain := false
 var _fodder_step := 0.7
 var _fodder_slope := 40.0
 var _fodder_flow_debug := false
+var _fodder_spread_mode := 2
 var _map_click := false
 var _map_camera: Camera3D
 var _map_click_latched := false
@@ -115,6 +119,10 @@ func _initialize() -> void:
 			_fodder_slope = float(arg.trim_prefix("--fodder-slope="))
 		elif arg == "--fodder-flow-debug=on":
 			_fodder_flow_debug = true
+		elif arg == "--spread=on":
+			_fodder_spread_mode = 1
+		elif arg == "--spread=slots":
+			_fodder_spread_mode = 2
 		elif arg == "--map-click=on":
 			_map_click = true
 		elif arg == "--map-sweep=on":
@@ -192,7 +200,10 @@ func _run() -> void:
 	await _clear_enemies()
 	_apply_scene_ablations()
 	if not _fodder:
+		var nav := _nav_data()
 		_flow = FlowFieldScript.new()
+		_flow.configure(nav.flow, float(nav.grid.half_extent))
+		_flow.set_height_profile(null, NavData.load_profile(nav))
 		_flow.rebuild(_player.global_position)
 		_flow_build_ms = _flow.rebuild_usec / 1000.0
 		Golem.flow_field = _flow
@@ -204,10 +215,11 @@ func _run() -> void:
 		_fodder_field = FodderFieldScript.new()
 		_fodder_field.top_level = true
 		_scene.add_child(_fodder_field)
-		_fodder_field.setup(_player, null, _count, _player.global_position, _make_fodder_profile())
+		_fodder_field.setup(_player, null, _count, _player.global_position, _make_fodder_profile(), _nav_data())
 		if _fodder_flow_debug:
 			_fodder_field.toggle_flow_debug()
-		print("[fodder] units=%d" % _fodder_field.units())
+		_fodder_field.set_spread_mode(_fodder_spread_mode)
+		print("[fodder] units=%d spread=%d" % [_fodder_field.units(), _fodder_spread_mode])
 	else:
 		await _spawn_golems()
 	if _pause_batch:
@@ -322,8 +334,17 @@ func _clear_enemies() -> void:
 		await process_frame
 
 
+func _nav_data() -> Dictionary:
+	if _nav.is_empty():
+		_nav = NavData.load_file(NAV_PATH)
+	return _nav
+
+
 func _make_fodder_profile():
-	var profile := MovementProfileScript.new()
+	var profile = NavData.load_profile(_nav_data())
+	if profile == null:
+		return null
+	profile = profile.duplicate()
 	profile.id = "spider_test" if _fodder_ignore_terrain else "mud_golem"
 	profile.step_height = _fodder_step
 	profile.max_slope_deg = _fodder_slope
@@ -352,10 +373,12 @@ func _restart() -> void:
 		_fodder_field = FodderFieldScript.new()
 		_fodder_field.top_level = true
 		_scene.add_child(_fodder_field)
-		_fodder_field.setup(_player, _flow, _count, _player.global_position, _make_fodder_profile())
+		_fodder_field.setup(_player, _flow, _count, _player.global_position, _make_fodder_profile(), _nav_data())
 		if _fodder_flow_debug:
 			_fodder_field.toggle_flow_debug()
-		print("[fodder] restart units=%d" % _fodder_field.units())
+		_fodder_field.set_spread_mode(_fodder_spread_mode)
+		print("[fodder] restart units=%d spread=%d" % [
+			_fodder_field.units(), _fodder_spread_mode])
 	else:
 		await _spawn_golems()
 	_started_msec = Time.get_ticks_msec()
@@ -474,6 +497,18 @@ func _tick() -> void:
 		_update_hint()
 	if _pressed_once(KEY_F7):
 		_save_manual_shot()
+	if _pressed_once(KEY_F8):
+		if _fodder_field != null:
+			_fodder_field.queue_pacing = not _fodder_field.queue_pacing
+			print("[fodder] queue_pacing=%s（门洞/接战让行实验，默认关）"
+				% str(_fodder_field.queue_pacing))
+		_update_hint()
+	if _pressed_once(KEY_F9):
+		if _fodder_field != null:
+			_fodder_spread_mode = (_fodder_spread_mode + 1) % 3
+			_fodder_field.set_spread_mode(_fodder_spread_mode)
+			print("[fodder] spread_mode=%d（0=关 1=摊开 2=站位）" % _fodder_spread_mode)
+		_update_hint()
 	if not _shot_done and _shot_path != "" \
 			and (Time.get_ticks_msec() - _started_msec) / 1000.0 >= _shot_at:
 		_shot_done = true
@@ -509,11 +544,13 @@ func _log_profile() -> void:
 	var now := Time.get_ticks_msec()
 	var seconds := maxf((now - _last_profile_msec) / 1000.0, 0.001)
 	if _fodder_field != null:
-		print("[fodder] units=%d alive=%d active=%d attacks=%d hits=%d kills=%d rays=%d resolve=%d inside=%d under=%d unstuck=%d surface_ms=%.1f fps=%.1f process_ms=%.1f physics_ms=%.1f draw=%d prim=%d nodes=%d" % [
+		print("[fodder] units=%d alive=%d active=%d attacks=%d hits=%d kills=%d rays=%d resolve=%d inside=%d blocked=%d stalled=%d stepup=%d spawn_move=%d unstuck=%d surface_ms=%.1f fps=%.1f process_ms=%.1f physics_ms=%.1f draw=%d prim=%d nodes=%d" % [
 			_fodder_field.units(), _fodder_field.alive_count, _fodder_field.active_attackers,
 			_fodder_field.total_attacks, _fodder_field.hits_taken, _fodder_field.kills,
 			_fodder_field.ray_queries, _fodder_field.resolve_hits, _fodder_field.resolve_inside,
-			_fodder_field.under_platform, _fodder_field.unstuck_count, _fodder_field.surface_build_ms,
+			_fodder_field.blocked_hits, _fodder_field.stalled_units, _fodder_field.step_up_count,
+			_fodder_field.spawn_relocations, _fodder_field.unstuck_count,
+			_fodder_field.surface_build_ms,
 			Engine.get_frames_per_second(),
 			Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
 			Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
@@ -772,7 +809,8 @@ func _set_fodder_count(value: int) -> void:
 	_fodder_field = FodderFieldScript.new()
 	_fodder_field.top_level = true
 	_scene.add_child(_fodder_field)
-	_fodder_field.setup(_player, null, _count, _player.global_position, _make_fodder_profile())
+	_fodder_field.setup(_player, null, _count, _player.global_position, _make_fodder_profile(), _nav_data())
+	_fodder_field.set_spread_mode(_fodder_spread_mode)
 	_started_msec = Time.get_ticks_msec()
 	_restarting = false
 	print("[pathlab] fodder_count=%d" % _count)
@@ -783,7 +821,7 @@ func _add_hint() -> void:
 	var layer := CanvasLayer.new()
 	layer.name = "PlaygroundHint"
 	_hint_label = Label.new()
-	_hint_label.add_theme_font_size_override("font_size", 16)
+	_hint_label.add_theme_font_size_override("font_size", 12)
 	_hint_label.position = Vector2(24, 24)
 	_hint_label.modulate = Color(0.95, 0.92, 0.82, 0.9)
 	layer.add_child(_hint_label)
@@ -794,13 +832,13 @@ func _add_hint() -> void:
 func _update_hint() -> void:
 	if _hint_label == null:
 		return
-	_hint_label.text = ("正式圣所 · %d 只%s · 无敌：%s · 物理步数上限 %d\n"
-		+ "R 重开 · F10 退出\n"
-		+ ("左键点地图传送 · 右键拖动旋转 · 滚轮缩放 · " if _map_click else "")
-		+ "F1 AI：%s · F2 冻结：%s · F3 阴影：%s · F4 天气粒子：%s · F5 后处理：%s · F6 流场：%s · F7 截图"
+	var spread_names := ["关", "摊开", "站位"]
+	_hint_label.text = ("%d 只%s · 无敌:%s · 步≤%d · R 重开 · F10 退出\n"
+		+ "F1 AI:%s  F2 冻结:%s  F3 影:%s  F4 天气:%s  F5 后:%s\n"
+		+ "F6 流场:%s  F7 截图  F8 让行:%s  F9 铺开:%s"
 		+ ("\n" + _map_status if _map_click else "")) % [
 		_count,
-		"Fodder 数据场" if _fodder else "泥土傀儡",
+		"Fodder" if _fodder else "泥偶",
 		"开" if _invincible else "关",
 		_max_physics_steps,
 		"开" if _ai_on else "关",
@@ -808,4 +846,6 @@ func _update_hint() -> void:
 		"开" if _shadows_on else "关",
 		"开" if _weather_on else "关",
 		"开" if _post_on else "关",
-		"开" if _fodder_field != null and _fodder_field._flow_debug else "关"]
+		"开" if _fodder_field != null and _fodder_field._flow_debug else "关",
+		"开" if _fodder_field != null and _fodder_field.queue_pacing else "关",
+		spread_names[clampi(_fodder_spread_mode, 0, 2)]]

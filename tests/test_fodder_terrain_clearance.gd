@@ -4,8 +4,8 @@ extends SceneTree
 ## every physics frame. Any slope/rock/platform is covered by the same invariant.
 const MainScene := preload("res://scenes/sanctum_main.tscn")
 const Fodder := preload("res://scripts/prototypes/fodder_field.gd")
-const FlowScript := preload("res://scripts/flow_field.gd")
-const Profile := preload("res://scripts/prototypes/movement_profile.gd")
+const NavDataset := preload("res://scripts/navigation/nav_dataset.gd")
+const NAV_PATH := "res://data/navigation/sanctum_nav.json"
 const Terrain := preload("res://scripts/terrain_field.gd")
 
 const SAMPLES := 48
@@ -65,14 +65,13 @@ func _run() -> void:
 	for _frame in 2:
 		await process_frame
 
-	var flow := FlowScript.new()
-	flow.rebuild(player.global_position)
+	var nav := NavDataset.load_file(NAV_PATH)
 	var field := Fodder.new()
 	field.top_level = true
 	scene.add_child(field)
-	var profile := Profile.new()
+	var profile = NavDataset.load_profile(nav).duplicate()
 	profile.id = "clearance_probe"
-	field.setup(player, flow, 100, player.global_position, profile)
+	field.setup(player, null, 100, player.global_position, profile, nav)
 	for _frame in 240:
 		await physics_frame
 		if field.is_surface_ready():

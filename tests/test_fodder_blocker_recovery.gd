@@ -2,7 +2,8 @@ extends SceneTree
 ## Regression: units spawned/pushed into a body-blocked rock cell must be moved out.
 const MainScene := preload("res://scenes/sanctum_main.tscn")
 const Fodder := preload("res://scripts/prototypes/fodder_field.gd")
-const Profile := preload("res://scripts/prototypes/movement_profile.gd")
+const NavDataset := preload("res://scripts/navigation/nav_dataset.gd")
+const NAV_PATH := "res://data/navigation/sanctum_nav.json"
 const Terrain := preload("res://scripts/terrain_field.gd")
 const POINT := Vector2(67, 38)
 
@@ -60,7 +61,8 @@ func _run() -> void:
 	var field := Fodder.new()
 	field.top_level = true
 	scene.add_child(field)
-	field.setup(player, null, 100, player.global_position, Profile.new())
+	var nav := NavDataset.load_file(NAV_PATH)
+	field.setup(player, null, 100, player.global_position, NavDataset.load_profile(nav), nav)
 	for _frame in 120:
 		await physics_frame
 	var blocked := 0

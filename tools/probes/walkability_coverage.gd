@@ -1,9 +1,11 @@
-﻿extends SceneTree
+extends SceneTree
 ## Static coverage audit for the baked 1m walkability grid.
 const Walkability := preload("res://scripts/navigation/walkability_grid.gd")
 const Terrain := preload("res://scripts/terrain_field.gd")
-const PATH := "res://data/navigation/sanctum_walkability.json"
-const STEP := 0.7
+const NavDataset := preload("res://scripts/navigation/nav_dataset.gd")
+const NAV_PATH := "res://data/navigation/sanctum_nav.json"
+
+var _step_limit := 0.0
 
 
 func _initialize() -> void:
@@ -11,8 +13,11 @@ func _initialize() -> void:
 
 
 func _run() -> void:
+	var nav := NavDataset.load_file(NAV_PATH)
+	var profile = NavDataset.load_profile(nav)
+	_step_limit = float(profile.step_height)
 	var grid := Walkability.new()
-	if not grid.load_json(PATH):
+	if not grid.load_json(String(nav["walkability"])):
 		print("[coverage] load failed")
 		quit(1)
 		return
@@ -103,7 +108,7 @@ func _edge_ok(grid, ix: int, iz: int, nx: int, nz: int) -> bool:
 	for step in range(1, steps + 1):
 		var t := float(step) / float(steps)
 		var h := Terrain.height_at(lerpf(ax, bx, t), lerpf(az, bz, t))
-		if absf(h - previous) > STEP + 0.02:
+		if absf(h - previous) > _step_limit + 0.02:
 			return false
 		previous = h
 	return true

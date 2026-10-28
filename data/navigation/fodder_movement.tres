@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="MovementProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/prototypes/movement_profile.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = "mud_golem"
+step_height = 0.7
+max_slope_deg = 40.0
+ignore_terrain = false
+avoid_step = 1.0
+radius = 0.76
+body_height = 1.6
+foot_clearance = 0.05
+sweep_lift = 0.22
+step_probe = 0.6
+step_lookahead = 0.9
+support_reach = 2.2
+separation_radius = 1.7
+separation_strength = 1.1

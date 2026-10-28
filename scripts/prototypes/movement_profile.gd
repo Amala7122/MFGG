@@ -13,13 +13,19 @@ extends Resource
 @export var can_jump := false
 @export var jump_height := 0.0
 @export var can_fly := false
-@export var radius := 0.42
-
-
-func flow_edge_limit(cell_size: float) -> float:
-	if ignore_terrain:
-		return INF
-	return maxf(step_height, tan(deg_to_rad(max_slope_deg)) * cell_size)
+@export var radius := 0.76
+## 碰撞胶囊高度与脚底净空；运行时中心由 foot_clearance + body_height/2 推出。
+@export var body_height := 1.6
+@export var foot_clearance := 0.05
+## 扫掠胶囊抬升：烘焙与运行时共用；0.76m 半径 / 40° 坡取 0.22。
+@export var sweep_lift := 0.22
+## 台阶探测距离与支撑下探距离（米）。
+@export var step_probe := 0.6
+@export var step_lookahead := 0.9
+@export var support_reach := 2.2
+## 人群分离：半径必须大于身体直径（0.76×2=1.52），强度是转向权重。
+@export var separation_radius := 1.7
+@export var separation_strength := 1.1
 
 
 func allows_step(height_delta: float) -> bool:

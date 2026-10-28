@@ -179,7 +179,7 @@ static var ai_stride := 2
 ## 实验：保留 CharacterBody/碰撞，表现层改成单合并网格 + GPU 四肢。
 static var fodder_visual := false
 ## 共享流场：非空时，>8m 的移动只读流场方向，不再进入各自的战术规划。
-static var flow_field: RefCounted
+static var flow_field: FlowField
 static var flow_min_distance := 3.5
 ## 低于这个距离恢复完整碰撞；8m 内保留物理，8m 外纯流场贴地。
 static var flow_cheap_distance := 8.0
@@ -251,7 +251,7 @@ func _ai_physics(delta: float) -> void:
 		var flow_offset := target.global_position - global_position
 		flow_offset.y = 0.0
 		if flow_offset.length() > flow_min_distance:
-			var flow_direction: Vector3 = flow_field.call("direction_at", global_position)
+			var flow_direction: Vector3 = flow_field.direction_at(global_position)
 			if flow_direction.length_squared() > 0.001:
 				var flow_distance := flow_offset.length()
 				var approach := clampf((flow_distance - flow_min_distance) / 14.0, 0.0, 1.0)

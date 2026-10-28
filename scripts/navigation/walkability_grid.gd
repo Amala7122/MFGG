@@ -4,10 +4,13 @@ extends RefCounted
 ## 与 SurfaceGrid 的区别：这个对象可以被序列化，不再每次启动重新打射线。
 
 const Terrain := preload("res://scripts/terrain_field.gd")
-const FORMAT_VERSION := 1
+const FORMAT_VERSION := 2
+const SQRT2 := 1.41421356
+const CLEARANCE_CAP := 1.0e20
 
-var cell_size := 1.0
-var half_extent := 60.0
+## 网格参数由 data/navigation/*.json 的 grid 段给出；不在这里写地图默认值。
+var cell_size := 0.0
+var half_extent := 0.0
 var n := 0
 var origin := Vector2.ZERO
 var heights := PackedFloat32Array()
@@ -19,9 +22,41 @@ var clearance := PackedFloat32Array()
 var ready := false
 var build_usec := 0
 var hit_count := 0
+## 烘焙身体尺寸：必须与运行时胶囊一致，否则“格上能走、身体过不去”。
+## 半径/高度/净空/抬升来自 MovementProfile（见 data/navigation/fodder_movement.tres）。
+var body_radius := 0.0
+var body_height := 0.0
+var body_clearance := 0.0
+var body_lift := 0.0
+## 上下射线范围：地图高度尺度，来自 nav.grid，不再写死 200/-100。
+var ray_top := 0.0
+var ray_bottom := 0.0
+var walk_ray_above := 0.0
+var walk_ray_below := 0.0
+var _body_shape: CapsuleShape3D
+var _body_query: PhysicsShapeQueryParameters3D
+
+
+func configure_body(profile: MovementProfile) -> void:
+	body_radius = profile.radius
+	body_height = profile.body_height
+	body_clearance = profile.foot_clearance
+	body_lift = profile.sweep_lift
+	_body_shape = null
+
+
+func configure_rays(grid: Dictionary) -> void:
+	ray_top = float(grid["ray_top"])
+	ray_bottom = float(grid["ray_bottom"])
+	walk_ray_above = float(grid["walk_ray_above"])
+	walk_ray_below = float(grid["walk_ray_below"])
 
 
 func build(world: World3D, center: Vector2, extent: float, cell := 1.0) -> void:
+	if body_radius <= 0.0 or body_height <= 0.0 or ray_top <= ray_bottom \
+			or walk_ray_above <= 0.0 or walk_ray_below <= 0.0:
+		push_error("WalkabilityGrid 未配置身体/射线范围（configure_body + configure_rays）")
+		return
 	cell_size = maxf(cell, 0.5)
 	half_extent = extent
 	n = int(round(extent * 2.0 / cell_size)) + 1
@@ -40,19 +75,19 @@ func build(world: World3D, center: Vector2, extent: float, cell := 1.0) -> void:
 			var x := origin.x + float(ix) * cell_size
 			var z := origin.y + float(iz) * cell_size
 			var query := PhysicsRayQueryParameters3D.create(
-				Vector3(x, 200.0, z), Vector3(x, -100.0, z), 1)
+				Vector3(x, ray_top, z), Vector3(x, ray_bottom, z), 1)
 			var hit := space.intersect_ray(query)
 			var index := iz * n + ix
 			terrain_heights[index] = Terrain.height_at(x, z)
 			var walk_query := PhysicsRayQueryParameters3D.create(
-				Vector3(x, terrain_heights[index] + 2.0, z),
-				Vector3(x, terrain_heights[index] - 1.0, z), 1)
+				Vector3(x, terrain_heights[index] + walk_ray_above, z),
+				Vector3(x, terrain_heights[index] - walk_ray_below, z), 1)
 			var walk_hit := space.intersect_ray(walk_query)
 			if walk_hit.is_empty():
 				walk_heights[index] = terrain_heights[index]
 			else:
 				walk_heights[index] = float(walk_hit.position.y)
-			blocked[index] = 1 if _body_blocked(space, x, z, terrain_heights[index]) else 0
+			blocked[index] = 1 if _body_blocked(space, x, z, walk_heights[index]) else 0
 			if hit.is_empty():
 				heights[index] = terrain_heights[index]
 				hits[index] = 0
@@ -68,8 +103,8 @@ func build(world: World3D, center: Vector2, extent: float, cell := 1.0) -> void:
 func _compute_clearance() -> void:
 	clearance.resize(n * n)
 	for index in n * n:
-		clearance[index] = 0.0 if blocked[index] != 0 else 1.0e20
-	var diagonal := 1.41421356
+		clearance[index] = 0.0 if blocked[index] != 0 else CLEARANCE_CAP
+	var diagonal := SQRT2
 	for iz in range(1, n):
 		for ix in range(1, n):
 			var index := iz * n + ix
@@ -87,7 +122,7 @@ func _compute_clearance() -> void:
 			clearance[index] = minf(clearance[index], clearance[index + n] + 1.0)
 			clearance[index] = minf(clearance[index], clearance[index + 1] + 1.0)
 	for index in n * n:
-		clearance[index] = minf(clearance[index], 1.0e20) * cell_size
+		clearance[index] = minf(clearance[index], CLEARANCE_CAP) * cell_size
 
 
 func rebake_region(world: World3D, center: Vector2, radius: float) -> int:
@@ -105,16 +140,16 @@ func rebake_region(world: World3D, center: Vector2, radius: float) -> int:
 			var z := origin.y + float(iz) * cell_size
 			var index := iz * n + ix
 			var query := PhysicsRayQueryParameters3D.create(
-				Vector3(x, 200.0, z), Vector3(x, -100.0, z), 1)
+				Vector3(x, ray_top, z), Vector3(x, ray_bottom, z), 1)
 			var hit := space.intersect_ray(query)
 			var was_hit := hits[index] != 0
 			terrain_heights[index] = Terrain.height_at(x, z)
 			var walk_query := PhysicsRayQueryParameters3D.create(
-				Vector3(x, terrain_heights[index] + 2.0, z),
-				Vector3(x, terrain_heights[index] - 1.0, z), 1)
+				Vector3(x, terrain_heights[index] + walk_ray_above, z),
+				Vector3(x, terrain_heights[index] - walk_ray_below, z), 1)
 			var walk_hit := space.intersect_ray(walk_query)
 			walk_heights[index] = float(walk_hit.position.y) if not walk_hit.is_empty() else terrain_heights[index]
-			blocked[index] = 1 if _body_blocked(space, x, z, terrain_heights[index]) else 0
+			blocked[index] = 1 if _body_blocked(space, x, z, walk_heights[index]) else 0
 			if hit.is_empty():
 				heights[index] = terrain_heights[index]
 				hits[index] = 0
@@ -131,17 +166,34 @@ func rebake_region(world: World3D, center: Vector2, radius: float) -> int:
 	return touched
 
 
-func _body_blocked(space: PhysicsDirectSpaceState3D, x: float, z: float, terrain: float) -> bool:
-	var query := PhysicsPointQueryParameters3D.new()
-	query.collision_mask = 1
-	query.collide_with_areas = false
-	query.collide_with_bodies = true
-	for offset in [Vector2.ZERO, Vector2(0.32, 0.0), Vector2(-0.32, 0.0),
-			Vector2(0.0, 0.32), Vector2(0.0, -0.32)]:
-		query.position = Vector3(x + offset.x, terrain + 0.9, z + offset.y)
-		if not space.intersect_point(query, 1).is_empty():
+## 身体是否塞不进这个格子：用与运行时一致的胶囊，在格心与四边中点各试一次。
+## 只看格心会把“物理上能过、但可走中心线落在格边”的 2m 开口误判成死路；
+## 只做点探针又会漏掉身体宽度。位置采样取 5 点，是 1m 格与窄开口之间的折中。
+func _body_blocked(space: PhysicsDirectSpaceState3D, x: float, z: float, feet: float) -> bool:
+	_ensure_body_shape()
+	var center_y := feet + body_clearance + body_lift + body_height * 0.5
+	var half := cell_size * 0.5
+	for offset in [Vector2.ZERO, Vector2(half, 0.0), Vector2(-half, 0.0),
+			Vector2(0.0, half), Vector2(0.0, -half)]:
+		_body_query.transform = Transform3D(Basis(),
+			Vector3(x + offset.x, center_y, z + offset.y))
+		if not space.intersect_shape(_body_query, 1).is_empty():
 			return true
 	return false
+
+
+func _ensure_body_shape() -> void:
+	if _body_shape != null and is_equal_approx(_body_shape.radius, body_radius) \
+			and is_equal_approx(_body_shape.height, body_height):
+		return
+	_body_shape = CapsuleShape3D.new()
+	_body_shape.radius = body_radius
+	_body_shape.height = maxf(body_height, body_radius * 2.0)
+	_body_query = PhysicsShapeQueryParameters3D.new()
+	_body_query.shape = _body_shape
+	_body_query.collision_mask = 1
+	_body_query.collide_with_areas = false
+	_body_query.collide_with_bodies = true
 
 
 func height_at(x: float, z: float) -> float:
@@ -158,6 +210,18 @@ func nav_height_at(x: float, z: float) -> float:
 	var ix := clampi(int(round((x - origin.x) / cell_size)), 0, n - 1)
 	var iz := clampi(int(round((z - origin.y) / cell_size)), 0, n - 1)
 	return walk_heights[iz * n + ix]
+
+
+## 廉价层地面高度：取行走面与解析地形的较高者。
+## 1m 网格在微地形上可能比解析地形低约 0.1m，直接贴 nav_height 会让脚陷进去；
+## 这个访问器不额外发物理查询（0.8µs），只多读一个数组。
+func ground_height_at(x: float, z: float) -> float:
+	if not ready or n <= 0:
+		return Terrain.height_at(x, z)
+	var ix := clampi(int(round((x - origin.x) / cell_size)), 0, n - 1)
+	var iz := clampi(int(round((z - origin.y) / cell_size)), 0, n - 1)
+	var index := iz * n + ix
+	return maxf(walk_heights[index], terrain_heights[index])
 
 
 func clearance_at(x: float, z: float) -> float:
@@ -247,6 +311,14 @@ func to_dict() -> Dictionary:
 		"n": n,
 		"origin_x": origin.x,
 		"origin_z": origin.y,
+		"body_radius": body_radius,
+		"body_height": body_height,
+		"body_clearance": body_clearance,
+		"body_lift": body_lift,
+		"ray_top": ray_top,
+		"ray_bottom": ray_bottom,
+		"walk_ray_above": walk_ray_above,
+		"walk_ray_below": walk_ray_below,
 		"heights": Array(heights),
 		"terrain_heights": Array(terrain_heights),
 		"walk_heights": Array(walk_heights),
@@ -261,8 +333,26 @@ func to_dict() -> Dictionary:
 func from_dict(data: Dictionary) -> bool:
 	if int(data.get("format", 0)) != FORMAT_VERSION:
 		return false
-	cell_size = float(data.get("cell_size", 1.0))
-	half_extent = float(data.get("half_extent", 60.0))
+	for key in ["cell_size", "half_extent", "body_radius", "body_height",
+			"body_clearance", "body_lift", "ray_top", "ray_bottom",
+			"walk_ray_above", "walk_ray_below"]:
+		if not data.has(key):
+			push_error("walkability 数据缺少 %s（需重烘焙）" % key)
+			return false
+	cell_size = float(data["cell_size"])
+	half_extent = float(data["half_extent"])
+	body_radius = float(data["body_radius"])
+	body_height = float(data["body_height"])
+	body_clearance = float(data["body_clearance"])
+	body_lift = float(data["body_lift"])
+	ray_top = float(data["ray_top"])
+	ray_bottom = float(data["ray_bottom"])
+	walk_ray_above = float(data["walk_ray_above"])
+	walk_ray_below = float(data["walk_ray_below"])
+	if cell_size <= 0.0 or half_extent <= 0.0 or body_radius <= 0.0 \
+			or body_height < body_radius * 2.0 - 0.001 or ray_top <= ray_bottom:
+		push_error("walkability 数据参数无效（cell/half/body/ray）")
+		return false
 	n = int(data.get("n", 0))
 	if n <= 0:
 		return false
