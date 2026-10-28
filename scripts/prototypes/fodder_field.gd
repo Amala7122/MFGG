@@ -91,6 +91,7 @@ var _stuck_clock := 0.0
 var _stuck_count := PackedByteArray()
 var _attack_los_cache := PackedByteArray()
 var _snapshot_positions := PackedVector3Array()
+var _attack_wait := PackedFloat32Array()
 
 var _multimesh: MultiMesh
 var _multimesh_instance: MultiMeshInstance3D
@@ -149,6 +150,7 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 	_stuck_count.resize(count)
 	_attack_los_cache.resize(count)
 	_snapshot_positions.resize(count)
+	_attack_wait.resize(count)
 	_build_visuals()
 	alive_count = count
 	for index in count:
@@ -176,6 +178,8 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 		_detour_timer[index] = 0.0
 		_ground_heights[index] = Terrain.height_at(x, z)
 		_last_positions[index] = _positions[index]
+		_stuck_count[index] = 0
+		_attack_wait[index] = 0.0
 	add_to_group("fodder_fields")
 	_resolve_shape = CapsuleShape3D.new()
 	_resolve_shape.radius = RESOLVE_RADIUS
@@ -494,6 +498,27 @@ func _physics_process(delta: float) -> void:
 			continue
 		if _state[index] == STATE_WINDUP or _state[index] == STATE_RECOVER:
 			active += 1
+	var granted := PackedByteArray()
+	granted.resize(count)
+	var candidates: Array[int] = []
+	for index in count:
+		if _alive[index] == 0:
+			continue
+		if _state[index] != STATE_MOVE or _cooldown[index] > 0.0:
+			_attack_wait[index] = 0.0
+			continue
+		var dx := _positions[index].x - attack_point.x
+		var dz := _positions[index].z - attack_point.z
+		if Vector2(dx, dz).length() <= ATTACK_RANGE + 0.5:
+			_attack_wait[index] += delta
+			candidates.append(index)
+		else:
+			_attack_wait[index] = 0.0
+	candidates.sort_custom(func(a: int, b: int) -> bool:
+		return _attack_wait[a] > _attack_wait[b])
+	var available := maxi(0, MAX_ACTIVE_ATTACKERS - active)
+	for candidate_index in mini(available, candidates.size()):
+		granted[candidates[candidate_index]] = 1
 	for index in count:
 		if _alive[index] == 0:
 			continue
@@ -588,11 +613,13 @@ func _physics_process(delta: float) -> void:
 				active = maxi(0, active - 1)
 			continue
 		_cooldown[index] = maxf(0.0, _cooldown[index] - delta)
-		if attack_distance <= ATTACK_RANGE and attack_los and _cooldown[index] <= 0.0 and active < MAX_ACTIVE_ATTACKERS:
+		if attack_distance <= ATTACK_RANGE and attack_los and _cooldown[index] <= 0.0 \
+				and active < MAX_ACTIVE_ATTACKERS and granted[index] != 0:
 			_state[index] = STATE_WINDUP
 			_timer[index] = ATTACK_WINDUP
 			_yaw[index] = atan2(-attack_to.x, -attack_to.z)
 			_move_weight[index] = 0.0
+			_attack_wait[index] = 0.0
 			active += 1
 			continue
 		var direction := Vector3.ZERO
