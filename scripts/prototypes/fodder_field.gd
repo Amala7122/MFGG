@@ -405,6 +405,16 @@ func _physics_process(delta: float) -> void:
 				if _alive[index] == 0:
 					continue
 				var current := _positions[index]
+				if flow != null and not flow.is_reachable(current):
+					var unreachable_target: Vector3 = flow.nearest_reachable(current)
+					if unreachable_target.distance_to(current) > 0.5:
+						_positions[index] = unreachable_target + Vector3.UP * BODY_OFFSET
+						_ground_heights[index] = unreachable_target.y
+						_velocity[index] = Vector3.ZERO
+						_stuck_count[index] = 0
+						unstuck_count += 1
+					_last_positions[index] = _positions[index]
+					continue
 				var moved := current.distance_to(_last_positions[index])
 				var goal_distance := current.distance_to(player.global_position)
 				if _surface.blocked_at(current.x, current.z):
@@ -1034,6 +1044,30 @@ func is_world_reachable(position: Vector3) -> bool:
 
 func is_position_blocked(position: Vector3) -> bool:
 	return _surface != null and _surface.ready and _surface.blocked_at(position.x, position.z)
+
+
+func dump_stuck_units() -> void:
+	var above := 0
+	var unreachable := 0
+	var blocked := 0
+	for index in count:
+		if _alive[index] == 0:
+			continue
+		var p := _positions[index]
+		var terrain := Terrain.height_at(p.x, p.z)
+		var rise := p.y - BODY_OFFSET - terrain
+		var is_blocked: bool = _surface.blocked_at(p.x, p.z)
+		var reachable: bool = flow != null and flow.is_reachable(p)
+		if rise > 0.3:
+			above += 1
+		if not reachable:
+			unreachable += 1
+		if is_blocked:
+			blocked += 1
+		if index < 12:
+			print("[fodder_dump] i=%d pos=(%.1f,%.1f,%.1f) rise=%.2f blocked=%s reachable=%s" % [
+				index, p.x, p.y, p.z, rise, str(is_blocked), str(reachable)])
+	print("[fodder_dump] above03=%d blocked=%d unreachable=%d" % [above, blocked, unreachable])
 
 
 func units() -> int:

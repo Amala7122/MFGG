@@ -70,6 +70,7 @@ var _count_spin: SpinBox
 var _count_layer: CanvasLayer
 var _map_sweep := false
 var _sweep_seconds := 2.5
+var _fodder_dump := false
 var _player_at := Vector2.INF
 var _shot_path := ""
 var _shot_at := 4.0
@@ -118,6 +119,8 @@ func _initialize() -> void:
 			_map_click = true
 		elif arg == "--map-sweep=on":
 			_map_sweep = true
+		elif arg == "--fodder-dump=on":
+			_fodder_dump = true
 		elif arg.begins_with("--sweep-seconds="):
 			_sweep_seconds = maxf(float(arg.trim_prefix("--sweep-seconds=")), 0.5)
 		elif arg.begins_with("--player-at="):
@@ -225,6 +228,12 @@ func _run() -> void:
 		_setup_map_camera()
 	_started = true
 	_started_msec = Time.get_ticks_msec()
+	if _fodder_dump:
+		await create_timer(5.0).timeout
+		if _fodder_field != null:
+			_fodder_field.dump_stuck_units()
+		quit()
+		return
 	if _map_sweep:
 		await _run_map_sweep()
 		quit()
