@@ -86,6 +86,7 @@ var _dirty_centers: Array[Vector2] = []
 var _dirty_clock := 0.0
 var _last_positions := PackedVector3Array()
 var _stuck_clock := 0.0
+var _stuck_count := PackedByteArray()
 
 var _multimesh: MultiMesh
 var _multimesh_instance: MultiMeshInstance3D
@@ -141,6 +142,7 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 	_detour_timer.resize(count)
 	_ground_heights.resize(count)
 	_last_positions.resize(count)
+	_stuck_count.resize(count)
 	_build_visuals()
 	alive_count = count
 	for index in count:
@@ -349,6 +351,26 @@ func _init_surface_flow() -> void:
 		step_height, profile.id, str(profile.ignore_terrain), surface_flow.reachable_cells])
 	_flow_anchor = player.global_position
 	_flow_clock = 0.0
+	_relocate_unreachable_units()
+
+
+func _relocate_unreachable_units() -> void:
+	if flow == null:
+		return
+	for index in count:
+		if _alive[index] == 0:
+			continue
+		var pos := _positions[index]
+		if flow.is_reachable(pos):
+			continue
+		var target: Vector3 = flow.nearest_reachable(pos)
+		if target.distance_to(pos) < 0.5:
+			continue
+		_positions[index] = target + Vector3.UP * BODY_OFFSET
+		_ground_heights[index] = target.y
+		_velocity[index] = Vector3.ZERO
+		_stuck_count[index] = 0
+		unstuck_count += 1
 
 
 func _physics_process(delta: float) -> void:
@@ -383,8 +405,23 @@ func _physics_process(delta: float) -> void:
 				if _alive[index] == 0:
 					continue
 				var current := _positions[index]
+				var moved := current.distance_to(_last_positions[index])
+				var goal_distance := current.distance_to(player.global_position)
 				if _surface.blocked_at(current.x, current.z):
 					_place_out_of_blocker(index)
+					_stuck_count[index] = 0
+				elif moved < 0.1 and goal_distance > ATTACK_RANGE + 1.5:
+					_stuck_count[index] = mini(_stuck_count[index] + 1, 3)
+				else:
+					_stuck_count[index] = 0
+				if _stuck_count[index] >= 2 and flow != null:
+					var target: Vector3 = flow.nearest_reachable(current)
+					if target.distance_to(current) > 0.5:
+						_positions[index] = target + Vector3.UP * BODY_OFFSET
+						_ground_heights[index] = target.y
+						_velocity[index] = Vector3.ZERO
+						_stuck_count[index] = 0
+						unstuck_count += 1
 				_last_positions[index] = _positions[index]
 	if flow != null:
 		flow.poll_rebuild()
