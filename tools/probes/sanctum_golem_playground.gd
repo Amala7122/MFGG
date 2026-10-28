@@ -18,6 +18,8 @@ const PROFILE_PATH := "user://logs/golem_ai_profile.log"
 const SPAWN_RING := [8.0, 10.5, 13.0, 15.5]
 const COUNT := 30
 var _count := 30
+## 精英数量：完整 CharacterBody3D 敌人，和炮灰场同时存在（0 = 只跑炮灰）。
+var _elites := 0
 ## 接入其它敌人：--body=fast_beast 会切到对应的 nav 数据与通行表。
 var _body_id := "mud_golem"
 var _nav_path := NAV_PATH
@@ -158,6 +160,8 @@ func _initialize() -> void:
 			Engine.max_fps = clampi(int(arg.trim_prefix("--max-fps=")), 0, 240)
 		elif arg.begins_with("--count="):
 			_count = clampi(int(arg.trim_prefix("--count=")), 1, 2000)
+		elif arg.begins_with("--elites="):
+			_elites = clampi(int(arg.trim_prefix("--elites=")), 0, 40)
 		elif arg.begins_with("--ai-stride="):
 			Golem.ai_stride = clampi(int(arg.trim_prefix("--ai-stride=")), 1, 4)
 		elif arg.begins_with("--body="):
@@ -235,6 +239,8 @@ func _run() -> void:
 			_fodder_field.toggle_flow_debug()
 		_fodder_field.set_spread_mode(_fodder_spread_mode)
 		print("[fodder] units=%d spread=%d" % [_fodder_field.units(), _fodder_spread_mode])
+		if _elites > 0:
+			await _spawn_elites(_elites)
 	else:
 		await _spawn_golems()
 	if _pause_batch:
@@ -301,6 +307,29 @@ func _spawn_golems() -> void:
 		if (index + 1) % 5 == 0:
 			await process_frame
 	print("[playground] spawned=%d invincible=%s" % [_spawned.size(), _invincible])
+
+
+## 精英：完整 CharacterBody3D 敌人，用当前种类，和炮灰场共存。
+func _spawn_elites(amount: int) -> void:
+	var holder := _scene.get_node_or_null("Enemies")
+	for index in amount:
+		var enemy := Creatures.instantiate({"species": _body_id, "title": "精英"})
+		if enemy == null:
+			continue
+		enemy.set_meta(&"formal_enemy", true)
+		var angle := TAU * float(index) / float(maxi(amount, 1))
+		var radius := 10.0 + float(index % 3) * 2.0
+		var x := _player.global_position.x + cos(angle) * radius
+		var z := _player.global_position.z + sin(angle) * radius
+		enemy.position = Vector3(x, Terrain.height_at(x, z) + 0.6, z)
+		enemy.add_to_group("dynamic_enemies")
+		if enemy.has_method("set_combat_target"):
+			enemy.call("set_combat_target", _player)
+		(holder if holder != null else _scene).add_child(enemy)
+		_spawned.append(enemy)
+		if (index + 1) % 5 == 0:
+			await process_frame
+	print("[playground] elites=%d species=%s" % [_spawned.size(), _body_id])
 
 
 func _apply_scene_ablations() -> void:
@@ -398,6 +427,8 @@ func _restart() -> void:
 		_fodder_field.set_spread_mode(_fodder_spread_mode)
 		print("[fodder] restart units=%d spread=%d" % [
 			_fodder_field.units(), _fodder_spread_mode])
+		if _elites > 0:
+			await _spawn_elites(_elites)
 	else:
 		await _spawn_golems()
 	_started_msec = Time.get_ticks_msec()
