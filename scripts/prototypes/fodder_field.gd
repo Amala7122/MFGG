@@ -208,6 +208,29 @@ func _line_clear_to_target(pos: Vector3, target: Vector3) -> bool:
 	return get_world_3d().direct_space_state.intersect_ray(query).is_empty()
 
 
+func _choose_escape_direction(pos: Vector3, desired: Vector3, target: Vector3) -> Vector3:
+	if _surface == null or not _surface.ready:
+		return desired
+	var best := desired
+	var best_score := -INF
+	var to_target := target - pos
+	to_target.y = 0.0
+	to_target = to_target.normalized() if to_target.length_squared() > 0.001 else desired
+	for index in 12:
+		var angle := TAU * float(index) / 12.0
+		var candidate := Vector3(cos(angle), 0.0, sin(angle))
+		var probe := pos + candidate * 1.4
+		if _surface.blocked_at(probe.x, probe.z):
+			continue
+		var clearance: float = _surface.clearance_at(probe.x, probe.z)
+		var score: float = clearance * 2.0 + candidate.dot(to_target) * 0.8 \
+			+ candidate.dot(desired) * 0.4
+		if score > best_score:
+			best_score = score
+			best = candidate
+	return best
+
+
 func _place_out_of_blocker(index: int) -> void:
 	var p := _positions[index]
 	if not _surface.blocked_at(p.x, p.z):
@@ -568,15 +591,7 @@ func _physics_process(delta: float) -> void:
 		# 导航判为墙/高台的格子，即使高度差在 step 内也不许踏上去；
 		# 否则单位会爬上高台顶，再因为下不去而卡在台沿。
 		if probe_blocked and not current_blocked:
-			var tangent := Vector3(-desired.z, 0.0, desired.x)
-			if tangent.dot(to) < 0.0:
-				tangent = -tangent
-			var left_clearance: float = _surface.clearance_at(
-				pos.x + tangent.x * 1.4, pos.z + tangent.z * 1.4)
-			var right_clearance: float = _surface.clearance_at(
-				pos.x - tangent.x * 1.4, pos.z - tangent.z * 1.4)
-			if right_clearance > left_clearance + 0.15:
-				tangent = -tangent
+			var tangent := _choose_escape_direction(pos, desired, to)
 			_detour_dir[index] = tangent
 			_detour_timer[index] = 1.0
 			move_delta = Vector3.ZERO
@@ -592,22 +607,7 @@ func _physics_process(delta: float) -> void:
 				var safe: float = clampf(float(fractions[0]), 0.0, 1.0)
 				move_delta *= safe
 				if safe < 0.2 and _detour_timer[index] <= 0.0:
-					var normal := Vector3.ZERO
-					var rest := get_world_3d().direct_space_state.get_rest_info(_cast_query)
-					if not rest.is_empty():
-						normal = rest.get("normal", Vector3.ZERO)
-					var tangent := Vector3(-normal.z, 0.0, normal.x)
-					if tangent.length_squared() < 0.001:
-						tangent = Vector3(-desired.z, 0.0, desired.x)
-					if tangent.dot(to) < 0.0:
-						tangent = -tangent
-					# 凹角处两侧墙都可能挡：用 clearance 探针选更空的一侧，避免左右抖动。
-					var left_clearance: float = _surface.clearance_at(
-						pos.x + tangent.x * 1.4, pos.z + tangent.z * 1.4)
-					var right_clearance: float = _surface.clearance_at(
-						pos.x - tangent.x * 1.4, pos.z - tangent.z * 1.4)
-					if right_clearance > left_clearance + 0.15:
-						tangent = -tangent
+					var tangent := _choose_escape_direction(pos, desired, to)
 					_detour_dir[index] = tangent
 					_detour_timer[index] = 1.0
 		var next := pos + move_delta
