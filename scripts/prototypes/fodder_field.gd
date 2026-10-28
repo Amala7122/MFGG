@@ -459,6 +459,9 @@ func _physics_process(delta: float) -> void:
 				_flow_ready = true
 				print("[fodder] surface step=%.2f profile=%s ignore=%s flow_cells=%d" % [
 					step_height, profile.id, str(profile.ignore_terrain), flow.reachable_cells])
+				print("[fodder] flow_tracking=%s target=(%.1f,%.1f,%.1f)" % [
+					str(flow.tracking_player), flow.target_position.x,
+					flow.target_position.y, flow.target_position.z])
 				_relocate_unreachable_units()
 		_flow_clock += delta
 		if player.global_position.distance_to(_flow_anchor) > 2.0 or _flow_clock >= 3.0:
@@ -753,6 +756,9 @@ func _physics_process(delta: float) -> void:
 			else:
 				next = pos
 		pos = next
+		if step_up:
+			# 立即把精确贴地缓存更新到新台阶，否则 _snap_to_surface 会拿旧地面把刚抬起的 y 拉回去。
+			_ground_heights[index] = step_ground
 		pos = _snap_to_surface(pos, index)
 		pos.y = maxf(pos.y, Terrain.height_at(pos.x, pos.z) + BODY_OFFSET)
 		# 人群互推会把个体挤进平台/石头；每 2 个物理帧做一次共享 shape 解算，
