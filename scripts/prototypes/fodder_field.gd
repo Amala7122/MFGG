@@ -36,6 +36,7 @@ const SURFACE_CELL := 1.0
 const WALKABILITY_PATH := "res://data/navigation/sanctum_walkability.json"
 const SURFACE_BUILD_DELAY_FRAMES := 8
 const RESOLVE_INTERVAL := 2
+const MAX_SEPARATION_NEIGHBORS := 24
 const RESOLVE_RADIUS := 0.42
 const RESOLVE_CENTER := 0.05
 
@@ -644,10 +645,14 @@ func _physics_process(delta: float) -> void:
 			direction = (direction + _avoid_dirs[index] * 1.6).normalized()
 		var push := Vector3.ZERO
 		var cell := Vector2i(floori(pos.x / 2.0), floori(pos.z / 2.0))
+		var considered := 0
 		for dz in range(-1, 2):
 			for dx in range(-1, 2):
 				var bucket: Array = grid.get(Vector2i(cell.x + dx, cell.y + dz), [])
 				for other: int in bucket:
+					if considered >= MAX_SEPARATION_NEIGHBORS:
+						break
+					considered += 1
 					if other == index:
 						continue
 					var offset := pos - _snapshot_positions[other]
@@ -655,6 +660,10 @@ func _physics_process(delta: float) -> void:
 					var length := offset.length()
 					if length > 0.001 and length < SEPARATION_RADIUS:
 						push += offset / length * (1.0 - length / SEPARATION_RADIUS)
+				if considered >= MAX_SEPARATION_NEIGHBORS:
+					break
+			if considered >= MAX_SEPARATION_NEIGHBORS:
+				break
 		if distance > 0.001 and distance < PLAYER_RADIUS:
 			push += -to.normalized() * (1.0 - distance / PLAYER_RADIUS) * 2.0
 		var desired := (direction + push * SEPARATION_STRENGTH).normalized()
