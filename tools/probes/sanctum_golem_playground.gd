@@ -228,6 +228,7 @@ func _run() -> void:
 	if _fodder:
 		_fodder_field = FodderFieldScript.new()
 		_fodder_field.top_level = true
+		_fodder_field.species_id = _body_id
 		_scene.add_child(_fodder_field)
 		_fodder_field.setup(_player, null, _count, _player.global_position, _make_fodder_profile(), _nav_data())
 		if _fodder_flow_debug:
@@ -389,6 +390,7 @@ func _restart() -> void:
 	if _fodder:
 		_fodder_field = FodderFieldScript.new()
 		_fodder_field.top_level = true
+		_fodder_field.species_id = _body_id
 		_scene.add_child(_fodder_field)
 		_fodder_field.setup(_player, _flow, _count, _player.global_position, _make_fodder_profile(), _nav_data())
 		if _fodder_flow_debug:
@@ -829,6 +831,7 @@ func _set_fodder_count(value: int) -> void:
 	await _clear_fodder()
 	_fodder_field = FodderFieldScript.new()
 	_fodder_field.top_level = true
+	_fodder_field.species_id = _body_id
 	_scene.add_child(_fodder_field)
 	_fodder_field.setup(_player, null, _count, _player.global_position, _make_fodder_profile(), _nav_data())
 	_fodder_field.set_spread_mode(_fodder_spread_mode)
@@ -883,6 +886,7 @@ func _cycle_species(step: int) -> void:
 	await _clear_fodder()
 	_fodder_field = FodderFieldScript.new()
 	_fodder_field.top_level = true
+	_fodder_field.species_id = _body_id
 	_scene.add_child(_fodder_field)
 	_fodder_field.setup(_player, null, _count, _player.global_position,
 		_make_fodder_profile(), _nav_data())

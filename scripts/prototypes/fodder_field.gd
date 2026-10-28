@@ -12,6 +12,7 @@ const FlowFieldScript := preload("res://scripts/flow_field.gd")
 const NavDatasetScript := preload("res://scripts/navigation/nav_dataset.gd")
 const MovementProfileScript := preload("res://scripts/prototypes/movement_profile.gd")
 const MERGED_SHADER := preload("res://shaders/golem_fodder_merged.gdshader")
+const FodderVisualsScript := preload("res://scripts/prototypes/fodder_visuals.gd")
 
 const SPEED := 3.4
 const PLAYER_RADIUS := 1.0
@@ -99,6 +100,8 @@ var _player_velocity := Vector3.ZERO
 var _player_last := Vector3.ZERO
 var _formation_clock := 0.0
 var count := 0
+## 人群渲染/体型的种类 id（FodderSpecies 的 id）：必须在 setup 之前设置。
+var species_id := "mud_golem"
 
 var _positions := PackedVector3Array()
 var _velocity := PackedVector3Array()
@@ -650,46 +653,42 @@ func _update_slot(index: int, pos: Vector3, target: Vector3, delta: float) -> vo
 
 
 func _build_visuals() -> void:
+	var table := FodderVisualsScript.table(species_id)
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var cursor := 0
-	var torso := CylinderMesh.new()
-	torso.top_radius = 0.4
-	torso.bottom_radius = 0.25
-	torso.height = 0.6
-	torso.radial_segments = 5
-	torso.rings = 0
-	_torso_mesh = torso
-	cursor = _append_part(tool, torso, Transform3D(Basis(), Vector3(0, 0.75, 0)),
-		0, Vector3(0, 0.75, 0), cursor)
-	var core := BoxMesh.new()
-	core.size = Vector3(0.16, 0.16, 0.16)
-	_core_mesh = core
-	var core_basis := Basis.from_euler(Vector3(deg_to_rad(45), deg_to_rad(45), 0))
-	cursor = _append_part(tool, core, Transform3D(core_basis, Vector3(0, 0.87, 0.32)),
-		1, Vector3(0, 0.87, 0.32), cursor)
-	var fist := BoxMesh.new()
-	# 恢复原始体型：拳外缘 0.74/0.761m，由 0.76m 碰撞胶囊包住；不再靠缩模型避穿墙。
-	fist.size = Vector3(0.28, 0.42, 0.32)
-	_fist_mesh = fist
-	cursor = _append_part(tool, fist, Transform3D(Basis(), Vector3(-0.6, 0.6, 0)),
-		2, Vector3(-0.45, 0.9, 0), cursor)
-	cursor = _append_part(tool, fist, Transform3D(Basis.from_scale(Vector3.ONE * 1.15), Vector3(0.6, 0.6, 0)),
-		3, Vector3(0.45, 0.9, 0), cursor)
-	var leg := BoxMesh.new()
-	leg.size = Vector3(0.18, 0.35, 0.22)
-	_leg_mesh = leg
-	cursor = _append_part(tool, leg, Transform3D(Basis(), Vector3(-0.22, 0.2, 0)),
-		4, Vector3(-0.22, 0.35, 0), cursor)
-	cursor = _append_part(tool, leg, Transform3D(Basis(), Vector3(0.22, 0.2, 0)),
-		5, Vector3(0.22, 0.35, 0), cursor)
+	for part in table["parts"]:
+		var mesh := FodderVisualsScript.make_mesh(part)
+		var role := int(part["role"])
+		if role == FodderVisualsScript.BODY and _torso_mesh == null:
+			_torso_mesh = mesh
+		elif role == FodderVisualsScript.CORE and _core_mesh == null:
+			_core_mesh = mesh
+		elif role == FodderVisualsScript.LIMB_FRONT and _fist_mesh == null:
+			_fist_mesh = mesh
+		elif role >= FodderVisualsScript.LIMB and _leg_mesh == null:
+			_leg_mesh = mesh
+		var euler: Vector3 = part.get("euler", Vector3.ZERO)
+		var scale: float = float(part.get("scale", 1.0))
+		var basis := Basis.from_euler(euler).scaled(Vector3.ONE * scale)
+		cursor = _append_part(tool, mesh, Transform3D(basis, part["pos"]),
+			part["pivot"], role, part["color"],
+			float(part.get("glow", 0.0)), cursor)
+
+	# 尸体碎块用代表性图元；没有对应角色的种类回落到躯干。
+	if _torso_mesh == null:
+		var fallback := BoxMesh.new()
+		fallback.size = Vector3(0.5, 0.6, 0.5)
+		_torso_mesh = fallback
+	if _core_mesh == null:
+		_core_mesh = _torso_mesh
+	if _fist_mesh == null:
+		_fist_mesh = _torso_mesh
+	if _leg_mesh == null:
+		_leg_mesh = _torso_mesh
 
 	_body_material = ShaderMaterial.new()
 	_body_material.shader = MERGED_SHADER
-	_body_material.set_shader_parameter("body_color", Color(0.28, 0.32, 0.22))
-	_body_material.set_shader_parameter("core_color", Color(0.10, 0.85, 0.90))
-	_body_material.set_shader_parameter("fist_color", Color(0.42, 0.44, 0.45))
-	_body_material.set_shader_parameter("leg_color", Color(0.28, 0.32, 0.22))
 
 	_multimesh = MultiMesh.new()
 	_multimesh.transform_format = MultiMesh.TRANSFORM_3D
@@ -713,16 +712,19 @@ func _build_visuals() -> void:
 		_debris_materials.append(material)
 
 
-func _append_part(tool: SurfaceTool, mesh: Mesh, transform: Transform3D, part: int,
-		pivot: Vector3, cursor: int) -> int:
+func _append_part(tool: SurfaceTool, mesh: Mesh, transform: Transform3D, pivot: Vector3,
+		role: int, color: Color, glow: float, cursor: int) -> int:
 	var arrays := mesh.surface_get_arrays(0)
 	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
 	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var linear := color.srgb_to_linear()
+	linear.a = glow
 	var base := cursor
 	for index in vertices.size():
-		tool.set_uv(Vector2(float(part), pivot.x))
-		tool.set_uv2(Vector2(pivot.y, pivot.z))
+		tool.set_color(linear)
+		tool.set_uv(Vector2(pivot.x, pivot.y))
+		tool.set_uv2(Vector2(pivot.z, float(role)))
 		tool.set_normal((transform.basis * normals[index]).normalized())
 		tool.add_vertex(transform * vertices[index])
 		cursor += 1

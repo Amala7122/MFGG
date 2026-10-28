@@ -1,34 +1,26 @@
 shader_type spatial;
 render_mode diffuse_burley, specular_disabled;
 
-// 合并网格的顶点属性：
-// UV.x = 部件 ID（0 躯干 / 1 晶核 / 2 左拳 / 3 右拳 / 4 左腿 / 5 右腿）
-// UV.y = 关节 pivot.x，UV2 = 关节 pivot.yz（visual_root 局部空间）
+// 通用合并网格着色器（炮灰/人群）。
+// 顶点属性：
+//   UV.x  = pivot.x, UV.y = pivot.y, UV2.x = pivot.z（visual_root 局部空间）
+//   UV2.y = 角色：0 躯干 / 1 发光核心 / 2 头 / 3 尾或背囊 / 10、11 前肢 / 12..19 腿
+//   COLOR.rgb = 反照率（已转线性），COLOR.a = 自发光强度
 // INSTANCE_CUSTOM = (walk_phase, attack_phase, flash, move_weight)
 //
-// 颜色/粗糙度/晶核 glow/闪红全部对齐 mud_golem_instanced.gdshader：
-//   身体 0.28,0.32,0.22 rough .95
-//   晶核 0.10,0.85,0.90 rough .90 glow .16
-//   石拳 0.42,0.44,0.45 rough .90
-//   腿   0.28,0.32,0.22 rough .95
+// 关节摆动按角色：前肢（10/11）叠加攻击前挥，腿（12+）只走路摆；奇偶决定左右反相。
+// 躯干上下起伏、头轻点、尾/背囊绕 Y 摆——所有种类共用这一套，不再按部件 ID 写死。
 
-uniform float walk_amplitude = 0.55;
-uniform float arm_amplitude = 0.5;
-uniform float leg_amplitude = 0.65;
-uniform float attack_amplitude = 1.8;
-// 与原版 mud_golem_instanced.gdshader 相同的 source_color 语义：
-// 由引擎做 sRGB→linear，不能直接写 vec3(0.28,...)（那是 linear，会偏亮）。
-uniform vec4 body_color : source_color = vec4(0.28, 0.32, 0.22, 1.0);
-uniform vec4 core_color : source_color = vec4(0.10, 0.85, 0.90, 1.0);
-uniform vec4 fist_color : source_color = vec4(0.42, 0.44, 0.45, 1.0);
-uniform vec4 leg_color : source_color = vec4(0.28, 0.32, 0.22, 1.0);
+uniform float walk_amplitude = 0.5;
+uniform float attack_amplitude = 1.6;
 
 varying float v_flash;
-varying float v_part;
+varying vec3 v_color;
+varying float v_glow;
 
 void vertex() {
-	float part = floor(UV.x + 0.5);
-	vec3 pivot = vec3(UV.y, UV2.x, UV2.y);
+	float role = floor(UV2.y + 0.5);
+	vec3 pivot = vec3(UV.x, UV.y, UV2.x);
 	float phase = INSTANCE_CUSTOM.x;
 	float attack = INSTANCE_CUSTOM.y;
 	float move = INSTANCE_CUSTOM.w;
@@ -38,10 +30,12 @@ void vertex() {
 		attack_swing = sin(clamp(attack, 0.0, 1.0) * PI) * attack_amplitude;
 	}
 	float angle = 0.0;
-	if (part > 1.5 && part < 3.5) {
-		angle = (part < 2.5 ? -walk : walk) + attack_swing;
-	} else if (part > 3.5) {
-		angle = (part < 4.5 ? walk : -walk) * (leg_amplitude / arm_amplitude);
+	if (role > 9.5) {
+		float sign = (mod(role, 2.0) < 0.5) ? 1.0 : -1.0;
+		angle = sign * walk;
+		if (role < 11.5) {
+			angle += attack_swing;
+		}
 	}
 	if (abs(angle) > 0.0001) {
 		float s = sin(angle);
@@ -50,28 +44,24 @@ void vertex() {
 		VERTEX = pivot + vec3(local.x, c * local.y - s * local.z, s * local.y + c * local.z);
 		NORMAL = vec3(NORMAL.x, c * NORMAL.y - s * NORMAL.z, s * NORMAL.y + c * NORMAL.z);
 	}
-	if (part < 0.5) {
+	if (role < 0.5) {
 		VERTEX.y += abs(sin(phase * 7.0)) * 0.03 * move;
+	} else if (role > 2.5 && role < 3.5) {
+		float sway = sin(phase * 5.0) * 0.18 * move;
+		float s = sin(sway);
+		float c = cos(sway);
+		vec3 local = VERTEX - pivot;
+		VERTEX = pivot + vec3(c * local.x + s * local.z, local.y, -s * local.x + c * local.z);
+	} else if (role > 1.5 && role < 2.5) {
+		VERTEX.y += abs(sin(phase * 7.0)) * 0.02 * move;
 	}
 	v_flash = clamp(INSTANCE_CUSTOM.z, 0.0, 1.0);
-	v_part = part;
+	v_color = COLOR.rgb;
+	v_glow = COLOR.a;
 }
 
 void fragment() {
-	vec4 base = body_color;
-	float roughness_value = 0.95;
-	float glow = 0.0;
-	if (v_part > 0.5 && v_part < 1.5) {
-		base = core_color;
-		roughness_value = 0.90;
-		glow = 0.16;
-	} else if (v_part > 1.5 && v_part < 3.5) {
-		base = fist_color;
-		roughness_value = 0.90;
-	} else if (v_part > 3.5) {
-		base = leg_color;
-	}
-	ALBEDO = mix(base.rgb, vec3(1.0, 0.025, 0.015), v_flash);
-	ROUGHNESS = roughness_value;
-	EMISSION = base.rgb * glow + vec3(0.7, 0.02, 0.01) * v_flash * 0.65;
+	ALBEDO = mix(v_color, vec3(1.0, 0.025, 0.015), v_flash);
+	ROUGHNESS = 0.92;
+	EMISSION = v_color * v_glow + vec3(0.7, 0.02, 0.01) * v_flash * 0.65;
 }
