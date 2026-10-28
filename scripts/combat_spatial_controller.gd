@@ -10,7 +10,8 @@ const Ground := preload("res://scripts/ground_movement.gd")
 const Destruction := preload("res://scripts/environment_destruction.gd")
 const RingAnchors := preload("res://scripts/nav_ring_anchors.gd")
 const INSTANCE := &"combat_spatial_controller"
-const FRAME_BUDGET_USEC := 2200
+static var frame_budget_usec := 2200
+static var step_budget_usec := 700
 ## 目标持续移动时的连续瞄准：只在这个距离内把过期路点换成“当前目标”。
 const LIVE_AIM_DISTANCE := 6.0
 ## 本地身体探测的重估间隔（秒）。0.08 秒内沿用的结论最多差 0.4 米（走速 5 m/s）。
@@ -391,13 +392,13 @@ static func process_jobs() -> void:
 	_job_frame = frame
 	var start := Time.get_ticks_usec()
 	var count := _jobs.size()
-	while count > 0 and not _jobs.is_empty() and Time.get_ticks_usec() - start < FRAME_BUDGET_USEC:
+	while count > 0 and not _jobs.is_empty() and Time.get_ticks_usec() - start < frame_budget_usec:
 		count -= 1
 		var reference: WeakRef = _jobs.pop_front()
 		var owner: RefCounted = reference.get_ref()
 		if owner == null or owner._job == null or not is_instance_valid(owner._body):
 			continue
-		owner._job.advance(mini(start + FRAME_BUDGET_USEC, Time.get_ticks_usec() + 700))
+		owner._job.advance(mini(start + frame_budget_usec, Time.get_ticks_usec() + step_budget_usec))
 		if owner._job.done:
 			owner._publish_route()
 		else:

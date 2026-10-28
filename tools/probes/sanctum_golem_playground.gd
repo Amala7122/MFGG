@@ -10,6 +10,7 @@ const Golem := preload("res://scripts/prototypes/procedural_mud_golem.gd")
 const FlowFieldScript := preload("res://scripts/flow_field.gd")
 const NavData := preload("res://scripts/navigation/nav_dataset.gd")
 const Species := preload("res://scripts/navigation/fodder_species.gd")
+const SpatialController := preload("res://scripts/combat_spatial_controller.gd")
 const NAV_PATH := "res://data/navigation/sanctum_nav.json"
 const FodderFieldScript := preload("res://scripts/prototypes/fodder_field.gd")
 const MovementProfileScript := preload("res://scripts/prototypes/movement_profile.gd")
@@ -162,6 +163,10 @@ func _initialize() -> void:
 			_count = clampi(int(arg.trim_prefix("--count=")), 1, 2000)
 		elif arg.begins_with("--elites="):
 			_elites = clampi(int(arg.trim_prefix("--elites=")), 0, 40)
+		elif arg.begins_with("--plan-budget-us="):
+			SpatialController.frame_budget_usec = clampi(int(arg.trim_prefix("--plan-budget-us=")), 500, 20000)
+		elif arg.begins_with("--plan-step-us="):
+			SpatialController.step_budget_usec = clampi(int(arg.trim_prefix("--plan-step-us=")), 100, 8000)
 		elif arg.begins_with("--ai-stride="):
 			Golem.ai_stride = clampi(int(arg.trim_prefix("--ai-stride=")), 1, 4)
 		elif arg.begins_with("--body="):
@@ -563,6 +568,9 @@ func _tick() -> void:
 		_cycle_species(1)
 	if _pressed_once(KEY_PAGEUP):
 		_cycle_species(-1)
+	# 精英和炮灰同场时，把炮灰的流场借给泥偶精英，否则它们只能等共享规划预算。
+	if _elites > 0 and _fodder_field != null and _fodder_field.flow != null:
+		Golem.flow_field = _fodder_field.flow
 	if not _shot_done and _shot_path != "" \
 			and (Time.get_ticks_msec() - _started_msec) / 1000.0 >= _shot_at:
 		_shot_done = true
@@ -597,6 +605,18 @@ func _tick() -> void:
 func _log_profile() -> void:
 	var now := Time.get_ticks_msec()
 	var seconds := maxf((now - _last_profile_msec) / 1000.0, 0.001)
+	if _elites > 0 and not _spawned.is_empty():
+		var near := 0
+		var total := 0.0
+		for enemy in _spawned:
+			if is_instance_valid(enemy):
+				var distance := (enemy as Node3D).global_position.distance_to(_player.global_position)
+				total += distance
+				if distance <= 6.0:
+					near += 1
+		print("[elites] near6=%d/%d avg_dist=%.1f flow=%s" % [
+			near, _spawned.size(), total / float(maxi(_spawned.size(), 1)),
+			str(Golem.flow_field != null)])
 	if _fodder_field != null:
 		print("[fodder] units=%d alive=%d active=%d attacks=%d hits=%d kills=%d rays=%d resolve=%d inside=%d blocked=%d stalled=%d stepup=%d spawn_move=%d unstuck=%d surface_ms=%.1f fps=%.1f process_ms=%.1f physics_ms=%.1f draw=%d prim=%d nodes=%d" % [
 			_fodder_field.units(), _fodder_field.alive_count, _fodder_field.active_attackers,
