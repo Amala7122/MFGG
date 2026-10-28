@@ -21,6 +21,7 @@ const COUNT := 30
 var _count := 30
 ## 精英数量：完整 CharacterBody3D 敌人，和炮灰场同时存在（0 = 只跑炮灰）。
 var _elites := 0
+var _elite_last: Array[Vector3] = []
 ## 接入其它敌人：--body=fast_beast 会切到对应的 nav 数据与通行表。
 var _body_id := "mud_golem"
 var _nav_path := NAV_PATH
@@ -336,6 +337,7 @@ func _spawn_elites(amount: int) -> void:
 		_spawned.append(enemy)
 		if (index + 1) % 5 == 0:
 			await process_frame
+	_elite_last.clear()
 	print("[playground] elites=%d species=%s" % [_spawned.size(), _body_id])
 
 
@@ -614,15 +616,57 @@ func _log_profile() -> void:
 	if _elites > 0 and not _spawned.is_empty():
 		var near := 0
 		var total := 0.0
-		for enemy in _spawned:
-			if is_instance_valid(enemy):
-				var distance := (enemy as Node3D).global_position.distance_to(_player.global_position)
-				total += distance
-				if distance <= 6.0:
-					near += 1
-		print("[elites] near6=%d/%d avg_dist=%.1f flow=%s" % [
+		var stuck: Array[int] = []
+		if _elite_last.size() != _spawned.size():
+			_elite_last.resize(_spawned.size())
+			for index in _spawned.size():
+				_elite_last[index] = (_spawned[index] as Node3D).global_position
+		for index in _spawned.size():
+			var enemy = _spawned[index]
+			if not is_instance_valid(enemy):
+				continue
+			var position: Vector3 = (enemy as Node3D).global_position
+			var distance := position.distance_to(_player.global_position)
+			total += distance
+			if distance <= 6.0:
+				near += 1
+			elif position.distance_to(_elite_last[index]) < 0.5:
+				stuck.append(index)
+			_elite_last[index] = position
+		print("[elites] near6=%d/%d avg_dist=%.1f flow=%s stuck=%s" % [
 			near, _spawned.size(), total / float(maxi(_spawned.size(), 1)),
-			str(Golem.flow_field != null)])
+			str(Golem.flow_field != null), str(stuck)])
+		if not stuck.is_empty():
+			var sample = _spawned[stuck[0]]
+			var stuck_position: Vector3 = (sample as Node3D).global_position
+			var stuck_blocked := false
+			if _fodder_field != null and _fodder_field._surface != null:
+				stuck_blocked = _fodder_field._surface.blocked_at(stuck_position.x, stuck_position.z)
+			var stuck_flow := Vector3.ZERO
+			if Golem.flow_field != null:
+				stuck_flow = Golem.flow_field.direction_at(stuck_position)
+			var overlap_names := []
+			var stuck_shape := CapsuleShape3D.new()
+			stuck_shape.radius = 0.45
+			stuck_shape.height = 1.3
+			var stuck_query := PhysicsShapeQueryParameters3D.new()
+			stuck_query.shape = stuck_shape
+			stuck_query.transform = Transform3D(Basis(), stuck_position + Vector3.UP * 0.65)
+			stuck_query.collision_mask = 1
+			for hit in get_root().world_3d.direct_space_state.intersect_shape(stuck_query, 4):
+				var collider = hit.get("collider")
+				if collider is Node:
+					overlap_names.append((collider as Node).name)
+			print("[elites] stuck_overlap=%s" % str(overlap_names))
+			print("[elites] stuck_pos=%s blocked=%s flow=%s target=%s ai=%s state=%s vel=%s close_hold=%s crowd_ready=%s old=%s" % [
+				str(stuck_position), str(stuck_blocked), str(stuck_flow),
+				str(sample.get("target") != null), str(sample.get("ai_enabled")),
+				str(sample.get("current_state")), str(sample.get("velocity")),
+				str(sample.get("_close_hold")), str(sample.get("_crowd_ready")),
+				str(_elite_last[stuck[0]])])
+			var steering = sample.get("_steering")
+			if steering != null and steering.has_method("get_sparring_diagnostic"):
+				print("[elites] stuck_diag=%s" % str(steering.get_sparring_diagnostic()))
 	if _fodder_field != null:
 		print("[fodder] units=%d alive=%d active=%d attacks=%d hits=%d kills=%d rays=%d resolve=%d inside=%d blocked=%d stalled=%d stepup=%d spawn_move=%d unstuck=%d surface_ms=%.1f fps=%.1f process_ms=%.1f physics_ms=%.1f draw=%d prim=%d nodes=%d" % [
 			_fodder_field.units(), _fodder_field.alive_count, _fodder_field.active_attackers,

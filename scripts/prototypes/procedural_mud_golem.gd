@@ -189,6 +189,9 @@ static var elite_direct_enabled := false
 var _direct_active := false
 var _direct_check_clock := 0.0
 var _direct_ok := false
+## 被挡时的短 A*：只在 15m 内、每 0.3s 取一次 navmesh 路径，最多跟几个点。
+var _short_path := PackedVector3Array()
+var _short_clock := 0.0
 var _flow_lane := 0.0
 var _cached_flow := Vector3.ZERO
 var _cheap_physics := false
@@ -278,6 +281,27 @@ func _ai_physics(delta: float) -> void:
 				_animate_walk(anim_clock)
 				_move_physics(direct_desired, delta)
 				return
+			# 被挡且 15m 内：短 A*，只取前几个点，不进入完整路线规划。
+			if not _direct_ok and direct_distance > 2.2 and direct_distance < 15.0:
+				_short_clock -= delta
+				if _short_clock <= 0.0:
+					_short_clock = 0.3
+					_short_path = NavigationServer3D.map_get_path(
+						get_world_3d().navigation_map, global_position,
+						target.global_position, true)
+				while _short_path.size() > 1 \
+						and global_position.distance_to(_short_path[0]) < 0.6:
+					_short_path.remove_at(0)
+				if _short_path.size() > 1:
+					var to_point := _short_path[1] - global_position
+					to_point.y = 0.0
+					if to_point.length_squared() > 0.01:
+						var path_desired := to_point.normalized() * move_speed
+						rotation.y = atan2(-path_desired.x, -path_desired.z)
+						_set_locomotion(State.WALK)
+						_animate_walk(anim_clock)
+						_move_physics(path_desired, delta)
+						return
 	# 共享流场接管中远距离移动：每只只读方向，不各自规划/不各自重画路线。
 	if ai_enabled and current_state in [State.IDLE, State.WALK] and is_instance_valid(target) and flow_field != null:
 		var flow_offset := target.global_position - global_position
