@@ -183,6 +183,12 @@ static var flow_field: FlowField
 static var flow_min_distance := 3.5
 ## 低于这个距离恢复完整碰撞；8m 内保留物理，8m 外纯流场贴地。
 static var flow_cheap_distance := 8.0
+## 精英直线快路（默认关，观察台 F11 或 --elite-direct=on）：
+## 3.5–10m 且到玩家射线通畅时直接走，不等流场/规划；10–13m 迟滞退出。
+static var elite_direct_enabled := false
+var _direct_active := false
+var _direct_check_clock := 0.0
+var _direct_ok := false
 var _flow_lane := 0.0
 var _cached_flow := Vector3.ZERO
 var _cheap_physics := false
@@ -246,6 +252,32 @@ func _ai_physics(delta: float) -> void:
 		return
 	if _try_attack_first():
 		return
+	# 中距直线快路：射线通就直接压过去，和炮灰一样即时；被挡才回流场/规划。
+	if elite_direct_enabled and ai_enabled and is_instance_valid(target) \
+			and current_state in [State.IDLE, State.WALK]:
+		var direct_offset := target.global_position - global_position
+		direct_offset.y = 0.0
+		var direct_distance := direct_offset.length()
+		if _direct_active:
+			if direct_distance > 13.0:
+				_direct_active = false
+		elif direct_distance <= 10.0:
+			_direct_active = true
+		if _direct_active:
+			_direct_check_clock -= delta
+			if _direct_check_clock <= 0.0:
+				_direct_check_clock = 0.1
+				var direct_query := PhysicsRayQueryParameters3D.create(
+					global_position + Vector3.UP * 0.8,
+					target.global_position + Vector3.UP * 0.8, 1)
+				_direct_ok = get_world_3d().direct_space_state.intersect_ray(direct_query).is_empty()
+			if _direct_ok and direct_distance > 2.2:
+				var direct_desired := direct_offset.normalized() * move_speed
+				rotation.y = atan2(-direct_desired.x, -direct_desired.z)
+				_set_locomotion(State.WALK)
+				_animate_walk(anim_clock)
+				_move_physics(direct_desired, delta)
+				return
 	# 共享流场接管中远距离移动：每只只读方向，不各自规划/不各自重画路线。
 	if ai_enabled and current_state in [State.IDLE, State.WALK] and is_instance_valid(target) and flow_field != null:
 		var flow_offset := target.global_position - global_position

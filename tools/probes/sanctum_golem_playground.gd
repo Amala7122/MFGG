@@ -163,6 +163,8 @@ func _initialize() -> void:
 			_count = clampi(int(arg.trim_prefix("--count=")), 1, 2000)
 		elif arg.begins_with("--elites="):
 			_elites = clampi(int(arg.trim_prefix("--elites=")), 0, 40)
+		elif arg == "--elite-direct=on":
+			Golem.elite_direct_enabled = true
 		elif arg.begins_with("--plan-budget-us="):
 			SpatialController.frame_budget_usec = clampi(int(arg.trim_prefix("--plan-budget-us=")), 500, 20000)
 		elif arg.begins_with("--plan-step-us="):
@@ -564,6 +566,10 @@ func _tick() -> void:
 			_fodder_field.set_spread_mode(_fodder_spread_mode)
 			print("[fodder] spread_mode=%d（0=关 1=摊开 2=站位 3=压上）" % _fodder_spread_mode)
 		_update_hint()
+	if _pressed_once(KEY_F11):
+		Golem.elite_direct_enabled = not Golem.elite_direct_enabled
+		print("[elite] direct=%s（中距直线快路，默认关）" % str(Golem.elite_direct_enabled))
+		_update_hint()
 	if _pressed_once(KEY_PAGEDOWN):
 		_cycle_species(1)
 	if _pressed_once(KEY_PAGEUP):
@@ -935,6 +941,7 @@ func _cycle_species(step: int) -> void:
 		return
 	_restarting = true
 	await _clear_fodder()
+	await _clear_enemies()
 	_fodder_field = FodderFieldScript.new()
 	_fodder_field.top_level = true
 	_fodder_field.species_id = _body_id
@@ -942,9 +949,11 @@ func _cycle_species(step: int) -> void:
 	_fodder_field.setup(_player, null, _count, _player.global_position,
 		_make_fodder_profile(), _nav_data())
 	_fodder_field.set_spread_mode(_fodder_spread_mode)
+	if _elites > 0:
+		await _spawn_elites(_elites)
 	_started_msec = Time.get_ticks_msec()
 	_restarting = false
-	print("[fodder] species=%s nav=%s" % [_body_id, _nav_path])
+	print("[fodder] species=%s nav=%s elites=%d" % [_body_id, _nav_path, _elites])
 	_update_hint()
 
 
@@ -954,7 +963,7 @@ func _update_hint() -> void:
 	var spread_names := ["关", "摊开", "站位", "压上"]
 	_hint_label.text = ("%d 只%s · 无敌:%s · 步≤%d · R 重开 · F10 退出\n"
 		+ "F1 AI:%s  F2 冻结:%s  F3 影:%s  F4 天气:%s  F5 后:%s\n"
-		+ "F6 流场:%s  F7 截图  F8 让行:%s  F9 铺开:%s\n"
+		+ "F6 流场:%s  F7 截图  F8 让行:%s  F9 铺开:%s  F11 精英直线:%s\n"
 		+ "PgUp/PgDn 换敌人"
 		+ ("\n" + _map_status if _map_click else "")) % [
 		_count,
@@ -968,4 +977,5 @@ func _update_hint() -> void:
 		"开" if _post_on else "关",
 		"开" if _fodder_field != null and _fodder_field._flow_debug else "关",
 		"开" if _fodder_field != null and _fodder_field.queue_pacing else "关",
-		spread_names[clampi(_fodder_spread_mode, 0, 2)]]
+		spread_names[clampi(_fodder_spread_mode, 0, 3)],
+		"开" if Golem.elite_direct_enabled else "关"]
