@@ -92,6 +92,8 @@ var _stuck_count := PackedByteArray()
 var _attack_los_cache := PackedByteArray()
 var _snapshot_positions := PackedVector3Array()
 var _attack_wait := PackedFloat32Array()
+var _hidden_timer := PackedFloat32Array()
+var _hidden_target := PackedVector3Array()
 
 var _multimesh: MultiMesh
 var _multimesh_instance: MultiMeshInstance3D
@@ -151,6 +153,8 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 	_attack_los_cache.resize(count)
 	_snapshot_positions.resize(count)
 	_attack_wait.resize(count)
+	_hidden_timer.resize(count)
+	_hidden_target.resize(count)
 	_build_visuals()
 	alive_count = count
 	for index in count:
@@ -180,6 +184,8 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 		_last_positions[index] = _positions[index]
 		_stuck_count[index] = 0
 		_attack_wait[index] = 0.0
+		_hidden_timer[index] = 0.0
+		_hidden_target[index] = _positions[index]
 	add_to_group("fodder_fields")
 	_resolve_shape = CapsuleShape3D.new()
 	_resolve_shape.radius = RESOLVE_RADIUS
@@ -210,7 +216,7 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 	_point_query.collide_with_bodies = true
 	if _surface_ready:
 		for index in count:
-			_place_out_of_blocker(index)
+			_place_out_of_blocker(index, false)
 
 
 func _line_clear_to_target(pos: Vector3, target: Vector3) -> bool:
@@ -243,7 +249,7 @@ func _choose_escape_direction(pos: Vector3, desired: Vector3, to_target: Vector3
 	return best
 
 
-func _place_out_of_blocker(index: int) -> void:
+func _place_out_of_blocker(index: int, with_effect := true) -> void:
 	var p := _positions[index]
 	if not _surface.blocked_at(p.x, p.z):
 		return
@@ -255,6 +261,9 @@ func _place_out_of_blocker(index: int) -> void:
 	var shifted := open + away * 1.2
 	if not _surface.blocked_at(shifted.x, shifted.z):
 		open = shifted
+	if with_effect:
+		_begin_hidden_relocate(index, open)
+		return
 	_positions[index] = open + Vector3.UP * BODY_OFFSET
 	_ground_heights[index] = open.y
 	_velocity[index] = Vector3.ZERO
@@ -262,6 +271,14 @@ func _place_out_of_blocker(index: int) -> void:
 	_detour_dir[index] = away
 	_detour_timer[index] = 0.8
 	unstuck_count += 1
+
+
+func _begin_hidden_relocate(index: int, target: Vector3) -> void:
+	_hidden_target[index] = target
+	_hidden_timer[index] = 0.25
+	_velocity[index] = Vector3.ZERO
+	_state[index] = STATE_MOVE
+	_stuck_count[index] = 0
 
 
 func _build_visuals() -> void:
@@ -428,18 +445,15 @@ func _physics_process(delta: float) -> void:
 				if flow != null and not flow.is_reachable(current):
 					var unreachable_target: Vector3 = flow.nearest_reachable(current)
 					if unreachable_target.distance_to(current) > 0.5:
-						_positions[index] = unreachable_target + Vector3.UP * BODY_OFFSET
-						_ground_heights[index] = unreachable_target.y
-						_velocity[index] = Vector3.ZERO
-						_stuck_count[index] = 0
-						unstuck_count += 1
+						_begin_hidden_relocate(index, unreachable_target)
 					_last_positions[index] = _positions[index]
 					continue
 				var moved := current.distance_to(_last_positions[index])
 				var goal_distance := current.distance_to(player.global_position)
 				if _surface.blocked_at(current.x, current.z):
 					_place_out_of_blocker(index)
-					_stuck_count[index] = 0
+					_last_positions[index] = _positions[index]
+					continue
 				elif moved < 0.1 and goal_distance > ATTACK_RANGE + 1.5:
 					_stuck_count[index] = mini(_stuck_count[index] + 1, 3)
 				else:
@@ -447,11 +461,9 @@ func _physics_process(delta: float) -> void:
 				if _stuck_count[index] >= 2 and flow != null:
 					var target: Vector3 = flow.nearest_reachable(current)
 					if target.distance_to(current) > 0.5:
-						_positions[index] = target + Vector3.UP * BODY_OFFSET
-						_ground_heights[index] = target.y
-						_velocity[index] = Vector3.ZERO
-						_stuck_count[index] = 0
-						unstuck_count += 1
+						_begin_hidden_relocate(index, target)
+						_last_positions[index] = _positions[index]
+						continue
 				_last_positions[index] = _positions[index]
 	if flow != null:
 		if flow.poll_rebuild():
@@ -525,10 +537,20 @@ func _physics_process(delta: float) -> void:
 	for index in count:
 		if _alive[index] == 0:
 			continue
+		if _hidden_timer[index] > 0.0:
+			_hidden_timer[index] -= delta
+			if _hidden_timer[index] <= 0.0:
+				_positions[index] = _hidden_target[index] + Vector3.UP * BODY_OFFSET
+				_ground_heights[index] = _hidden_target[index].y
+				_velocity[index] = Vector3.ZERO
+				_stuck_count[index] = 0
+				unstuck_count += 1
+				_last_positions[index] = _positions[index]
+			continue
 		var pos := _positions[index]
 		if _surface_ready and _surface.blocked_at(pos.x, pos.z):
 			_place_out_of_blocker(index)
-			pos = _positions[index]
+			continue
 		# 硬性防钻地：低于地形就立刻抬回地面；不依赖 step 修正。
 		var terrain_floor := Terrain.height_at(pos.x, pos.z) + BODY_OFFSET
 		if pos.y < terrain_floor:
@@ -970,7 +992,7 @@ func _process(_delta: float) -> void:
 		return
 	_render_indices.clear()
 	for index in count:
-		if _alive[index] != 0:
+		if _alive[index] != 0 and _hidden_timer[index] <= 0.0:
 			_render_indices.append(index)
 	alive_count = _render_indices.size()
 	var visual_root := Transform3D(Basis(Vector3.UP, PI), Vector3(0, -0.65, 0))
@@ -1174,7 +1196,7 @@ func body_offset() -> float:
 func live_positions() -> Array[Vector3]:
 	var result: Array[Vector3] = []
 	for index in count:
-		if _alive[index] != 0:
+		if _alive[index] != 0 and _hidden_timer[index] <= 0.0:
 			result.append(_positions[index])
 	return result
 
