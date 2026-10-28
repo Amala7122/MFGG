@@ -21,6 +21,7 @@ var _count := 30
 ## 接入其它敌人：--body=fast_beast 会切到对应的 nav 数据与通行表。
 var _body_id := "mud_golem"
 var _nav_path := NAV_PATH
+var _runtime_profile = null
 
 var _scene: Node
 var _player: Node3D
@@ -161,17 +162,17 @@ func _initialize() -> void:
 			Golem.ai_stride = clampi(int(arg.trim_prefix("--ai-stride=")), 1, 4)
 		elif arg.begins_with("--body="):
 			_body_id = arg.trim_prefix("--body=")
-	if _body_id != "mud_golem":
-		if Species.has_species(_body_id):
-			_nav_path = Species.nav_path(_body_id)
-		else:
-			push_error("未登记的敌人种类：%s" % _body_id)
+	if _body_id != "mud_golem" and not Species.has_species(_body_id):
+		push_error("未登记的敌人种类：%s" % _body_id)
+		_body_id = "mud_golem"
 	# 低帧螺旋兜底：一帧最多 2 个固定物理步，避免 8 步把 AI 成本再放大 8 倍。
 	Engine.max_physics_steps_per_frame = _max_physics_steps
 	call_deferred("_run")
 
 
 func _run() -> void:
+	if _body_id != "mud_golem" and not _prepare_species(_body_id):
+		push_error("敌人种类准备失败：%s" % _body_id)
 	var initial := MainScene.instantiate()
 	root.add_child(initial)
 	current_scene = initial
@@ -354,6 +355,8 @@ func _nav_data() -> Dictionary:
 
 
 func _make_fodder_profile():
+	if _runtime_profile != null:
+		return _runtime_profile
 	var profile = NavData.load_profile(_nav_data())
 	if profile == null:
 		return null
@@ -848,16 +851,34 @@ func _add_hint() -> void:
 
 
 ## 程序内换敌人：查 FodderSpecies 登记表，换 nav/profile/通行表并重建数据场。
+## 没有预烘焙数据的种类：用默认地图配置 + 运行时生成的 profile，让 FodderField 现烘通行表。
+func _prepare_species(id: String) -> bool:
+	_body_id = id
+	var nav_file := Species.nav_path(id)
+	_runtime_profile = null
+	if nav_file.is_empty():
+		var base := NavData.load_file(NAV_PATH)
+		if base.is_empty():
+			return false
+		var nav := base.duplicate(true)
+		nav["walkability"] = "res://data/navigation/__runtime_%s.json" % id
+		_nav = nav
+		_runtime_profile = Species.runtime_profile(id)
+		if _runtime_profile == null:
+			return false
+		print("[fodder] species=%s 无预烘焙表，运行时烘焙" % id)
+		return true
+	_nav = {}
+	_nav_path = nav_file
+	return true
+
+
 func _cycle_species(step: int) -> void:
 	if not _fodder or _restarting:
 		return
 	var next_id := Species.next_id(_body_id, step)
-	var path := Species.nav_path(next_id)
-	if path.is_empty():
+	if not _prepare_species(next_id):
 		return
-	_body_id = next_id
-	_nav_path = path
-	_nav = {}
 	_restarting = true
 	await _clear_fodder()
 	_fodder_field = FodderFieldScript.new()
