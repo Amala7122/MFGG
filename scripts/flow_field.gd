@@ -23,6 +23,10 @@ var _mask_ready := false
 var _mask_provider = null
 var _mask_profile = null
 var mask_build_usec := 0
+var _edge_cache := PackedByteArray()
+var _wall_cost := PackedFloat32Array()
+var _cache_ready := false
+var cache_build_usec := 0
 
 var _distance: PackedFloat32Array = PackedFloat32Array()
 var _n := 0
@@ -48,6 +52,7 @@ var _has_pending := false
 func _ensure_mask() -> void:
 	if _mask_ready and _mask_provider == _height_provider and _mask_profile == _height_profile:
 		return
+	_cache_ready = false
 	_mask_provider = _height_provider
 	_mask_profile = _height_profile
 	var started := Time.get_ticks_usec()
@@ -107,6 +112,35 @@ func _ensure_mask() -> void:
 	mask_build_usec = Time.get_ticks_usec() - started
 
 
+func _ensure_static_cache() -> void:
+	if _cache_ready:
+		return
+	var cache_started := Time.get_ticks_usec()
+	_edge_cache.resize(_mask_n * _mask_n * DIRECTIONS.size())
+	_wall_cost.resize(_mask_n * _mask_n)
+	for iz in _mask_n:
+		for ix in _mask_n:
+			var index := iz * _mask_n + ix
+			_wall_cost[index] = _wall_penalty(ix, iz)
+			for direction_index in DIRECTIONS.size():
+				var direction: Vector2i = DIRECTIONS[direction_index]
+				var nx: int = ix + direction.x
+				var nz: int = iz + direction.y
+				var allowed := false
+				if nx >= 0 and nz >= 0 and nx < _mask_n and nz < _mask_n:
+					var neighbor: int = nz * _mask_n + nx
+					if _mask[neighbor] != 0:
+						allowed = true
+						if direction.x != 0 and direction.y != 0:
+							if _mask[iz * _mask_n + nx] == 0 or _mask[nz * _mask_n + ix] == 0:
+								allowed = false
+						if allowed:
+							allowed = _edge_allowed(ix, iz, nx, nz)
+				_edge_cache[(index * DIRECTIONS.size()) + direction_index] = 1 if allowed else 0
+	_cache_ready = true
+	cache_build_usec = Time.get_ticks_usec() - cache_started
+
+
 ## 同步重建：仅用于首帧/测试；运行时应走 request_rebuild + poll_rebuild。
 func set_height_provider(provider, step_height: float) -> void:
 	_height_provider = provider
@@ -122,6 +156,7 @@ func set_height_profile(provider, profile) -> void:
 	_step_height = profile.flow_edge_limit(CELL_SIZE)
 	_edge_step = profile.step_height
 	_mask_ready = false
+	_cache_ready = false
 
 
 func rebuild(center: Vector3) -> void:
@@ -164,6 +199,7 @@ func _worker_run() -> void:
 
 func _compute(center: Vector3) -> Dictionary:
 	var started := Time.get_ticks_usec()
+	_ensure_static_cache()
 	var n := _mask_n
 	var origin := _mask_origin
 	var total := n * n
@@ -198,22 +234,17 @@ func _compute(center: Vector3) -> Dictionary:
 		var ix: int = index % n
 		var iz: int = int(index / n)
 		var current_distance := distance[index]
-		for direction: Vector2i in DIRECTIONS:
+		for direction_index in DIRECTIONS.size():
+			var direction: Vector2i = DIRECTIONS[direction_index]
 			var nx: int = ix + direction.x
 			var nz: int = iz + direction.y
 			if nx < 0 or nz < 0 or nx >= n or nz >= n:
 				continue
 			var neighbor: int = nz * n + nx
-			if _mask[neighbor] == 0:
-				continue
-			if direction.x != 0 and direction.y != 0:
-				if _mask[iz * n + nx] == 0 or _mask[nz * n + ix] == 0:
-					continue
-			if not _edge_allowed(ix, iz, nx, nz):
+			if _edge_cache[(index * DIRECTIONS.size()) + direction_index] == 0:
 				continue
 			var step := 1.41421356 if direction.x != 0 and direction.y != 0 else 1.0
-			var penalty := _wall_penalty(nx, nz)
-			var candidate := current_distance + step * (1.0 + penalty)
+			var candidate := current_distance + step * (1.0 + _wall_cost[neighbor])
 			if candidate + 0.0001 < distance[neighbor]:
 				if distance[neighbor] >= 1.0e19:
 					reached += 1
@@ -363,6 +394,7 @@ func movement_target() -> Vector3:
 func direction_at(world: Vector3) -> Vector3:
 	if _n <= 0 or _distance.is_empty():
 		return Vector3.ZERO
+	_ensure_static_cache()
 	var index := _cell_at(world.x, world.z, _n, _origin)
 	if index < 0:
 		return Vector3.ZERO
@@ -373,19 +405,17 @@ func direction_at(world: Vector3) -> Vector3:
 	var best_dz := 0
 	var ix: int = index % _n
 	var iz: int = int(index / _n)
-	for direction: Vector2i in DIRECTIONS:
+	for direction_index in DIRECTIONS.size():
+		var direction: Vector2i = DIRECTIONS[direction_index]
 		var nx: int = ix + direction.x
 		var nz: int = iz + direction.y
 		if nx < 0 or nz < 0 or nx >= _n or nz >= _n:
 			continue
+		if _edge_cache[(index * DIRECTIONS.size()) + direction_index] == 0:
+			continue
 		var neighbor: int = nz * _n + nx
 		if _distance[neighbor] >= 1.0e19:
 			continue
-		if not _edge_allowed(ix, iz, nx, nz):
-			continue
-		if direction.x != 0 and direction.y != 0:
-			if _mask[iz * _n + nx] == 0 or _mask[nz * _n + ix] == 0:
-				continue
 		if _distance[neighbor] < best:
 			best = _distance[neighbor]
 			best_dx = direction.x

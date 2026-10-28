@@ -82,12 +82,14 @@ var _flow_clock := 0.0
 var _flow_anchor := Vector3.ZERO
 var _surface_delay := SURFACE_BUILD_DELAY_FRAMES
 var _flow_inited := false
+var _flow_ready := false
 var _dirty_centers: Array[Vector2] = []
 var _dirty_clock := 0.0
 var _last_positions := PackedVector3Array()
 var _stuck_clock := 0.0
 var _stuck_count := PackedByteArray()
 var _attack_los_cache := PackedByteArray()
+var _snapshot_positions := PackedVector3Array()
 
 var _multimesh: MultiMesh
 var _multimesh_instance: MultiMeshInstance3D
@@ -145,6 +147,7 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 	_last_positions.resize(count)
 	_stuck_count.resize(count)
 	_attack_los_cache.resize(count)
+	_snapshot_positions.resize(count)
 	_build_visuals()
 	alive_count = count
 	for index in count:
@@ -344,16 +347,16 @@ func _on_destructible_exiting(prop: Node) -> void:
 
 func _init_surface_flow() -> void:
 	_flow_inited = true
+	_flow_ready = false
 	var surface_flow := FlowFieldScript.new()
 	# 流场按 profile 的坡度放行；ignore_terrain 的蜘蛛不做高度约束。
 	surface_flow.set_height_profile(_surface, profile)
-	surface_flow.rebuild(player.global_position)
+	# 首次流场也走 worker，避免主线程同步全图 Dijkstra。
+	surface_flow.request_rebuild(player.global_position)
 	flow = surface_flow
-	print("[fodder] surface step=%.2f profile=%s ignore=%s flow_cells=%d" % [
-		step_height, profile.id, str(profile.ignore_terrain), surface_flow.reachable_cells])
 	_flow_anchor = player.global_position
 	_flow_clock = 0.0
-	_relocate_unreachable_units()
+	print("[fodder] flow rebuild requested in worker")
 
 
 func _relocate_unreachable_units() -> void:
@@ -394,7 +397,17 @@ func _physics_process(delta: float) -> void:
 		_dirty_clock += delta
 		if _dirty_clock >= 0.3:
 			_dirty_clock = 0.0
+			var merged_centers: Array[Vector2] = []
 			for center: Vector2 in _dirty_centers:
+				var merged := false
+				for existing_index in merged_centers.size():
+					if merged_centers[existing_index].distance_to(center) < 12.0:
+						merged_centers[existing_index] = (merged_centers[existing_index] + center) * 0.5
+						merged = true
+						break
+				if not merged:
+					merged_centers.append(center)
+			for center: Vector2 in merged_centers:
 				_surface.rebake_region(get_world_3d(), center, 12.0)
 			_dirty_centers.clear()
 			flow = null
@@ -436,7 +449,12 @@ func _physics_process(delta: float) -> void:
 						unstuck_count += 1
 				_last_positions[index] = _positions[index]
 	if flow != null:
-		flow.poll_rebuild()
+		if flow.poll_rebuild():
+			if not _flow_ready:
+				_flow_ready = true
+				print("[fodder] surface step=%.2f profile=%s ignore=%s flow_cells=%d" % [
+					step_height, profile.id, str(profile.ignore_terrain), flow.reachable_cells])
+				_relocate_unreachable_units()
 		_flow_clock += delta
 		if player.global_position.distance_to(_flow_anchor) > 2.0 or _flow_clock >= 3.0:
 			flow.request_rebuild(player.global_position)
@@ -464,6 +482,7 @@ func _physics_process(delta: float) -> void:
 		if _alive[index] == 0:
 			continue
 		var p := _positions[index]
+		_snapshot_positions[index] = p
 		var key := Vector2i(floori(p.x / 2.0), floori(p.z / 2.0))
 		if not grid.has(key):
 			grid[key] = []
@@ -584,8 +603,11 @@ func _physics_process(delta: float) -> void:
 		if distance < 14.0:
 			var slot := target + Vector3(cos(_slot_angle[index]), 0.0,
 				sin(_slot_angle[index])) * _slot_radius[index]
-			# 槽位落在墙体/岩石里时不要往里挤，否则会被推出后又反复卡住。
-			if not _surface.blocked_at(slot.x, slot.z):
+			# 槽位在墙体/岩石里，或流场判定不可达时不要往里挤。
+			var slot_open: bool = not _surface.blocked_at(slot.x, slot.z)
+			if slot_open and _flow_ready and flow != null:
+				slot_open = flow.is_reachable(slot)
+			if slot_open:
 				var to_slot := slot - pos
 				to_slot.y = 0.0
 				if to_slot.length() > 0.2:
@@ -628,7 +650,7 @@ func _physics_process(delta: float) -> void:
 				for other: int in bucket:
 					if other == index:
 						continue
-					var offset := pos - _positions[other]
+					var offset := pos - _snapshot_positions[other]
 					offset.y = 0.0
 					var length := offset.length()
 					if length > 0.001 and length < SEPARATION_RADIUS:
@@ -654,7 +676,10 @@ func _physics_process(delta: float) -> void:
 		var step_ok := absf(step_change) <= step_height
 		var probe_blocked: bool = _surface_ready and _surface.blocked_at(step_probe.x, step_probe.z)
 		var current_blocked: bool = _surface_ready and _surface.blocked_at(pos.x, pos.z)
-		var move_delta := desired * SPEED * delta
+		var approach_scale := 1.0
+		if distance < 2.2 and distance > 0.01:
+			approach_scale = 0.55 + 0.45 * (distance / 2.2)
+		var move_delta := desired * SPEED * delta * approach_scale
 		# 导航判为墙/高台的格子，即使高度差在 step 内也不许踏上去；
 		# 否则单位会爬上高台顶，再因为下不去而卡在台沿。
 		if probe_blocked and not current_blocked:
