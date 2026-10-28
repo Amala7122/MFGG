@@ -1,0 +1,33 @@
+{
+	"id": "sanctum_fast_beast",
+	"scene": "res://scenes/sanctum_main.tscn",
+	"walkability": "res://data/navigation/sanctum_walkability_fast_beast.json",
+	"bake": {
+		"movement_profile": "res://data/navigation/fast_beast_movement.tres",
+		"directors": [
+			"WaveDirector",
+			"SurvivalDirector"
+		]
+	},
+	"grid": {
+		"cell_size": 1.0,
+		"half_extent": 90.0,
+		"ray_top": 200.0,
+		"ray_bottom": -100.0,
+		"walk_ray_above": 2.0,
+		"walk_ray_below": 1.0
+	},
+	"flow": {
+		"cell_size": 2.0,
+		"wall_margin": 1.4,
+		"wall_penalty": 4.0,
+		"edge_sample": 0.5,
+		"source_search_cells": 25,
+		"nearest_search_cells": 40
+	},
+	"rebuild": {
+		"move_threshold": 2.0,
+		"interval": 3.0,
+		"rebake_radius": 12.0
+	}
+}

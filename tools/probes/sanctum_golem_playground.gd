@@ -17,6 +17,9 @@ const PROFILE_PATH := "user://logs/golem_ai_profile.log"
 const SPAWN_RING := [8.0, 10.5, 13.0, 15.5]
 const COUNT := 30
 var _count := 30
+## 接入其它敌人：--body=fast_beast 会切到对应的 nav 数据与通行表。
+var _body_id := "mud_golem"
+var _nav_path := NAV_PATH
 
 var _scene: Node
 var _player: Node3D
@@ -153,6 +156,14 @@ func _initialize() -> void:
 			_count = clampi(int(arg.trim_prefix("--count=")), 1, 2000)
 		elif arg.begins_with("--ai-stride="):
 			Golem.ai_stride = clampi(int(arg.trim_prefix("--ai-stride=")), 1, 4)
+		elif arg.begins_with("--body="):
+			_body_id = arg.trim_prefix("--body=")
+	if _body_id != "mud_golem":
+		var candidate := "res://data/navigation/sanctum_nav_%s.json" % _body_id
+		if FileAccess.file_exists(candidate):
+			_nav_path = candidate
+		else:
+			push_error("找不到 %s 的导航数据：%s" % [_body_id, candidate])
 	# 低帧螺旋兜底：一帧最多 2 个固定物理步，避免 8 步把 AI 成本再放大 8 倍。
 	Engine.max_physics_steps_per_frame = _max_physics_steps
 	call_deferred("_run")
@@ -336,7 +347,7 @@ func _clear_enemies() -> void:
 
 func _nav_data() -> Dictionary:
 	if _nav.is_empty():
-		_nav = NavData.load_file(NAV_PATH)
+		_nav = NavData.load_file(_nav_path)
 	return _nav
 
 
@@ -345,7 +356,8 @@ func _make_fodder_profile():
 	if profile == null:
 		return null
 	profile = profile.duplicate()
-	profile.id = "spider_test" if _fodder_ignore_terrain else "mud_golem"
+	if _fodder_ignore_terrain:
+		profile.id = "spider_test"
 	profile.step_height = _fodder_step
 	profile.max_slope_deg = _fodder_slope
 	profile.ignore_terrain = _fodder_ignore_terrain
