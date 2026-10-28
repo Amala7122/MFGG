@@ -87,6 +87,7 @@ var _dirty_clock := 0.0
 var _last_positions := PackedVector3Array()
 var _stuck_clock := 0.0
 var _stuck_count := PackedByteArray()
+var _attack_los_cache := PackedByteArray()
 
 var _multimesh: MultiMesh
 var _multimesh_instance: MultiMeshInstance3D
@@ -143,6 +144,7 @@ func setup(target: Node3D, field: RefCounted, amount: int, center: Vector3,
 	_ground_heights.resize(count)
 	_last_positions.resize(count)
 	_stuck_count.resize(count)
+	_attack_los_cache.resize(count)
 	_build_visuals()
 	alive_count = count
 	for index in count:
@@ -210,14 +212,14 @@ func _line_clear_to_target(pos: Vector3, target: Vector3) -> bool:
 	return get_world_3d().direct_space_state.intersect_ray(query).is_empty()
 
 
-func _choose_escape_direction(pos: Vector3, desired: Vector3, target: Vector3) -> Vector3:
+func _choose_escape_direction(pos: Vector3, desired: Vector3, to_target: Vector3) -> Vector3:
 	if _surface == null or not _surface.ready:
 		return desired
 	var best := desired
 	var best_score := -INF
-	var to_target := target - pos
-	to_target.y = 0.0
-	to_target = to_target.normalized() if to_target.length_squared() > 0.001 else desired
+	var direction_to_target := Vector3(to_target.x, 0.0, to_target.z)
+	direction_to_target = direction_to_target.normalized() \
+		if direction_to_target.length_squared() > 0.001 else desired
 	for index in 12:
 		var angle := TAU * float(index) / 12.0
 		var candidate := Vector3(cos(angle), 0.0, sin(angle))
@@ -225,7 +227,7 @@ func _choose_escape_direction(pos: Vector3, desired: Vector3, target: Vector3) -
 		if _surface.blocked_at(probe.x, probe.z):
 			continue
 		var clearance: float = _surface.clearance_at(probe.x, probe.z)
-		var score: float = clearance * 2.0 + candidate.dot(to_target) * 0.8 \
+		var score: float = clearance * 2.0 + candidate.dot(direction_to_target) * 0.8 \
 			+ candidate.dot(desired) * 0.4
 		if score > best_score:
 			best_score = score
@@ -455,6 +457,8 @@ func _physics_process(delta: float) -> void:
 	var target := player.global_position
 	if flow != null and flow.has_method("movement_target") and not bool(flow.get("tracking_player")):
 		target = flow.movement_target()
+	var tracking := flow == null or bool(flow.get("tracking_player"))
+	var attack_point := player.global_position
 	var grid: Dictionary = {}
 	for index in count:
 		if _alive[index] == 0:
@@ -465,6 +469,11 @@ func _physics_process(delta: float) -> void:
 			grid[key] = []
 		(grid[key] as Array).append(index)
 	var active := 0
+	for index in count:
+		if _alive[index] == 0:
+			continue
+		if _state[index] == STATE_WINDUP or _state[index] == STATE_RECOVER:
+			active += 1
 	for index in count:
 		if _alive[index] == 0:
 			continue
@@ -489,6 +498,17 @@ func _physics_process(delta: float) -> void:
 		var to := target - pos
 		to.y = 0.0
 		var distance := to.length()
+		var attack_to := attack_point - pos
+		attack_to.y = 0.0
+		var attack_distance := attack_to.length()
+		var attack_vertical_ok := absf(pos.y - attack_point.y) <= 1.8
+		var attack_los := false
+		if tracking and attack_vertical_ok and attack_distance <= ATTACK_RANGE + 1.0:
+			if (Engine.get_physics_frames() + index) % 10 == 0:
+				_attack_los_cache[index] = 1 if _line_clear_to_target(pos, attack_point) else 0
+			attack_los = _attack_los_cache[index] != 0
+		else:
+			_attack_los_cache[index] = 0
 		var state := int(_state[index])
 		# 硬排除：不能站在高表面覆盖区的地面下（平台/大石头底部）。
 		if _surface_ready and not profile.ignore_terrain:
@@ -525,33 +545,33 @@ func _physics_process(delta: float) -> void:
 			continue
 		if state == STATE_WINDUP:
 			_timer[index] -= delta
-			_yaw[index] = atan2(-to.x, -to.z)
 			_move_weight[index] = 0.0
 			if _timer[index] <= 0.0:
-				if distance <= ATTACK_RANGE + 0.7:
+				var hit_los := tracking and attack_vertical_ok \
+					and _line_clear_to_target(pos, attack_point)
+				if attack_distance <= ATTACK_RANGE + 0.7 and hit_los:
 					var forward := Vector3(-sin(_yaw[index]), 0.0, -cos(_yaw[index]))
-					if forward.dot(to.normalized()) > 0.15 and player.has_method("take_damage"):
+					if forward.dot(attack_to.normalized()) > 0.15 and player.has_method("take_damage"):
 						player.call("take_damage", DAMAGE, pos)
 						total_attacks += 1
 						_flash[index] = 1.0
 				_state[index] = STATE_RECOVER
 				_timer[index] = ATTACK_RECOVER
-			active += 1
 			continue
 		if state == STATE_RECOVER:
 			_timer[index] -= delta
-			_yaw[index] = atan2(-to.x, -to.z)
+			_yaw[index] = atan2(-attack_to.x, -attack_to.z)
 			_move_weight[index] = 0.0
 			if _timer[index] <= 0.0:
 				_state[index] = STATE_MOVE
 				_cooldown[index] = ATTACK_COOLDOWN
-			active += 1
+				active = maxi(0, active - 1)
 			continue
 		_cooldown[index] = maxf(0.0, _cooldown[index] - delta)
-		if distance <= ATTACK_RANGE and _cooldown[index] <= 0.0 and active < MAX_ACTIVE_ATTACKERS:
+		if attack_distance <= ATTACK_RANGE and attack_los and _cooldown[index] <= 0.0 and active < MAX_ACTIVE_ATTACKERS:
 			_state[index] = STATE_WINDUP
 			_timer[index] = ATTACK_WINDUP
-			_yaw[index] = atan2(-to.x, -to.z)
+			_yaw[index] = atan2(-attack_to.x, -attack_to.z)
 			_move_weight[index] = 0.0
 			active += 1
 			continue
@@ -703,11 +723,13 @@ func _physics_process(delta: float) -> void:
 					continue
 				resolve_hits += hits.size()
 				var resolve_push := Vector3.ZERO
-				for hit in hits:
-					var normal: Vector3 = hit.get("normal", Vector3.ZERO)
+				var rest := get_world_3d().direct_space_state.get_rest_info(_resolve_query)
+				var contact_normal: Vector3 = rest.get("normal", Vector3.ZERO)
+				var contact_point: Vector3 = rest.get("point", center)
+				for _hit in hits:
+					var normal := contact_normal
 					if normal.length_squared() < 0.001:
-						var point: Vector3 = hit.get("point", center)
-						normal = center - point
+						normal = center - contact_point
 					normal.y = 0.0
 					if normal.length_squared() > 0.001:
 						resolve_push += normal.normalized()

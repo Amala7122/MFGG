@@ -381,6 +381,8 @@ func direction_at(world: Vector3) -> Vector3:
 		var neighbor: int = nz * _n + nx
 		if _distance[neighbor] >= 1.0e19:
 			continue
+		if not _edge_allowed(ix, iz, nx, nz):
+			continue
 		if direction.x != 0 and direction.y != 0:
 			if _mask[iz * _n + nx] == 0 or _mask[nz * _n + ix] == 0:
 				continue
