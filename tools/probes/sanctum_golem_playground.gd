@@ -9,6 +9,7 @@ const Terrain := preload("res://scripts/terrain_field.gd")
 const Golem := preload("res://scripts/prototypes/procedural_mud_golem.gd")
 const FlowFieldScript := preload("res://scripts/flow_field.gd")
 const NavData := preload("res://scripts/navigation/nav_dataset.gd")
+const Species := preload("res://scripts/navigation/fodder_species.gd")
 const NAV_PATH := "res://data/navigation/sanctum_nav.json"
 const FodderFieldScript := preload("res://scripts/prototypes/fodder_field.gd")
 const MovementProfileScript := preload("res://scripts/prototypes/movement_profile.gd")
@@ -126,6 +127,8 @@ func _initialize() -> void:
 			_fodder_spread_mode = 1
 		elif arg == "--spread=slots":
 			_fodder_spread_mode = 2
+		elif arg == "--spread=press":
+			_fodder_spread_mode = 3
 		elif arg == "--map-click=on":
 			_map_click = true
 		elif arg == "--map-sweep=on":
@@ -159,11 +162,10 @@ func _initialize() -> void:
 		elif arg.begins_with("--body="):
 			_body_id = arg.trim_prefix("--body=")
 	if _body_id != "mud_golem":
-		var candidate := "res://data/navigation/sanctum_nav_%s.json" % _body_id
-		if FileAccess.file_exists(candidate):
-			_nav_path = candidate
+		if Species.has_species(_body_id):
+			_nav_path = Species.nav_path(_body_id)
 		else:
-			push_error("找不到 %s 的导航数据：%s" % [_body_id, candidate])
+			push_error("未登记的敌人种类：%s" % _body_id)
 	# 低帧螺旋兜底：一帧最多 2 个固定物理步，避免 8 步把 AI 成本再放大 8 倍。
 	Engine.max_physics_steps_per_frame = _max_physics_steps
 	call_deferred("_run")
@@ -517,10 +519,14 @@ func _tick() -> void:
 		_update_hint()
 	if _pressed_once(KEY_F9):
 		if _fodder_field != null:
-			_fodder_spread_mode = (_fodder_spread_mode + 1) % 3
+			_fodder_spread_mode = (_fodder_spread_mode + 1) % 4
 			_fodder_field.set_spread_mode(_fodder_spread_mode)
-			print("[fodder] spread_mode=%d（0=关 1=摊开 2=站位）" % _fodder_spread_mode)
+			print("[fodder] spread_mode=%d（0=关 1=摊开 2=站位 3=压上）" % _fodder_spread_mode)
 		_update_hint()
+	if _pressed_once(KEY_PAGEDOWN):
+		_cycle_species(1)
+	if _pressed_once(KEY_PAGEUP):
+		_cycle_species(-1)
 	if not _shot_done and _shot_path != "" \
 			and (Time.get_ticks_msec() - _started_msec) / 1000.0 >= _shot_at:
 		_shot_done = true
@@ -841,16 +847,42 @@ func _add_hint() -> void:
 	_update_hint()
 
 
+## 程序内换敌人：查 FodderSpecies 登记表，换 nav/profile/通行表并重建数据场。
+func _cycle_species(step: int) -> void:
+	if not _fodder or _restarting:
+		return
+	var next_id := Species.next_id(_body_id, step)
+	var path := Species.nav_path(next_id)
+	if path.is_empty():
+		return
+	_body_id = next_id
+	_nav_path = path
+	_nav = {}
+	_restarting = true
+	await _clear_fodder()
+	_fodder_field = FodderFieldScript.new()
+	_fodder_field.top_level = true
+	_scene.add_child(_fodder_field)
+	_fodder_field.setup(_player, null, _count, _player.global_position,
+		_make_fodder_profile(), _nav_data())
+	_fodder_field.set_spread_mode(_fodder_spread_mode)
+	_started_msec = Time.get_ticks_msec()
+	_restarting = false
+	print("[fodder] species=%s nav=%s" % [_body_id, _nav_path])
+	_update_hint()
+
+
 func _update_hint() -> void:
 	if _hint_label == null:
 		return
-	var spread_names := ["关", "摊开", "站位"]
+	var spread_names := ["关", "摊开", "站位", "压上"]
 	_hint_label.text = ("%d 只%s · 无敌:%s · 步≤%d · R 重开 · F10 退出\n"
 		+ "F1 AI:%s  F2 冻结:%s  F3 影:%s  F4 天气:%s  F5 后:%s\n"
-		+ "F6 流场:%s  F7 截图  F8 让行:%s  F9 铺开:%s"
+		+ "F6 流场:%s  F7 截图  F8 让行:%s  F9 铺开:%s\n"
+		+ "PgUp/PgDn 换敌人"
 		+ ("\n" + _map_status if _map_click else "")) % [
 		_count,
-		"Fodder" if _fodder else "泥偶",
+		Species.label(_body_id) if _fodder else "泥偶",
 		"开" if _invincible else "关",
 		_max_physics_steps,
 		"开" if _ai_on else "关",

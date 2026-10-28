@@ -200,6 +200,8 @@ func _initialize() -> void:
 			_spread = 1
 		elif argument == "--spread=slots":
 			_spread = 2
+		elif argument == "--spread=press":
+			_spread = 3
 	call_deferred("_run")
 
 

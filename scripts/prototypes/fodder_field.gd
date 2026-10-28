@@ -93,6 +93,11 @@ var queue_pacing := false
 ## 观察台 F9 循环切换；切入站位时按当前人数重算每只的槽位偏移。
 var spread_mode := 0
 var _cheap_slots := PackedVector2Array()
+## 压上档（spread_mode=3）：编队中心按玩家速度前移，近身层按距离排名分环。
+var _formation_center := Vector3.ZERO
+var _player_velocity := Vector3.ZERO
+var _player_last := Vector3.ZERO
+var _formation_clock := 0.0
 var count := 0
 
 var _positions := PackedVector3Array()
@@ -872,6 +877,19 @@ func _physics_process(delta: float) -> void:
 		target = flow.movement_target()
 	var tracking := flow == null or bool(flow.get("tracking_player"))
 	var attack_point := player.global_position
+	if spread_mode == 3:
+		var moved := player.global_position - _player_last
+		_player_velocity = _player_velocity.lerp(moved / maxf(delta, 0.0001), 0.2)
+		_player_last = player.global_position
+		var lead := _player_velocity * 0.45
+		if lead.length() > 2.0:
+			lead = lead.normalized() * 2.0
+		_formation_center = player.global_position + lead
+		_update_formation(delta, attack_point)
+	else:
+		_player_last = player.global_position
+		_player_velocity = Vector3.ZERO
+		_formation_center = player.global_position
 	_update_tiers(delta, attack_point)
 	_rebuild_hash()
 	var active := 0
@@ -997,7 +1015,11 @@ func _physics_process(delta: float) -> void:
 			direction = to.normalized() if distance > 0.001 else Vector3.FORWARD
 		# 近距离改走自己的环形槽位，形成包围而不是排队。
 		# 只有到槽位存在直线可走通路时槽位才接管；隔着墙继续跟流场绕出去。
-		if distance < SLOT_RANGE:
+		if granted[index] != 0 and distance > ATTACK_RANGE - 0.3:
+			# 拿到出手名额：直接压到攻击距离，不被槽位拉住。
+			direction = attack_to.normalized()
+			_slot_ok[index] = 0
+		elif distance < SLOT_RANGE:
 			_update_slot(index, pos, target, delta)
 			if _slot_ok[index] != 0:
 				var slot := target + Vector3(cos(_slot_angle[index]), 0.0,
@@ -1263,14 +1285,56 @@ func _step_far(index: int, delta: float, target: Vector3) -> void:
 
 
 func set_spread_mode(value: int) -> void:
-	value = clampi(value, 0, 2)
+	value = clampi(value, 0, 3)
 	if spread_mode == value:
 		return
 	spread_mode = value
 	for index in count:
 		_slot_radius[index] = _slot_radius_for(index, spread_mode >= 1)
-	if spread_mode == 2:
+	if spread_mode >= 2:
 		_assign_cheap_slots()
+	if spread_mode == 3:
+		_player_last = player.global_position if player != null else Vector3.ZERO
+		_player_velocity = Vector3.ZERO
+		_formation_center = _player_last
+		_formation_clock = 0.0
+		_update_formation(0.4, _player_last)
+
+
+## 压上档：按距离排名给近身层分环（16 只 2.3m、32 只 3.6m、64 只 5.0m、其余 6.5m），
+## 0.4 秒一次、平滑过渡；配合 token 直压和编队中心前移，形成持续压上的层次。
+func _update_formation(delta: float, center: Vector3) -> void:
+	_formation_clock += delta
+	if _formation_clock < 0.4:
+		return
+	_formation_clock = 0.0
+	if count <= 0:
+		return
+	var distances := PackedFloat32Array()
+	distances.resize(count)
+	for index in count:
+		if _alive[index] == 0:
+			distances[index] = 1.0e9
+			continue
+		var pos := _positions[index]
+		distances[index] = Vector2(pos.x - center.x, pos.z - center.z).length()
+	var sorted := distances.duplicate()
+	sorted.sort()
+	var c0: float = sorted[mini(15, sorted.size() - 1)] + 0.001
+	var c1: float = sorted[mini(47, sorted.size() - 1)] + 0.001
+	var c2: float = sorted[mini(111, sorted.size() - 1)] + 0.001
+	for index in count:
+		if _alive[index] == 0:
+			continue
+		var distance := distances[index]
+		var target_radius := ATTACK_RANGE + 4.0
+		if distance <= c0:
+			target_radius = ATTACK_RANGE - 0.2
+		elif distance <= c1:
+			target_radius = ATTACK_RANGE + 1.1
+		elif distance <= c2:
+			target_radius = ATTACK_RANGE + 2.5
+		_slot_radius[index] = lerpf(_slot_radius[index], target_radius, 0.35)
 
 
 ## 站位模式：把 CHEAP 层铺到 8–30m 的向日葵环带（黄金角 + 面积均匀）。
@@ -1304,10 +1368,13 @@ func _slot_radius_for(index: int, spread: bool) -> float:
 func _cheap_direction(index: int, pos: Vector3, target: Vector3, neighbors: int) -> Vector3:
 	var direction := Vector3.ZERO
 	var holding_slot := false
-	if spread_mode == 2 and player != null and index < _cheap_slots.size():
+	if spread_mode >= 2 and player != null and index < _cheap_slots.size():
+		var center := player.global_position
+		if spread_mode == 3:
+			center = _formation_center
 		var slot := _cheap_slots[index]
-		var to_slot := Vector3(player.global_position.x + slot.x - pos.x, 0.0,
-			player.global_position.z + slot.y - pos.z)
+		var to_slot := Vector3(center.x + slot.x - pos.x, 0.0,
+			center.z + slot.y - pos.z)
 		var slot_distance := to_slot.length()
 		if slot_distance > 0.9:
 			direction = to_slot / slot_distance
