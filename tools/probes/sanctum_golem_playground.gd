@@ -23,6 +23,7 @@ var _count := 300
 ## 精英数量：完整 CharacterBody3D 敌人，和炮灰场同时存在（0 = 只跑炮灰）。
 var _elites := 12
 var _elite_last: Array[Vector3] = []
+var _elite_skull: Texture2D
 ## 接入其它敌人：--body=fast_beast 会切到对应的 nav 数据与通行表。
 var _body_id := "mud_golem"
 var _nav_path := NAV_PATH
@@ -337,6 +338,18 @@ func _spawn_elites(amount: int) -> void:
 		var z := _player.global_position.z + sin(angle) * radius
 		enemy.position = Vector3(x, Terrain.height_at(x, z) + 0.6, z)
 		enemy.add_to_group("dynamic_enemies")
+		# 精英标记：等比放大 + 头顶骷髅。只影响测试台里生成的这一批。
+		enemy.scale = Vector3.ONE * 1.2
+		var marker := Sprite3D.new()
+		marker.name = "EliteMarker"
+		marker.texture = _elite_skull_texture()
+		marker.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		marker.pixel_size = 0.018
+		marker.no_depth_test = true
+		marker.position = Vector3(0, 2.15, 0)
+		marker.scale = Vector3.ONE / 1.2
+		marker.modulate = Color(1.0, 0.86, 0.3)
+		enemy.add_child(marker)
 		if enemy.has_method("set_combat_target"):
 			enemy.call("set_combat_target", _player)
 		(holder if holder != null else _scene).add_child(enemy)
@@ -1042,6 +1055,35 @@ func _apply_freeze() -> void:
 		_fodder_field.process_mode = Node.PROCESS_MODE_DISABLED if _frozen else Node.PROCESS_MODE_INHERIT
 
 
+## 32x32 程序化骷髅，避免依赖美术资源。
+func _elite_skull_texture() -> Texture2D:
+	if _elite_skull != null:
+		return _elite_skull
+	var image := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+	image.fill(Color(0, 0, 0, 0))
+	for y in 32:
+		for x in 32:
+			var inside := false
+			var dx := float(x) - 15.5
+			var dy := float(y) - 12.0
+			if (dx * dx) / 110.0 + (dy * dy) / 130.0 <= 1.0:
+				inside = true
+			if x >= 10 and x <= 20 and y >= 20 and y <= 27:
+				inside = true
+			if not inside:
+				continue
+			var color := Color(0.96, 0.94, 0.86, 1.0)
+			if y >= 9 and y <= 14 and ((x >= 9 and x <= 12) or (x >= 18 and x <= 21)):
+				color = Color(0, 0, 0, 0)
+			if y >= 16 and y <= 18 and x >= 15 and x <= 16:
+				color = Color(0, 0, 0, 0)
+			if y >= 22 and y <= 27 and (x == 13 or x == 16 or x == 19):
+				color = Color(0, 0, 0, 0)
+			image.set_pixel(x, y, color)
+	_elite_skull = ImageTexture.create_from_image(image)
+	return _elite_skull
+
+
 func _change_elites(delta: int) -> void:
 	_elites = clampi(_elites + delta, 0, 40)
 	await _clear_enemies()
@@ -1058,7 +1100,7 @@ func _update_hint() -> void:
 		+ "M 炮灰  [ ] 数量  - = 精英  PgUp/PgDn 种类  H 隐藏\n"
 		+ "F2 冻结  F9 铺开:%s  F11 直线:%s  F1 AI:%s  F3 影:%s  F10 退出"
 		+ ("\n" + _map_status if _map_click else "")) % [
-		_count,
+		_count if _fodder else 0,
 		_elites,
 		Species.label(_body_id) if _fodder else "泥偶",
 		"是" if _frozen else "否",
