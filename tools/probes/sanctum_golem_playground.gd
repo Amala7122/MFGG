@@ -70,7 +70,7 @@ var _fodder_step := 0.7
 var _fodder_slope := 40.0
 var _fodder_flow_debug := false
 var _fodder_spread_mode := 2
-var _map_click := false
+var _map_click := true
 var _map_camera: Camera3D
 var _map_click_latched := false
 var _map_yaw := 0.0
@@ -140,6 +140,8 @@ func _initialize() -> void:
 			_fodder_spread_mode = 3
 		elif arg == "--map-click=on":
 			_map_click = true
+		elif arg == "--map-click=off":
+			_map_click = false
 		elif arg == "--map-sweep=on":
 			_map_sweep = true
 		elif arg == "--fodder-dump=on":
