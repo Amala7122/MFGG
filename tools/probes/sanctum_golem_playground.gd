@@ -45,6 +45,7 @@ var _post_on := true
 var _held: Dictionary = {}
 var _hint_label: Label
 var _hint_panel: PanelContainer
+var _panel: PanelContainer
 var _last_profile_msec := 0
 var _flow
 var _flow_build_ms := 0.0
@@ -271,7 +272,7 @@ func _run() -> void:
 			timeline.set_process(false)
 			timeline.set_physics_process(false)
 			print("[playground] weather process paused")
-	_add_hint()
+	_build_debug_panel()
 	if _map_click:
 		_setup_map_camera()
 	_started = true
@@ -534,88 +535,12 @@ func _tick() -> void:
 		Golem.reset_profile()
 		_last_profile_msec = Time.get_ticks_msec()
 		print("[playground] AI off after %.1fs" % _ablate_ai_after)
+	if _pressed_once(KEY_P):
+		if _panel != null:
+			_panel.visible = not _panel.visible
 	if Input.is_key_pressed(KEY_F10):
 		quit()
 		return
-	if Input.is_key_pressed(KEY_R):
-		_restart()
-	if _pressed_once(KEY_F1):
-		_ai_on = not _ai_on
-		for enemy in _spawned:
-			if is_instance_valid(enemy):
-				enemy.set("ai_enabled", _ai_on)
-		_update_hint()
-	if _pressed_once(KEY_F2):
-		_frozen = not _frozen
-		_apply_freeze()
-		_update_hint()
-	if _pressed_once(KEY_H):
-		if _hint_panel != null:
-			_hint_panel.visible = not _hint_panel.visible
-	if _pressed_once(KEY_F3):
-		_shadows_on = not _shadows_on
-		for light in _scene.find_children("*", "DirectionalLight3D", true, false):
-			(light as DirectionalLight3D).shadow_enabled = _shadows_on
-		_update_hint()
-	if _pressed_once(KEY_F4):
-		_weather_on = not _weather_on
-		var timeline := _scene.find_child("WeatherTimeline", true, false)
-		if timeline != null:
-			timeline.visible = _weather_on
-			timeline.set_process(_weather_on)
-		for particles in _scene.find_children("*", "GPUParticles3D", true, false):
-			(particles as GPUParticles3D).visible = _weather_on
-		for particles in _scene.find_children("*", "CPUParticles3D", true, false):
-			(particles as CPUParticles3D).visible = _weather_on
-		_update_hint()
-	if _pressed_once(KEY_F5):
-		_post_on = not _post_on
-		var post := root.get_node_or_null("PostProcess")
-		if post != null:
-			post.visible = _post_on
-		_update_hint()
-	if _pressed_once(KEY_F6):
-		if _fodder_field != null:
-			_fodder_field.toggle_flow_debug()
-		_update_hint()
-	if _pressed_once(KEY_F7):
-		_save_manual_shot()
-	if _pressed_once(KEY_F8):
-		if _fodder_field != null:
-			_fodder_field.queue_pacing = not _fodder_field.queue_pacing
-			print("[fodder] queue_pacing=%s（门洞/接战让行实验，默认关）"
-				% str(_fodder_field.queue_pacing))
-		_update_hint()
-	if _pressed_once(KEY_F9):
-		if _fodder_field != null:
-			_fodder_spread_mode = (_fodder_spread_mode + 1) % 4
-			_fodder_field.set_spread_mode(_fodder_spread_mode)
-			print("[fodder] spread_mode=%d（0=关 1=摊开 2=站位 3=压上）" % _fodder_spread_mode)
-		_update_hint()
-	if _pressed_once(KEY_F11):
-		Golem.elite_direct_enabled = not Golem.elite_direct_enabled
-		print("[elite] direct=%s（中距直线快路，默认关）" % str(Golem.elite_direct_enabled))
-		_update_hint()
-	if _pressed_once(KEY_M):
-		_fodder = not _fodder
-		print("[playground] fodder=%s" % str(_fodder))
-		await _restart()
-	if _pressed_once(KEY_BRACKETLEFT):
-		_set_fodder_count(maxi(10, _count / 2))
-	if _pressed_once(KEY_BRACKETRIGHT):
-		_set_fodder_count(mini(2000, _count * 2))
-	if _pressed_once(KEY_MINUS):
-		_change_elites(-1)
-	if _pressed_once(KEY_EQUAL):
-		_change_elites(1)
-	if _pressed_once(KEY_PAGEDOWN):
-		_cycle_species(1)
-	if _pressed_once(KEY_PAGEUP):
-		_cycle_species(-1)
-	# 精英和炮灰同场时，把炮灰的流场借给泥偶精英，否则它们只能等共享规划预算。
-	if _elites > 0 and _fodder_field != null and _fodder_field.flow != null:
-		Golem.flow_field = _fodder_field.flow
-		FastBeast.flow_field = _fodder_field.flow
 	if not _shot_done and _shot_path != "" \
 			and (Time.get_ticks_msec() - _started_msec) / 1000.0 >= _shot_at:
 		_shot_done = true
@@ -1092,19 +1017,125 @@ func _change_elites(delta: int) -> void:
 	_update_hint()
 
 
+
+
+func _panel_row(label_text: String, control: Control) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	var label := Label.new()
+	label.text = label_text
+	label.custom_minimum_size = Vector2(76, 0)
+	row.add_child(label)
+	row.add_child(control)
+	return row
+
+
+func _panel_spin(label_text: String, value: float, min_value: float, max_value: float,
+		step: float, callback: Callable) -> HBoxContainer:
+	var spin := SpinBox.new()
+	spin.min_value = min_value
+	spin.max_value = max_value
+	spin.step = step
+	spin.value = value
+	spin.custom_minimum_size = Vector2(110, 0)
+	spin.value_changed.connect(callback)
+	return _panel_row(label_text, spin)
+
+
+func _set_elite_count(value: int) -> void:
+	_elites = clampi(value, 0, 40)
+	await _clear_enemies()
+	if _elites > 0:
+		await _spawn_elites(_elites)
+	_update_hint()
+
+
+func _panel_check(text: String, value: bool, callback: Callable) -> CheckButton:
+	var check := CheckButton.new()
+	check.text = text
+	check.button_pressed = value
+	check.add_theme_color_override("font_color", Color(0.93, 0.91, 0.85))
+	check.add_theme_color_override("icon_normal_color", Color(1.0, 1.0, 1.0, 0.95))
+	check.add_theme_color_override("icon_pressed_color", Color(1.0, 0.86, 0.35))
+	check.add_theme_color_override("icon_hover_color", Color(1.0, 0.95, 0.7))
+	check.toggled.connect(callback)
+	return check
+
+
+func _build_debug_panel() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 30
+	root.add_child(layer)
+	_panel = PanelContainer.new()
+	_panel.position = Vector2(16, 96)
+	_panel.custom_minimum_size = Vector2(300, 0)
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.02, 0.03, 0.04, 0.86)
+	style.set_corner_radius_all(6)
+	style.set_content_margin_all(8)
+	_panel.add_theme_stylebox_override("panel", style)
+	layer.add_child(_panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 2)
+	_panel.add_child(box)
+	var title := Label.new()
+	title.text = "调试面板（P 隐藏）"
+	title.add_theme_font_size_override("font_size", 13)
+	box.add_child(title)
+	box.add_child(_panel_check("冻结", _frozen, func(on: bool) -> void:
+		_frozen = on
+		_apply_freeze()))
+	box.add_child(_panel_check("炮灰场", _fodder, func(on: bool) -> void:
+		_fodder = on
+		_restart()))
+	box.add_child(_panel_spin("炮灰数量", _count, 0, 2000, 10,
+		func(value: float) -> void: _set_fodder_count(int(value))))
+	box.add_child(_panel_spin("精英数量", _elites, 0, 40, 1,
+		func(value: float) -> void: _set_elite_count(int(value))))
+	var species := OptionButton.new()
+	for id in Species.ids():
+		species.add_item(Species.label(id))
+	species.selected = maxi(0, Species.ids().find(_body_id))
+	species.item_selected.connect(func(index: int) -> void:
+		var id: String = Species.ids()[index]
+		if _prepare_species(id):
+			_restart())
+	box.add_child(_panel_row("种类", species))
+	var spread := OptionButton.new()
+	for name in ["关", "摊开", "站位", "压上"]:
+		spread.add_item(name)
+	spread.selected = clampi(_fodder_spread_mode, 0, 3)
+	spread.item_selected.connect(func(index: int) -> void:
+		_fodder_spread_mode = index
+		if _fodder_field != null:
+			_fodder_field.set_spread_mode(index))
+	box.add_child(_panel_row("铺开", spread))
+	box.add_child(_panel_check("精英直线", Golem.elite_direct_enabled,
+		func(on: bool) -> void: Golem.elite_direct_enabled = on))
+	box.add_child(_panel_check("AI", _ai_on, func(on: bool) -> void:
+		_ai_on = on
+		for enemy in _spawned:
+			if is_instance_valid(enemy):
+				enemy.set("ai_enabled", on)))
+	box.add_child(_panel_check("阴影", _shadows_on, func(on: bool) -> void:
+		_shadows_on = on
+		for light in _scene.find_children("*", "DirectionalLight3D", true, false):
+			(light as DirectionalLight3D).shadow_enabled = on))
+	box.add_child(_panel_check("流场显示", false, func(on: bool) -> void:
+		if _fodder_field != null and on != _fodder_field._flow_debug:
+			_fodder_field.toggle_flow_debug()))
+	var restart := Button.new()
+	restart.text = "重开"
+	restart.pressed.connect(func() -> void: _restart())
+	box.add_child(restart)
+	var hint := Label.new()
+	hint.text = "左键移动玩家 · 右键旋转 · 滚轮缩放"
+	hint.add_theme_font_size_override("font_size", 11)
+	hint.modulate = Color(0.85, 0.85, 0.8, 0.8)
+	box.add_child(hint)
+
+
 func _update_hint() -> void:
 	if _hint_label == null:
 		return
-	var spread_names := ["关", "摊开", "站位", "压上"]
-	_hint_label.text = ("%d 炮灰 · %d 精英 · %s · 冻结:%s\n"
-		+ "M 炮灰  [ ] 数量  - = 精英  PgUp/PgDn 种类  H 隐藏\n"
-		+ "F2 冻结  F9 铺开:%s  F11 直线:%s  F1 AI:%s  F3 影:%s  F10 退出"
-		+ ("\n" + _map_status if _map_click else "")) % [
-		_count if _fodder else 0,
-		_elites,
-		Species.label(_body_id) if _fodder else "泥偶",
-		"是" if _frozen else "否",
-		spread_names[clampi(_fodder_spread_mode, 0, 3)],
-		"开" if Golem.elite_direct_enabled else "关",
-		"开" if _ai_on else "关",
-		"开" if _shadows_on else "关"]
+	_hint_label.text = "P 调试面板 · 左键移动玩家 · 右键旋转 · 滚轮缩放"
