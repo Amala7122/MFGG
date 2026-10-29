@@ -18,9 +18,9 @@ const CombatFX := preload("res://scripts/combat_fx.gd")
 const PROFILE_PATH := "user://logs/golem_ai_profile.log"
 const SPAWN_RING := [8.0, 10.5, 13.0, 15.5]
 const COUNT := 30
-var _count := 30
+var _count := 300
 ## 精英数量：完整 CharacterBody3D 敌人，和炮灰场同时存在（0 = 只跑炮灰）。
-var _elites := 0
+var _elites := 12
 var _elite_last: Array[Vector3] = []
 ## 接入其它敌人：--body=fast_beast 会切到对应的 nav 数据与通行表。
 var _body_id := "mud_golem"
@@ -59,7 +59,7 @@ var _no_grass := false
 var _no_decor := false
 var _no_shadows := false
 var _no_post := false
-var _fodder := false
+var _fodder := true
 var _fodder_field
 var _fodder_aoe := false
 var _last_fodder_aoe := 0
@@ -572,6 +572,18 @@ func _tick() -> void:
 		Golem.elite_direct_enabled = not Golem.elite_direct_enabled
 		print("[elite] direct=%s（中距直线快路，默认关）" % str(Golem.elite_direct_enabled))
 		_update_hint()
+	if _pressed_once(KEY_M):
+		_fodder = not _fodder
+		print("[playground] fodder=%s" % str(_fodder))
+		await _restart()
+	if _pressed_once(KEY_BRACKETLEFT):
+		_set_fodder_count(maxi(10, _count / 2))
+	if _pressed_once(KEY_BRACKETRIGHT):
+		_set_fodder_count(mini(2000, _count * 2))
+	if _pressed_once(KEY_MINUS):
+		_change_elites(-1)
+	if _pressed_once(KEY_EQUAL):
+		_change_elites(1)
 	if _pressed_once(KEY_PAGEDOWN):
 		_cycle_species(1)
 	if _pressed_once(KEY_PAGEUP):
@@ -1001,6 +1013,14 @@ func _cycle_species(step: int) -> void:
 	_update_hint()
 
 
+func _change_elites(delta: int) -> void:
+	_elites = clampi(_elites + delta, 0, 40)
+	await _clear_enemies()
+	if _elites > 0:
+		await _spawn_elites(_elites)
+	_update_hint()
+
+
 func _update_hint() -> void:
 	if _hint_label == null:
 		return
@@ -1008,7 +1028,7 @@ func _update_hint() -> void:
 	_hint_label.text = ("%d 只%s · 无敌:%s · 步≤%d · R 重开 · F10 退出\n"
 		+ "F1 AI:%s  F2 冻结:%s  F3 影:%s  F4 天气:%s  F5 后:%s\n"
 		+ "F6 流场:%s  F7 截图  F8 让行:%s  F9 铺开:%s  F11 精英直线:%s\n"
-		+ "PgUp/PgDn 换敌人"
+		+ "M 炮灰:%s  [ ] 数量  - = 精英  PgUp/PgDn 换敌人"
 		+ ("\n" + _map_status if _map_click else "")) % [
 		_count,
 		Species.label(_body_id) if _fodder else "泥偶",
@@ -1022,4 +1042,5 @@ func _update_hint() -> void:
 		"开" if _fodder_field != null and _fodder_field._flow_debug else "关",
 		"开" if _fodder_field != null and _fodder_field.queue_pacing else "关",
 		spread_names[clampi(_fodder_spread_mode, 0, 3)],
-		"开" if Golem.elite_direct_enabled else "关"]
+		"开" if Golem.elite_direct_enabled else "关",
+		"开" if _fodder else "关"]
