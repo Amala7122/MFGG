@@ -120,6 +120,8 @@ func _initialize() -> void:
 			Golem.fodder_visual = true
 		elif arg == "--fodder=on":
 			_fodder = true
+		elif arg == "--fodder=off":
+			_fodder = false
 		elif arg == "--fodder-aoe=on":
 			_fodder_aoe = true
 		elif arg == "--fodder-ignore-terrain=on":
@@ -254,7 +256,7 @@ func _run() -> void:
 		if _elites > 0:
 			await _spawn_elites(_elites)
 	else:
-		await _spawn_golems()
+		await _spawn_elites(maxi(_elites, 12))
 	if _pause_batch:
 		var batch := _scene.find_child("MudGolemRenderBatch", true, false)
 		if batch != null:
@@ -445,7 +447,7 @@ func _restart() -> void:
 		if _elites > 0:
 			await _spawn_elites(_elites)
 	else:
-		await _spawn_golems()
+		await _spawn_elites(maxi(_elites, 12))
 	_started_msec = Time.get_ticks_msec()
 	_restarting = false
 
