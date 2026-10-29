@@ -7,6 +7,7 @@ const MainScene := preload("res://scenes/sanctum_main.tscn")
 const Creatures := preload("res://scripts/enemies/creature_catalog.gd")
 const Terrain := preload("res://scripts/terrain_field.gd")
 const Golem := preload("res://scripts/prototypes/procedural_mud_golem.gd")
+const FastBeast := preload("res://scripts/prototypes/procedural_fast_beast.gd")
 const FlowFieldScript := preload("res://scripts/flow_field.gd")
 const NavData := preload("res://scripts/navigation/nav_dataset.gd")
 const Species := preload("res://scripts/navigation/fodder_species.gd")
@@ -233,6 +234,7 @@ func _run() -> void:
 		_flow.rebuild(_player.global_position)
 		_flow_build_ms = _flow.rebuild_usec / 1000.0
 		Golem.flow_field = _flow
+		FastBeast.flow_field = _flow
 		_last_flow_pos = _player.global_position
 		_last_flow_msec = Time.get_ticks_msec()
 		print("[flow] mask_ms=%.1f rebuild_ms=%.1f reachable=%d" % [
@@ -338,6 +340,8 @@ func _spawn_elites(amount: int) -> void:
 		if (index + 1) % 5 == 0:
 			await process_frame
 	_elite_last.clear()
+	for enemy in _spawned:
+		_elite_last.append((enemy as Node3D).global_position)
 	print("[playground] elites=%d species=%s" % [_spawned.size(), _body_id])
 
 
@@ -591,6 +595,7 @@ func _tick() -> void:
 	# 精英和炮灰同场时，把炮灰的流场借给泥偶精英，否则它们只能等共享规划预算。
 	if _elites > 0 and _fodder_field != null and _fodder_field.flow != null:
 		Golem.flow_field = _fodder_field.flow
+		FastBeast.flow_field = _fodder_field.flow
 	if not _shot_done and _shot_path != "" \
 			and (Time.get_ticks_msec() - _started_msec) / 1000.0 >= _shot_at:
 		_shot_done = true

@@ -19,6 +19,9 @@ var _normal_cooldown := 0.0
 var _normal_check_timer := 0.0
 var _pounce_landing := Vector3.ZERO
 var _steering := Nav.new()
+## 精英共享流场（观察台注入）：中远距先跟流场动起来，规划只做被挡兜底。
+static var flow_field: RefCounted
+static var flow_min_distance := 3.5
 ## 四足晶兽：程序化拼装、侧翼绕行、锁向飞扑与物理解体。
 ## 运行时数值仅来自独立 JSON 或本轮注入的参数快照。
 
@@ -140,10 +143,31 @@ func _physics_process(delta: float) -> void:
 	if ai_enabled and current_state in [State.IDLE, State.CIRCLE] and not _target_alive():
 		target = Targeting.nearest_player(self)
 	var queue_wait := ai_enabled and current_state in [State.IDLE, State.CIRCLE] and _crowd.defer_attack_check(target)
-	if _steering.tick(delta, ai_enabled and not queue_wait and _crowd.ready_to_move() and current_state in [State.IDLE, State.CIRCLE], target, move_speed):
+	var can_move := ai_enabled and _crowd.ready_to_move() and current_state in [State.IDLE, State.CIRCLE]
+	var desired := Vector3.ZERO
+	var flow_used := false
+	if can_move and _target_alive() and flow_field != null:
+		var flow_offset := target.global_position - global_position
+		flow_offset.y = 0.0
+		if flow_offset.length() > flow_min_distance:
+			var flow_direction: Vector3 = flow_field.direction_at(global_position)
+			if flow_direction.length_squared() > 0.001:
+				desired = flow_direction.normalized() * move_speed
+				flow_used = true
+	if flow_used:
+		rotation.y = atan2(-desired.x, -desired.z)
+		_animate_trot(anim_clock, 1.0)
+		velocity.x = desired.x
+		velocity.z = desired.z
+		if is_on_floor() and velocity.y <= 0.0:
+			velocity.y = -0.5
+		else:
+			velocity.y -= _p("gravity") * delta
+		GroundMovement.move(self, delta, true)
+		return
+	if _steering.tick(delta, can_move, target, move_speed):
 		_animate_trot(anim_clock, Vector2(velocity.x, velocity.z).length() / maxf(move_speed, 0.001))
 		return
-	var desired := Vector3.ZERO
 	match current_state:
 		State.IDLE:
 			_animate_idle(anim_clock)
