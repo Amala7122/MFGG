@@ -37,12 +37,13 @@ var _started := false
 var _restarting := false
 var _invincible := true
 var _ai_on := true
-var _frozen := false
+var _frozen := true
 var _shadows_on := true
 var _weather_on := true
 var _post_on := true
 var _held: Dictionary = {}
 var _hint_label: Label
+var _hint_panel: PanelContainer
 var _last_profile_msec := 0
 var _flow
 var _flow_build_ms := 0.0
@@ -249,6 +250,7 @@ func _run() -> void:
 			_fodder_field.toggle_flow_debug()
 		_fodder_field.set_spread_mode(_fodder_spread_mode)
 		print("[fodder] units=%d spread=%d" % [_fodder_field.units(), _fodder_spread_mode])
+		_apply_freeze()
 		if _elites > 0:
 			await _spawn_elites(_elites)
 	else:
@@ -265,8 +267,6 @@ func _run() -> void:
 			timeline.set_physics_process(false)
 			print("[playground] weather process paused")
 	_add_hint()
-	if _fodder:
-		_add_count_panel()
 	if _map_click:
 		_setup_map_camera()
 	_started = true
@@ -342,6 +342,7 @@ func _spawn_elites(amount: int) -> void:
 	_elite_last.clear()
 	for enemy in _spawned:
 		_elite_last.append((enemy as Node3D).global_position)
+	_apply_freeze()
 	print("[playground] elites=%d species=%s" % [_spawned.size(), _body_id])
 
 
@@ -440,6 +441,7 @@ func _restart() -> void:
 		_fodder_field.set_spread_mode(_fodder_spread_mode)
 		print("[fodder] restart units=%d spread=%d" % [
 			_fodder_field.units(), _fodder_spread_mode])
+		_apply_freeze()
 		if _elites > 0:
 			await _spawn_elites(_elites)
 	else:
@@ -528,10 +530,11 @@ func _tick() -> void:
 		_update_hint()
 	if _pressed_once(KEY_F2):
 		_frozen = not _frozen
-		for enemy in _spawned:
-			if is_instance_valid(enemy):
-				enemy.process_mode = Node.PROCESS_MODE_DISABLED if _frozen else Node.PROCESS_MODE_INHERIT
+		_apply_freeze()
 		_update_hint()
+	if _pressed_once(KEY_H):
+		if _hint_panel != null:
+			_hint_panel.visible = not _hint_panel.visible
 	if _pressed_once(KEY_F3):
 		_shadows_on = not _shadows_on
 		for light in _scene.find_children("*", "DirectionalLight3D", true, false):
@@ -962,11 +965,19 @@ func _set_fodder_count(value: int) -> void:
 func _add_hint() -> void:
 	var layer := CanvasLayer.new()
 	layer.name = "PlaygroundHint"
+	_hint_panel = PanelContainer.new()
+	_hint_panel.position = Vector2(16, 320)
+	_hint_panel.custom_minimum_size = Vector2(440, 0)
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.02, 0.03, 0.04, 0.52)
+	style.set_corner_radius_all(4)
+	style.set_content_margin_all(6)
+	_hint_panel.add_theme_stylebox_override("panel", style)
 	_hint_label = Label.new()
-	_hint_label.add_theme_font_size_override("font_size", 12)
-	_hint_label.position = Vector2(24, 24)
-	_hint_label.modulate = Color(0.95, 0.92, 0.82, 0.9)
-	layer.add_child(_hint_label)
+	_hint_label.add_theme_font_size_override("font_size", 11)
+	_hint_label.modulate = Color(0.92, 0.9, 0.82, 0.92)
+	_hint_panel.add_child(_hint_label)
+	layer.add_child(_hint_panel)
 	root.add_child(layer)
 	_update_hint()
 
@@ -1010,12 +1021,21 @@ func _cycle_species(step: int) -> void:
 	_fodder_field.setup(_player, null, _count, _player.global_position,
 		_make_fodder_profile(), _nav_data())
 	_fodder_field.set_spread_mode(_fodder_spread_mode)
+	_apply_freeze()
 	if _elites > 0:
 		await _spawn_elites(_elites)
 	_started_msec = Time.get_ticks_msec()
 	_restarting = false
 	print("[fodder] species=%s nav=%s elites=%d" % [_body_id, _nav_path, _elites])
 	_update_hint()
+
+
+func _apply_freeze() -> void:
+	for enemy in _spawned:
+		if is_instance_valid(enemy):
+			enemy.process_mode = Node.PROCESS_MODE_DISABLED if _frozen else Node.PROCESS_MODE_INHERIT
+	if _fodder_field != null and is_instance_valid(_fodder_field):
+		_fodder_field.process_mode = Node.PROCESS_MODE_DISABLED if _frozen else Node.PROCESS_MODE_INHERIT
 
 
 func _change_elites(delta: int) -> void:
@@ -1030,22 +1050,15 @@ func _update_hint() -> void:
 	if _hint_label == null:
 		return
 	var spread_names := ["关", "摊开", "站位", "压上"]
-	_hint_label.text = ("%d 只%s · 无敌:%s · 步≤%d · R 重开 · F10 退出\n"
-		+ "F1 AI:%s  F2 冻结:%s  F3 影:%s  F4 天气:%s  F5 后:%s\n"
-		+ "F6 流场:%s  F7 截图  F8 让行:%s  F9 铺开:%s  F11 精英直线:%s\n"
-		+ "M 炮灰:%s  [ ] 数量  - = 精英  PgUp/PgDn 换敌人"
+	_hint_label.text = ("%d 炮灰 · %d 精英 · %s · 冻结:%s\n"
+		+ "M 炮灰  [ ] 数量  - = 精英  PgUp/PgDn 种类  H 隐藏\n"
+		+ "F2 冻结  F9 铺开:%s  F11 直线:%s  F1 AI:%s  F3 影:%s  F10 退出"
 		+ ("\n" + _map_status if _map_click else "")) % [
 		_count,
+		_elites,
 		Species.label(_body_id) if _fodder else "泥偶",
-		"开" if _invincible else "关",
-		_max_physics_steps,
-		"开" if _ai_on else "关",
 		"是" if _frozen else "否",
-		"开" if _shadows_on else "关",
-		"开" if _weather_on else "关",
-		"开" if _post_on else "关",
-		"开" if _fodder_field != null and _fodder_field._flow_debug else "关",
-		"开" if _fodder_field != null and _fodder_field.queue_pacing else "关",
 		spread_names[clampi(_fodder_spread_mode, 0, 3)],
 		"开" if Golem.elite_direct_enabled else "关",
-		"开" if _fodder else "关"]
+		"开" if _ai_on else "关",
+		"开" if _shadows_on else "关"]
